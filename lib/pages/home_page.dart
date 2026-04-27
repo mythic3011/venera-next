@@ -511,16 +511,16 @@ class _ImportComicsWidgetState extends State<_ImportComicsWidget> {
     String info = [
       "Select a directory which contains the comic files.".tl,
       "Select a directory which contains the comic directories.".tl,
-      "Select an archive file (cbz, zip, 7z, cb7)".tl,
-      "Select a directory which contains multiple archive files.".tl,
+      "Select an archive or PDF file (cbz, zip, 7z, cb7, pdf)".tl,
+      "Select a directory which contains multiple archive or PDF files.".tl,
       "Select an EhViewer database and a download folder.".tl,
       "Scan the current local path and restore the local database.".tl,
     ][type];
     List<String> importMethods = [
       "Single Comic".tl,
       "Multiple Comics".tl,
-      "An archive file".tl,
-      "Multiple archive files".tl,
+      "An archive or PDF file".tl,
+      "Multiple archive/PDF files".tl,
       "EhViewer downloads".tl,
       "Restore local downloads".tl,
     ];

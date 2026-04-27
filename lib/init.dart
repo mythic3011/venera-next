@@ -38,6 +38,7 @@ Future<void> init() async {
   await App.init().wait();
   await SingleInstanceCookieJar.createInstance();
   try {
+    await OpenCC.init().wait();
     var futures = [
       Rhttp.init(),
       App.initComponents(),
@@ -46,7 +47,6 @@ Future<void> init() async {
       TagsTranslation.readData().wait(),
       JsEngine().init().wait(),
       ComicSourceManager().init().wait(),
-      OpenCC.init(),
     ];
     await Future.wait(futures);
   } catch (e, s) {

@@ -1,6 +1,9 @@
 import 'dart:math';
 
+import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart';
+import 'package:image/image.dart' as img;
+import 'package:pdfrx/pdfrx.dart';
 import 'package:venera/components/components.dart';
 import 'package:venera/foundation/app.dart';
 import 'package:venera/foundation/comic_source/comic_source.dart';
@@ -10,9 +13,30 @@ import 'package:venera/foundation/local.dart';
 import 'package:venera/foundation/log.dart';
 import 'package:sqlite3/sqlite3.dart' as sql;
 import 'package:venera/utils/ext.dart';
+import 'package:venera/utils/import_sort.dart';
 import 'package:venera/utils/translations.dart';
 import 'cbz.dart';
 import 'io.dart';
+
+enum _BundleImportMode {
+  oneComicWithChapters,
+  separateComics,
+}
+
+class _ImportBatchResult {
+  final Map<String?, List<LocalComic>> imported;
+  int failed = 0;
+  int skipped = 0;
+
+  _ImportBatchResult(this.imported);
+}
+
+class _ExtractedArchive {
+  final Directory cache;
+  final Directory root;
+
+  const _ExtractedArchive(this.cache, this.root);
+}
 
 class ImportComic {
   final String? selectedFolder;
@@ -21,21 +45,30 @@ class ImportComic {
   const ImportComic({this.selectedFolder, this.copyToLocal = true});
 
   Future<bool> cbz() async {
-    var file = await selectFile(ext: ['cbz', 'zip', '7z', 'cb7']);
-    Map<String?, List<LocalComic>> imported = {};
+    var file = await selectFile(ext: ['cbz', 'zip', '7z', 'cb7', 'pdf']);
     if (file == null) {
       return false;
     }
     var controller = showLoadingDialog(App.rootContext, allowCancel: false);
+    final result = _ImportBatchResult({selectedFolder: []});
     try {
-      var comic = await CBZ.import(File(file.path));
-      imported[selectedFolder] = [comic];
+      final imported = await _importFile(File(file.path), result);
+      result.imported[selectedFolder]!.addAll(imported);
     } catch (e, s) {
       Log.error("Import Comic", e.toString(), s);
       App.rootContext.showMessage(message: e.toString());
     }
     controller.close();
-    return registerComics(imported, false);
+    if (result.imported[selectedFolder]!.isEmpty) {
+      return false;
+    }
+    final success = await registerComics(result.imported, false);
+    if (success && (result.failed > 0 || result.skipped > 0)) {
+      App.rootContext.showMessage(
+          message:
+              "Import summary: ${result.imported[selectedFolder]!.length} success, ${result.failed} failed, ${result.skipped} skipped");
+    }
+    return success;
   }
 
   Future<bool> multipleCbz() async {
@@ -43,27 +76,347 @@ class ImportComic {
     var dir = await picker.pickDirectory(directAccess: true);
     if (dir != null) {
       var files = (await dir.list().toList()).whereType<File>().toList();
-      const supportedExtensions = ['cbz', 'zip', '7z', 'cb7'];
-      files.removeWhere((e) => !supportedExtensions.contains(e.extension));
-      Map<String?, List<LocalComic>> imported = {};
+      files.removeWhere((e) => !isSupportedImportExtension(e.extension));
+      files.sort((a, b) => naturalCompare(a.name, b.name));
+      final result = _ImportBatchResult({selectedFolder: []});
       var controller = showLoadingDialog(App.rootContext, allowCancel: false);
-      var comics = <LocalComic>[];
       for (var file in files) {
         try {
-          var comic = await CBZ.import(file);
-          comics.add(comic);
+          final imported = await _importFile(file, result);
+          result.imported[selectedFolder]!.addAll(imported);
         } catch (e, s) {
           Log.error("Import Comic", e.toString(), s);
+          result.failed++;
         }
       }
-      if (comics.isEmpty) {
+      if (result.imported[selectedFolder]!.isEmpty) {
         App.rootContext.showMessage(message: "No valid comics found".tl);
       }
-      imported[selectedFolder] = comics;
       controller.close();
-      return registerComics(imported, false);
+      final success = await registerComics(result.imported, false);
+      if (success) {
+        App.rootContext.showMessage(
+            message:
+                "Import summary: ${result.imported[selectedFolder]!.length} success, ${result.failed} failed, ${result.skipped} skipped");
+      }
+      return success;
     }
     return false;
+  }
+
+  Future<_ExtractedArchive> _extractArchive(File file) async {
+    final cache = Directory(FilePath.join(
+      App.cachePath,
+      "import_bundle_${DateTime.now().microsecondsSinceEpoch}",
+    ));
+    cache.createSync(recursive: true);
+    await CBZ.extractArchive(file, cache);
+    var root = cache;
+    while (true) {
+      final visible = root
+          .listSync()
+          .where((e) => !isHiddenOrMacMetadataPath(e.path))
+          .toList();
+      if (visible.length == 1 && visible.first is Directory) {
+        root = visible.first as Directory;
+        continue;
+      }
+      break;
+    }
+    return _ExtractedArchive(cache, root);
+  }
+
+  bool _isBundleArchive(Directory root) {
+    final entities =
+        root.listSync().where((e) => !isHiddenOrMacMetadataPath(e.path)).toList();
+    final imageFiles = entities.whereType<File>().where((e) {
+      const imageExtensions = {'jpg', 'jpeg', 'png', 'webp', 'gif', 'jpe'};
+      return imageExtensions.contains(e.extension.toLowerCase());
+    }).length;
+    final childImportFiles = entities.whereType<File>().where((e) {
+      return isSupportedImportExtension(e.extension);
+    }).length;
+    return childImportFiles >= 2 || (childImportFiles > 0 && imageFiles == 0);
+  }
+
+  List<File> _collectChildImportFiles(Directory root) {
+    final children = root
+        .listSync()
+        .whereType<File>()
+        .where((e) =>
+            !isHiddenOrMacMetadataPath(e.path) &&
+            isSupportedImportExtension(e.extension))
+        .toList();
+    children.sort((a, b) => naturalCompare(a.name, b.name));
+    return children;
+  }
+
+  Future<_BundleImportMode?> _askBundleMode(String fileName, int itemCount) async {
+    _BundleImportMode? mode;
+    await showDialog(
+      context: App.rootContext,
+      builder: (context) {
+        return ContentDialog(
+          title: "Nested bundle detected".tl,
+          content: Text(
+            "Detected @a import items in @b".tlParams({
+              "a": itemCount,
+              "b": fileName,
+            }),
+          ).paddingHorizontal(16).paddingVertical(8),
+          actions: [
+            TextButton(
+              onPressed: () {
+                mode = _BundleImportMode.oneComicWithChapters;
+                context.pop();
+              },
+              child: Text("One comic with chapters".tl),
+            ),
+            TextButton(
+              onPressed: () {
+                mode = _BundleImportMode.separateComics;
+                context.pop();
+              },
+              child: Text("Separate comics".tl),
+            ),
+          ],
+        );
+      },
+    );
+    return mode;
+  }
+
+  Future<LocalComic?> _importBundleAsSingleComic({
+    required File source,
+    required Directory root,
+    required _ImportBatchResult batch,
+  }) async {
+    final childFiles = _collectChildImportFiles(root);
+    if (childFiles.isEmpty) {
+      batch.failed++;
+      return null;
+    }
+    var title = sanitizeFileName(source.basenameWithoutExt);
+    var existed = LocalManager().findByName(title);
+    if (existed != null) {
+      title = findValidDirectoryName(LocalManager().path, title);
+    }
+    final dest = Directory(FilePath.join(LocalManager().path, title));
+    if (dest.existsSync()) {
+      await dest.deleteIgnoreError(recursive: true);
+    }
+    dest.createSync(recursive: true);
+    final chapterMap = <String, String>{};
+    final downloaded = <String>[];
+    String? cover;
+    try {
+      for (var i = 0; i < childFiles.length; i++) {
+        final child = childFiles[i];
+        final chapterId = (i + 1).toString();
+        final chapterTitle = child.basenameWithoutExt;
+        final chapterDir = Directory(FilePath.join(dest.path, chapterId));
+        chapterDir.createSync(recursive: true);
+        List<File> pages;
+        try {
+          pages = await _importItemToChapter(child, chapterDir);
+        } catch (e, s) {
+          Log.error("Import Comic", e.toString(), s);
+          batch.failed++;
+          continue;
+        }
+        if (pages.isEmpty) {
+          batch.failed++;
+          continue;
+        }
+        chapterMap[chapterId] = chapterTitle;
+        downloaded.add(chapterId);
+        if (cover == null) {
+          cover = 'cover.${pages.first.extension}';
+          await pages.first.copyMem(FilePath.join(dest.path, cover));
+        }
+      }
+      if (chapterMap.isEmpty || cover == null) {
+        await dest.deleteIgnoreError(recursive: true);
+        return null;
+      }
+      return LocalComic(
+        id: '0',
+        title: title,
+        subtitle: '',
+        tags: const [],
+        directory: dest.name,
+        chapters: ComicChapters(chapterMap),
+        cover: cover,
+        comicType: ComicType.local,
+        downloadedChapters: downloaded,
+        createdAt: DateTime.now(),
+      );
+    } catch (_) {
+      await dest.deleteIgnoreError(recursive: true);
+      rethrow;
+    }
+  }
+
+  Future<List<LocalComic>> _importBundleAsSeparateComics(
+      Directory root, _ImportBatchResult batch) async {
+    final childFiles = _collectChildImportFiles(root);
+    final comics = <LocalComic>[];
+    for (final child in childFiles) {
+      try {
+        if (child.extension.toLowerCase() == 'pdf') {
+          comics.add(await _importPdfAsComic(child));
+        } else {
+          comics.add(await CBZ.import(child));
+        }
+      } catch (e, s) {
+        Log.error("Import Comic", e.toString(), s);
+        batch.failed++;
+      }
+    }
+    return comics;
+  }
+
+  Future<List<File>> _importItemToChapter(File source, Directory chapterDir) async {
+    if (source.extension.toLowerCase() == 'pdf') {
+      return _renderPdfToDirectory(source, chapterDir);
+    }
+    final extracted = await _extractArchive(source);
+    try {
+      final pages = _collectImagesRecursively(extracted.root);
+      if (pages.isEmpty) {
+        return <File>[];
+      }
+      final copied = <File>[];
+      for (var i = 0; i < pages.length; i++) {
+        final src = pages[i];
+        final out = File(FilePath.join(chapterDir.path, "${i + 1}.${src.extension}"));
+        await src.copyMem(out.path);
+        copied.add(out);
+      }
+      return copied;
+    } finally {
+      await extracted.cache.deleteIgnoreError(recursive: true);
+    }
+  }
+
+  List<File> _collectImagesRecursively(Directory root) {
+    const imageExtensions = {'jpg', 'jpeg', 'png', 'webp', 'gif', 'jpe'};
+    final files = root
+        .listSync(recursive: true)
+        .whereType<File>()
+        .where((e) =>
+            !isHiddenOrMacMetadataPath(e.path) &&
+            imageExtensions.contains(e.extension.toLowerCase()))
+        .toList();
+    files.sort((a, b) => naturalCompare(a.name, b.name));
+    return files;
+  }
+
+  Future<LocalComic> _importPdfAsComic(File source) async {
+    final title = sanitizeFileName(source.basenameWithoutExt);
+    if (LocalManager().findByName(title) != null) {
+      throw Exception("Comic with name $title already exists");
+    }
+    final dest = Directory(FilePath.join(LocalManager().path, title));
+    if (dest.existsSync()) {
+      await dest.deleteIgnoreError(recursive: true);
+    }
+    dest.createSync(recursive: true);
+    try {
+      final pages = await _renderPdfToDirectory(source, dest);
+      if (pages.isEmpty) {
+        throw Exception("No pages found in PDF");
+      }
+      final cover = "cover.${pages.first.extension}";
+      await pages.first.copyMem(FilePath.join(dest.path, cover));
+      return LocalComic(
+        id: '0',
+        title: title,
+        subtitle: '',
+        tags: const [],
+        directory: dest.name,
+        chapters: null,
+        cover: cover,
+        comicType: ComicType.local,
+        downloadedChapters: const [],
+        createdAt: DateTime.now(),
+      );
+    } catch (_) {
+      await dest.deleteIgnoreError(recursive: true);
+      rethrow;
+    }
+  }
+
+  Future<List<File>> _renderPdfToDirectory(File pdfFile, Directory outDir) async {
+    final files = <File>[];
+    final document = await PdfDocument.openFile(pdfFile.path);
+    try {
+      for (var i = 0; i < document.pages.length; i++) {
+        final page = document.pages[i];
+        final rendered = await page.render(
+          fullWidth: page.width * 2,
+          fullHeight: page.height * 2,
+          backgroundColor: 0xFFFFFFFF,
+        );
+        if (rendered == null) {
+          throw Exception("Failed to render page ${i + 1}");
+        }
+        try {
+          final image = img.Image.fromBytes(
+            width: rendered.width,
+            height: rendered.height,
+            bytes: rendered.pixels.buffer,
+            numChannels: 4,
+            order: img.ChannelOrder.bgra,
+          );
+          final imageFile = File(FilePath.join(outDir.path, "${i + 1}.jpg"));
+          await imageFile.writeAsBytes(img.encodeJpg(image, quality: 92));
+          files.add(imageFile);
+        } finally {
+          rendered.dispose();
+        }
+      }
+    } finally {
+      await document.dispose();
+    }
+    return files;
+  }
+
+  Future<List<LocalComic>> _importFile(
+      File file, _ImportBatchResult batch) async {
+    if (file.extension.toLowerCase() == 'pdf') {
+      return [await _importPdfAsComic(file)];
+    }
+    final extraction = await _extractArchive(file);
+    try {
+      if (!_isBundleArchive(extraction.root)) {
+        return [await CBZ.import(file)];
+      }
+      final childFiles = _collectChildImportFiles(extraction.root);
+      if (childFiles.isEmpty) {
+        batch.failed++;
+        return <LocalComic>[];
+      }
+      final mode = await _askBundleMode(file.name, childFiles.length);
+      if (mode == null) {
+        batch.skipped++;
+        return <LocalComic>[];
+      }
+      if (mode == _BundleImportMode.oneComicWithChapters) {
+        final comic = await _importBundleAsSingleComic(
+          source: file,
+          root: extraction.root,
+          batch: batch,
+        );
+        if (comic == null) {
+          return <LocalComic>[];
+        }
+        return [comic];
+      }
+      return _importBundleAsSeparateComics(extraction.root, batch);
+    } finally {
+      await extraction.cache.deleteIgnoreError(recursive: true);
+    }
   }
 
   Future<bool> ehViewer() async {
@@ -280,11 +633,11 @@ class ImportComic {
       return null;
     }
 
-    fileList.sort();
+    naturalSortStrings(fileList);
     coverPath = fileList.firstWhereOrNull((l) => l.startsWith('cover')) ??
         fileList.first;
 
-    chapters.sort();
+    naturalSortStrings(chapters);
     if (hasChapters && coverPath == '') {
       // use the first image in the first chapter as the cover
       var firstChapter = Directory('${directory.path}/${chapters.first}');

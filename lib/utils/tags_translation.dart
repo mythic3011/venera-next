@@ -10,12 +10,16 @@ import 'dart:convert';
 import 'package:flutter/services.dart';
 import 'package:venera/foundation/app.dart';
 import 'package:venera/utils/ext.dart';
+import 'package:venera/utils/opencc.dart';
 
 extension TagsTranslation on String{
   static final Map<String, Map<String, String>> _data = {};
 
   static Future<void> readData() async{
-    var fileName = App.locale.countryCode == 'TW'
+    final locale = App.locale;
+    final useTraditional = locale.languageCode == 'zh' &&
+        (locale.countryCode == 'TW' || locale.countryCode == 'HK');
+    var fileName = locale.countryCode == 'TW'
         ? "assets/tags_tw.json"
         : "assets/tags.json";
     var data = await rootBundle.load(fileName);
@@ -23,7 +27,11 @@ extension TagsTranslation on String{
     const JsonDecoder().convert(const Utf8Decoder().convert(bytes)).forEach((key, value){
       _data[key] = {};
       value.forEach((key1, value1){
-        _data[key]?[key1] = value1;
+        var text = value1.toString();
+        if (useTraditional) {
+          text = OpenCC.simplifiedToTraditional(text);
+        }
+        _data[key]?[key1] = text;
       });
     });
   }

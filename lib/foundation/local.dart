@@ -11,6 +11,7 @@ import 'package:venera/foundation/favorites.dart';
 import 'package:venera/foundation/log.dart';
 import 'package:venera/network/download.dart';
 import 'package:venera/pages/reader/reader.dart';
+import 'package:venera/utils/import_sort.dart';
 import 'package:venera/utils/io.dart';
 
 import 'app.dart';
@@ -442,14 +443,64 @@ class LocalManager with ChangeNotifier {
       }
     }
     files.sort((a, b) {
-      var ai = int.tryParse(a.name.split('.').first);
-      var bi = int.tryParse(b.name.split('.').first);
-      if (ai != null && bi != null) {
-        return ai.compareTo(bi);
-      }
-      return a.name.compareTo(b.name);
+      return naturalCompare(a.name, b.name);
     });
     return files.map((e) => "file://${e.path}").toList();
+  }
+
+  Future<void> reorderComicPages(
+      LocalComic comic, Object ep, List<String> orderedFileNames) async {
+    if (!comic.baseDir.startsWith(path)) {
+      throw Exception("Only app-managed local comics support page reorder");
+    }
+    if (ep is! int && ep is! String) {
+      throw Exception("Invalid chapter");
+    }
+    var chapterDir = Directory(comic.baseDir);
+    if (comic.hasChapters) {
+      final chapterId = ep is int
+          ? comic.chapters!.ids.elementAt(ep - 1)
+          : ep as String;
+      chapterDir = Directory(
+        FilePath.join(comic.baseDir, getChapterDirectoryName(chapterId)),
+      );
+    }
+    if (!chapterDir.existsSync()) {
+      throw Exception("Chapter directory not found");
+    }
+
+    final sourceFiles = chapterDir
+        .listSync()
+        .whereType<File>()
+        .where((f) =>
+            !f.name.startsWith('cover.') &&
+            !f.name.startsWith('.') &&
+            !isHiddenOrMacMetadataPath(f.name))
+        .toList();
+    if (sourceFiles.isEmpty) {
+      return;
+    }
+
+    final names = sourceFiles.map((e) => e.name).toSet();
+    if (orderedFileNames.length != sourceFiles.length ||
+        orderedFileNames.toSet().length != orderedFileNames.length ||
+        !orderedFileNames.every(names.contains)) {
+      throw Exception("Invalid page list");
+    }
+
+    final tempFiles = <String>[];
+    for (var i = 0; i < orderedFileNames.length; i++) {
+      final original = File(FilePath.join(chapterDir.path, orderedFileNames[i]));
+      final tempName = "__reorder_tmp__$i.${original.extension}";
+      final tempPath = FilePath.join(chapterDir.path, tempName);
+      await original.rename(tempPath);
+      tempFiles.add(tempPath);
+    }
+    for (var i = 0; i < tempFiles.length; i++) {
+      final temp = File(tempFiles[i]);
+      final targetPath = FilePath.join(chapterDir.path, "${i + 1}.${temp.extension}");
+      await temp.rename(targetPath);
+    }
   }
 
   bool isDownloaded(String id, ComicType type,

@@ -6,6 +6,7 @@ import 'package:venera/foundation/comic_type.dart';
 import 'package:venera/foundation/local.dart';
 import 'package:venera/utils/ext.dart';
 import 'package:venera/utils/file_type.dart';
+import 'package:venera/utils/import_sort.dart';
 import 'package:venera/utils/io.dart';
 import 'package:zip_flutter/zip_flutter.dart';
 
@@ -61,6 +62,40 @@ class ComicChapter {
 
 /// Comic Book Archive. Currently supports CBZ, ZIP and 7Z formats.
 abstract class CBZ {
+  static const _imageExtensions = {'jpg', 'jpeg', 'png', 'webp', 'gif', 'jpe'};
+
+  static Directory _flattenSingleWrapper(Directory root) {
+    var current = root;
+    while (true) {
+      final children = current
+          .listSync()
+          .where((e) => !isHiddenOrMacMetadataPath(e.name))
+          .toList();
+      if (children.length == 1 && children.first is Directory) {
+        current = children.first as Directory;
+        continue;
+      }
+      return current;
+    }
+  }
+
+  static List<File> _collectImageFiles(Directory directory) {
+    final files = <File>[];
+    for (final entity in directory.listSync(recursive: true)) {
+      if (entity is! File) {
+        continue;
+      }
+      if (isHiddenOrMacMetadataPath(entity.path)) {
+        continue;
+      }
+      if (_imageExtensions.contains(entity.extension.toLowerCase())) {
+        files.add(entity);
+      }
+    }
+    naturalSortFiles(files);
+    return files;
+  }
+
   static Future<FileType> checkType(File file) async {
     var header = <int>[];
     await for (var bytes in file.openRead()) {
@@ -86,10 +121,7 @@ abstract class CBZ {
     if (cache.existsSync()) cache.deleteSync(recursive: true);
     cache.createSync();
     await extractArchive(file, cache);
-    var f = cache.listSync();
-    if (f.length == 1 && f.first is Directory) {
-      cache = f.first as Directory;
-    }
+    cache = _flattenSingleWrapper(cache);
     var metaDataFile = File(FilePath.join(cache.path, 'metadata.json'));
     ComicMetaData? metaData;
     if (metaDataFile.existsSync()) {
@@ -107,29 +139,13 @@ abstract class CBZ {
     if (old != null) {
       throw Exception('Comic with name ${metaData.title} already exists');
     }
-    var files = cache.listSync().whereType<File>().toList();
-    files.removeWhere((e) {
-      var ext = e.path.split('.').last;
-      return !['jpg', 'jpeg', 'png', 'webp', 'gif', 'jpe'].contains(ext);
-    });
+    var files = _collectImageFiles(cache);
     if (files.isEmpty) {
       cache.deleteSync(recursive: true);
       throw Exception('No images found in the archive');
     }
-    files.sort((a, b) {
-      var aName = a.basenameWithoutExt;
-      var bName = b.basenameWithoutExt;
-      var aIndex = int.tryParse(aName);
-      var bIndex = int.tryParse(bName);
-      if (aIndex != null && bIndex != null) {
-        return aIndex.compareTo(bIndex);
-      } else {
-        return a.path.compareTo(b.path);
-      }
-    });
     var coverFile = files.firstWhereOrNull(
-      (element) =>
-          element.path.endsWith('cover.${element.path.split('.').last}'),
+      (element) => element.basenameWithoutExt.toLowerCase() == 'cover',
     );
     if (coverFile != null) {
       files.remove(coverFile);
@@ -145,8 +161,7 @@ abstract class CBZ {
     if (metaData.chapters == null) {
       for (var i = 0; i < files.length; i++) {
         var src = files[i];
-        var dst = File(
-            FilePath.join(dest.path, '${i + 1}.${src.path.split('.').last}'));
+        var dst = File(FilePath.join(dest.path, '${i + 1}.${src.extension}'));
         await src.copyMem(dst.path);
       }
     } else {
@@ -163,10 +178,11 @@ abstract class CBZ {
         chapterDir.createSync();
         for (var i = 0; i < chapter.value.length; i++) {
           var src = chapter.value[i];
-          var dst = File(FilePath.join(
-              chapterDir.path, '${i + 1}.${src.path.split('.').last}'));
+          var dst =
+              File(FilePath.join(chapterDir.path, '${i + 1}.${src.extension}'));
           await src.copyMem(dst.path);
         }
+        i++;
       }
     }
     var comic = LocalComic(
@@ -303,4 +319,3 @@ abstract class CBZ {
     await ZipFile.compressFolderAsync(src, dst, 4);
   }
 }
-

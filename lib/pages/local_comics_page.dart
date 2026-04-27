@@ -332,6 +332,13 @@ class _LocalComicsPageState extends State<LocalComicsPage> {
                   },
                 ),
                 MenuEntry(
+                  icon: Icons.reorder,
+                  text: "Reorder Pages".tl,
+                  onClick: () {
+                    showReorderPagesDialog(App.rootContext, c as LocalComic);
+                  },
+                ),
+                MenuEntry(
                   icon: Icons.delete,
                   text: "Delete".tl,
                   onClick: () {
@@ -635,4 +642,160 @@ void showDeleteChaptersPopWindow(BuildContext context, LocalComic comic) {
       }),
     ),
   );
+}
+
+void showReorderPagesDialog(BuildContext context, LocalComic comic) {
+  showDialog(
+    context: context,
+    builder: (context) => _ReorderPagesDialog(comic: comic),
+  );
+}
+
+class _ReorderPagesDialog extends StatefulWidget {
+  final LocalComic comic;
+
+  const _ReorderPagesDialog({required this.comic});
+
+  @override
+  State<_ReorderPagesDialog> createState() => _ReorderPagesDialogState();
+}
+
+class _ReorderPagesDialogState extends State<_ReorderPagesDialog> {
+  String? selectedChapter;
+  bool loading = true;
+  bool saving = false;
+  List<String> pages = [];
+
+  @override
+  void initState() {
+    super.initState();
+    if (widget.comic.hasChapters) {
+      if (widget.comic.downloadedChapters.isNotEmpty) {
+        selectedChapter = widget.comic.downloadedChapters.first;
+      }
+    }
+    _loadPages();
+  }
+
+  Future<void> _loadPages() async {
+    setState(() {
+      loading = true;
+    });
+    try {
+      if (widget.comic.hasChapters && selectedChapter == null) {
+        pages = [];
+        return;
+      }
+      final ep = widget.comic.hasChapters ? selectedChapter! : 0;
+      final images =
+          await LocalManager().getImages(widget.comic.id, widget.comic.comicType, ep);
+      pages = images
+          .map((e) => File(e.replaceFirst('file://', '')).name)
+          .toList(growable: true);
+    } catch (e) {
+      if (mounted) {
+        context.showMessage(message: e.toString());
+      }
+    } finally {
+      if (mounted) {
+        setState(() {
+          loading = false;
+        });
+      }
+    }
+  }
+
+  Future<void> _save() async {
+    if (!widget.comic.baseDir.startsWith(LocalManager().path)) {
+      context.showMessage(
+          message: "Only app-managed local comics support page reorder".tl);
+      return;
+    }
+    setState(() {
+      saving = true;
+    });
+    try {
+      final ep = widget.comic.hasChapters ? selectedChapter! : 0;
+      await LocalManager().reorderComicPages(widget.comic, ep, pages);
+      if (mounted) {
+        context.showMessage(message: "Saved".tl);
+        context.pop();
+      }
+    } catch (e) {
+      if (mounted) {
+        context.showMessage(message: e.toString());
+      }
+    } finally {
+      if (mounted) {
+        setState(() {
+          saving = false;
+        });
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return ContentDialog(
+      title: "Reorder Pages".tl,
+      content: SizedBox(
+        width: 520,
+        height: 520,
+        child: loading
+            ? const Center(child: CircularProgressIndicator())
+            : Column(
+                children: [
+                  if (widget.comic.hasChapters)
+                    ListTile(
+                      contentPadding: EdgeInsets.zero,
+                      title: Text("Chapter".tl),
+                      trailing: Select(
+                        current: selectedChapter,
+                        values: widget.comic.downloadedChapters,
+                        minWidth: 200,
+                        onTap: (index) {
+                          setState(() {
+                            selectedChapter = widget.comic.downloadedChapters[index];
+                          });
+                          _loadPages();
+                        },
+                      ),
+                    ),
+                  Expanded(
+                    child: ReorderableListView.builder(
+                      itemCount: pages.length,
+                      onReorder: (oldIndex, newIndex) {
+                        setState(() {
+                          if (newIndex > oldIndex) {
+                            newIndex -= 1;
+                          }
+                          final moved = pages.removeAt(oldIndex);
+                          pages.insert(newIndex, moved);
+                        });
+                      },
+                      itemBuilder: (context, index) {
+                        final page = pages[index];
+                        return ListTile(
+                          key: ValueKey(page),
+                          title: Text("${index + 1}. $page"),
+                          trailing: const Icon(Icons.drag_handle),
+                        );
+                      },
+                    ),
+                  )
+                ],
+              ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: saving ? null : context.pop,
+          child: Text("Cancel".tl),
+        ),
+        FilledButton(
+          onPressed: saving ? null : _save,
+          child: Text("Save".tl),
+        ),
+      ],
+    );
+  }
 }
