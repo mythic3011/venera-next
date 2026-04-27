@@ -1,4 +1,5 @@
-name: "analyze"
+name: test
+
 on:
   pull_request:
   push:
@@ -9,11 +10,11 @@ permissions:
   contents: read
 
 concurrency:
-  group: analyze-${{ github.workflow }}-${{ github.ref }}
+  group: test-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
-  analyze:
+  test:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -24,4 +25,4 @@ jobs:
           flutter-version-file: pubspec.yaml
           architecture: x64
       - run: flutter pub get
-      - uses: invertase/github-action-dart-analyzer@v1
+      - run: flutter test

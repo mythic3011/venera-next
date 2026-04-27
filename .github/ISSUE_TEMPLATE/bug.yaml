@@ -8,15 +8,18 @@ body:
       value: |
         Thank you for reporting a problem, please complete the title and fill in the following information.
         
-        感谢您的反馈，请填写完整标题并填写以下信息。
+        感謝您的回報，請先填寫完整標題，再補充以下資訊。
         
-        **Please do not report any issues related to config files.**
+        **Please do not report config-file/comic-source script issues in this repository.**
         
-        **请不要报告与配置文件相关的任何问题。**
+        **請不要在此儲存庫回報 config/comic source 腳本相關問題。**
         
-        This project is a comic reader that allows users write their own config files. And there is no built-in comic source.
+        This project is a comic reader that allows users to write their own config files, and there is no built-in comic source.
         
-        本项目是一个漫画阅读器，允许用户编写自己的配置文件，并且没有内置漫画源。
+        本專案是漫畫閱讀器，允許使用者自行撰寫設定檔，且沒有內建漫畫來源。
+
+        Config / comic source issues should be reported to:
+        https://github.com/venera-app/venera-configs/issues
   - type: dropdown
     id: bugType
     attributes:

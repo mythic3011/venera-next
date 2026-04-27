@@ -5,11 +5,18 @@ on:
   release:
     types: [published]
 
+permissions:
+  contents: read
+
+concurrency:
+  group: build-all-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
   Build_MacOS:
     runs-on: macos-15
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
       - uses: subosito/flutter-action@v2
         with:
           channel: "stable"
@@ -57,7 +64,7 @@ jobs:
   Build_IOS:
     runs-on: macos-15
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
       - uses: subosito/flutter-action@v2
         with:
           channel: "stable"
@@ -83,7 +90,7 @@ jobs:
   Build_Android:
     runs-on: ubuntu-22.04
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
       - run: rm -rf /opt/hostedtoolcache
       - uses: subosito/flutter-action@v2
         with:
@@ -112,7 +119,7 @@ jobs:
   Build_Windows:
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
       - name: install dependencies
         run: | 
           choco install yq -y
@@ -186,6 +193,8 @@ jobs:
     runs-on: ubuntu-22.04
     needs: [Build_MacOS, Build_IOS, Build_Android, Build_Windows, Build_Linux, Build_Linux_ARM64]
     if: github.event_name == 'release'  # 仅在 push 事件时执行
+    permissions:
+      contents: write
     steps:
       - uses: actions/download-artifact@v4
         with:

@@ -1,1 +1,8 @@
 blank_issues_enabled: false
+contact_links:
+  - name: Comic source config issues
+    url: https://github.com/venera-app/venera-configs/issues
+    about: Report comic source/config script issues in the dedicated repository.
+  - name: Comic source documentation
+    url: https://github.com/mythic3011/venera/blob/master/doc/comic_source.md
+    about: Read how comic source configs work before opening an issue.
