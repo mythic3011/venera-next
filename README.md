@@ -1,5 +1,8 @@
-# Due to my limited time and energy, this project is no longer maintained. Feel free to fork it.
-# 由于本人精力有限, 此项目已停止维护, 欢迎fork
+# Upstream note: the original repository is no longer maintained by the upstream author.
+# 上游說明：原始儲存庫已由上游作者停止維護。
+#
+# This fork is now maintained by mythic3011 as one of my side-project repositories.
+# 此 Fork 目前由本人（mythic3011）接手維護，屬於我的其中一個 side project 儲存庫。
 
 # venera
 [![flutter](https://img.shields.io/badge/flutter-3.41.4-blue)](https://flutter.dev/)
@@ -39,4 +42,3 @@ The Chinese translation of the manga tags is from this project.
 
 ## Headless Mode
 See [Headless Doc](doc/headless_doc.md)
-

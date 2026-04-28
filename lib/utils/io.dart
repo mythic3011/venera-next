@@ -27,8 +27,13 @@ class IO {
 class FilePath {
   const FilePath._();
 
-  static String join(String path1, String path2,
-      [String? path3, String? path4, String? path5]) {
+  static String join(
+    String path1,
+    String path2, [
+    String? path3,
+    String? path4,
+    String? path5,
+  ]) {
     return p.join(path1, path2, path3, path4, path5);
   }
 }
@@ -74,6 +79,18 @@ extension FileExtension on File {
     var newFile = File(newPath);
     // Stream is not usable since [AndroidFile] does not support [openRead].
     await newFile.writeAsBytes(await readAsBytes());
+  }
+
+  /// Copy file with the fastest available path.
+  ///
+  /// Prefer native [File.copy] to avoid loading the whole file into memory.
+  /// Fall back to [copyMem] for cross-file-system / provider edge cases.
+  Future<void> copyFast(String newPath) async {
+    try {
+      await copy(newPath);
+    } catch (_) {
+      await copyMem(newPath);
+    }
   }
 
   /// Get the base name of the file without the extension.
@@ -179,7 +196,9 @@ Future<void> copyDirectory(Directory source, Directory destination) async {
 /// Copy the **contents** of the source directory to the destination directory.
 /// This function is executed in an isolate to prevent the UI from freezing.
 Future<void> copyDirectoryIsolate(
-    Directory source, Directory destination) async {
+  Directory source,
+  Directory destination,
+) async {
   await Isolate.run(() => overrideIO(() => copyDirectory(source, destination)));
 }
 
@@ -232,8 +251,9 @@ class DirectoryPicker {
         }
       } else {
         // ios, macos
-        directory =
-            await _methodChannel.invokeMethod<String?>("getDirectoryPath");
+        directory = await _methodChannel.invokeMethod<String?>(
+          "getDirectoryPath",
+        );
       }
       if (directory == null) return null;
       _finalizer.attach(this, directory);
@@ -297,13 +317,54 @@ Future<FileSelectResult?> selectFile({required List<String> ext}) async {
       if (xFile == null) return null;
       file = FileSelectResult(xFile.path);
     }
-    if (!ext.contains(file.path.split(".").last)) {
+    final selectedExt = file.path.split(".").last.toLowerCase();
+    if (!ext.map((e) => e.toLowerCase()).contains(selectedExt)) {
       App.rootContext.showMessage(
         message: "Invalid file type: ${file.path.split(".").last}",
       );
       return null;
     }
     return file;
+  } finally {
+    Future.delayed(const Duration(milliseconds: 100), () {
+      IO._isSelectingFiles = false;
+    });
+  }
+}
+
+Future<List<FileSelectResult>?> selectFiles({required List<String> ext}) async {
+  IO._isSelectingFiles = true;
+  try {
+    if (App.isAndroid) {
+      // Android currently uses a single-file picker channel; fallback to
+      // directory-based import flows for multi-file use cases.
+      return null;
+    }
+    var extensions = App.isMacOS || App.isIOS ? null : ext;
+    final typeGroup = file_selector.XTypeGroup(
+      label: 'files',
+      extensions: extensions,
+    );
+    final xFiles = await file_selector.openFiles(
+      acceptedTypeGroups: <file_selector.XTypeGroup>[typeGroup],
+    );
+    if (xFiles.isEmpty) {
+      return null;
+    }
+    final validExt = ext.map((e) => e.toLowerCase()).toSet();
+    final results = <FileSelectResult>[];
+    for (final xFile in xFiles) {
+      final selectedExt = xFile.path.split(".").last.toLowerCase();
+      if (!validExt.contains(selectedExt)) {
+        continue;
+      }
+      results.add(FileSelectResult(xFile.path));
+    }
+    if (results.isEmpty) {
+      App.rootContext.showMessage(message: "No valid files selected");
+      return null;
+    }
+    return results;
   } finally {
     Future.delayed(const Duration(milliseconds: 100), () {
       IO._isSelectingFiles = false;
@@ -328,8 +389,11 @@ Future<String?> selectDirectoryIOS() async {
   return IOSDirectoryPicker.selectDirectory();
 }
 
-Future<void> saveFile(
-    {Uint8List? data, required String filename, File? file}) async {
+Future<void> saveFile({
+  Uint8List? data,
+  required String filename,
+  File? file,
+}) async {
   if (data == null && file == null) {
     throw Exception("data and file cannot be null at the same time");
   }
@@ -394,10 +458,7 @@ final class _IOOverrides extends IOOverrides {
 }
 
 T overrideIO<T>(T Function() f) {
-  return IOOverrides.runWithIOOverrides<T>(
-    f,
-    _IOOverrides(),
-  );
+  return IOOverrides.runWithIOOverrides<T>(f, _IOOverrides());
 }
 
 class Share {
@@ -407,20 +468,22 @@ class Share {
     required String mime,
   }) {
     if (!App.isWindows) {
-      s.Share.shareXFiles(
-        [s.XFile.fromData(data, mimeType: mime)],
-        fileNameOverrides: [filename],
+      s.SharePlus.instance.share(
+        s.ShareParams(
+          files: [s.XFile.fromData(data, mimeType: mime)],
+          fileNameOverrides: [filename],
+        ),
       );
     } else {
       // write to cache
       var file = File(FilePath.join(App.cachePath, filename));
       file.writeAsBytesSync(data);
-      s.Share.shareXFiles([s.XFile(file.path)]);
+      s.SharePlus.instance.share(s.ShareParams(files: [s.XFile(file.path)]));
     }
   }
 
   static void shareText(String text) {
-    s.Share.share(text);
+    s.SharePlus.instance.share(s.ShareParams(text: text));
   }
 }
 

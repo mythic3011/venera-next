@@ -10,6 +10,10 @@ import 'package:venera/utils/image.dart';
 import 'app_dio.dart';
 
 abstract class ImageDownloader {
+  static bool shouldUseSourceImageConfig(String? sourceKey) {
+    return sourceKey != null && sourceKey != 'local';
+  }
+
   static Stream<ImageDownloadProgress> loadThumbnail(
       String url, String? sourceKey,
       [String? cid]) async* {
@@ -26,8 +30,8 @@ abstract class ImageDownloader {
     }
 
     var configs = <String, dynamic>{};
-    if (sourceKey != null) {
-      var comicSource = ComicSource.find(sourceKey);
+    if (shouldUseSourceImageConfig(sourceKey)) {
+      var comicSource = ComicSource.find(sourceKey!);
       configs = comicSource?.getThumbnailLoadingConfig?.call(url) ?? {};
     }
     configs['headers'] ??= {};
@@ -55,6 +59,14 @@ abstract class ImageDownloader {
     String requestUrl = configs['url'] ?? url;
     if (requestUrl.startsWith('//')) {
       requestUrl = 'https:$requestUrl';
+    }
+    final requestUri = Uri.tryParse(requestUrl);
+    final isRelative = requestUri == null ||
+        (!requestUri.hasScheme && !requestUrl.startsWith('//'));
+    if (isRelative) {
+      throw StateError(
+        "Cannot load relative thumbnail URL without a valid absolute source URL.",
+      );
     }
     var req = await dio.request<ResponseBody>(requestUrl,
         data: configs['data']);
@@ -138,11 +150,16 @@ abstract class ImageDownloader {
     Future<Map<String, dynamic>?> Function()? onLoadFailed;
 
     var configs = <String, dynamic>{};
-    if (sourceKey != null) {
-      var comicSource = ComicSource.find(sourceKey);
-      configs = (await comicSource!.getImageLoadingConfig
-              ?.call(imageKey, cid, eid)) ??
-          {};
+    if (shouldUseSourceImageConfig(sourceKey)) {
+      var comicSource = ComicSource.find(sourceKey!);
+      if (comicSource == null) {
+        throw StateError(
+          "Comic source not found: $sourceKey. Please refresh/install sources.",
+        );
+      }
+      configs =
+          (await comicSource.getImageLoadingConfig?.call(imageKey, cid, eid)) ??
+              {};
     }
     var retryLimit = 5;
     while (true) {
@@ -168,8 +185,17 @@ abstract class ImageDownloader {
           responseType: ResponseType.stream,
         ));
 
-        var req = await dio.request<ResponseBody>(configs['url'] ?? imageKey,
-            data: configs['data']);
+        final requestUrl = configs['url'] ?? imageKey;
+        final requestUri = Uri.tryParse(requestUrl);
+        final isRelative = requestUri == null ||
+            (!requestUri.hasScheme && !requestUrl.startsWith('//'));
+        if (isRelative) {
+          throw StateError(
+            "Cannot load relative image URL without a valid absolute source URL.",
+          );
+        }
+        var req =
+            await dio.request<ResponseBody>(requestUrl, data: configs['data']);
         var stream = req.data?.stream ?? (throw "Error: Empty response body.");
         int? expectedBytes = req.data!.contentLength;
         if (expectedBytes == -1) {

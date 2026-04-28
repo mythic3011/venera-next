@@ -103,7 +103,7 @@ class _ReaderSettingsState extends State<ReaderSettings> {
           SliverMainAxisGroup(
             slivers: [
               SwitchListTile(
-                title: Text("Enable comic specific settings".tl),
+                title: Text("Use settings for this comic only".tl),
                 value: isEnabledSpecificSettings,
                 onChanged: (b) {
                   setState(() {
@@ -162,7 +162,7 @@ class _ReaderSettingsState extends State<ReaderSettings> {
             ],
           ),
         _SwitchSetting(
-          title: "Tap to turn Pages".tl,
+          title: "Tap to turn pages".tl,
           settingKey: "enableTapToTurnPages",
           onChanged: () {
             widget.onChanged?.call("enableTapToTurnPages");
@@ -172,7 +172,7 @@ class _ReaderSettingsState extends State<ReaderSettings> {
           useDeviceSettings: useDeviceSpecificSettings,
         ).toSliver(),
         _SwitchSetting(
-          title: "Reverse tap to turn Pages".tl,
+          title: "Reverse tap zones".tl,
           settingKey: "reverseTapToTurnPages",
           onChanged: () {
             widget.onChanged?.call("reverseTapToTurnPages");
@@ -234,9 +234,7 @@ class _ReaderSettingsState extends State<ReaderSettings> {
         SliverAnimatedVisibility(
           visible: appdata.settings['readerMode']!.startsWith('gallery'),
           child: _SliderSetting(
-            title:
-                "The number of pic in screen for landscape (Only Gallery Mode)"
-                    .tl,
+            title: "Pages per screen in landscape".tl,
             settingsIndex: "readerScreenPicNumberForLandscape",
             interval: 1,
             min: 1,
@@ -253,9 +251,7 @@ class _ReaderSettingsState extends State<ReaderSettings> {
         SliverAnimatedVisibility(
           visible: appdata.settings['readerMode']!.startsWith('gallery'),
           child: _SliderSetting(
-            title:
-                "The number of pic in screen for portrait (Only Gallery Mode)"
-                    .tl,
+            title: "Pages per screen in portrait".tl,
             settingsIndex: "readerScreenPicNumberForPortrait",
             interval: 1,
             min: 1,
@@ -287,7 +283,7 @@ class _ReaderSettingsState extends State<ReaderSettings> {
         SliverAnimatedVisibility(
           visible: appdata.settings['readerMode']!.startsWith('continuous'),
           child: _SliderSetting(
-            title: "Mouse scroll speed".tl,
+            title: "Limit image width in vertical scroll mode".tl,
             settingsIndex: "readerScrollSpeed",
             interval: 0.1,
             min: 0.5,

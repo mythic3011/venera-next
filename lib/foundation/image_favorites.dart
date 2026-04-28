@@ -35,14 +35,14 @@ class ImageFavorite {
   }
 
   ImageFavorite.fromJson(Map<String, dynamic> json)
-      : page = json['page'],
-        imageKey = json['imageKey'],
-        isAutoFavorite = json['isAutoFavorite'],
-        eid = json['eid'],
-        id = json['id'],
-        ep = json['ep'],
-        sourceKey = json['sourceKey'],
-        epName = json['epName'];
+    : page = json['page'],
+      imageKey = json['imageKey'],
+      isAutoFavorite = json['isAutoFavorite'],
+      eid = json['eid'],
+      id = json['id'],
+      ep = json['ep'],
+      sourceKey = json['sourceKey'],
+      epName = json['epName'];
 
   ImageFavorite copyWith({
     int? page,
@@ -89,7 +89,12 @@ class ImageFavoritesEp {
   List<ImageFavorite> imageFavorites;
 
   ImageFavoritesEp(
-      this.eid, this.ep, this.imageFavorites, this.epName, this.maxPage);
+    this.eid,
+    this.ep,
+    this.imageFavorites,
+    this.epName,
+    this.maxPage,
+  );
 
   // 是否有封面
   bool get isHasFirstPage {
@@ -143,8 +148,9 @@ class ImageFavoritesComic {
 
   // 是否都有imageKey
   bool get isAllHasImageKey {
-    return imageFavoritesEp
-        .every((e) => e.imageFavorites.every((j) => j.imageKey != ""));
+    return imageFavoritesEp.every(
+      (e) => e.imageFavorites.every((j) => j.imageKey != ""),
+    );
   }
 
   int get maxPageFromEp {
@@ -160,7 +166,7 @@ class ImageFavoritesComic {
     return imageFavoritesEp.every((e) => e.isHasFirstPage);
   }
 
-  Iterable<ImageFavorite> get images sync*{
+  Iterable<ImageFavorite> get images sync* {
     for (var e in imageFavoritesEp) {
       yield* e.imageFavorites;
     }
@@ -176,46 +182,58 @@ class ImageFavoritesComic {
   @override
   int get hashCode => Object.hash(id, sourceKey);
 
-  factory ImageFavoritesComic.fromRow(Row r) {
-    var tempImageFavoritesEp = jsonDecode(r["image_favorites_ep"]);
+  factory ImageFavoritesComic.fromRecord(ImageFavoriteRecord r) {
+    var tempImageFavoritesEp = jsonDecode(r.imageFavoritesEpJson);
     List<ImageFavoritesEp> finalImageFavoritesEp = [];
     tempImageFavoritesEp.forEach((i) {
       List<ImageFavorite> temp = [];
       i["imageFavorites"].forEach((j) {
-        temp.add(ImageFavorite(
-          j["page"],
-          j["imageKey"],
-          j["isAutoFavorite"],
-          i["eid"],
-          r["id"],
-          i["ep"],
-          r["source_key"],
-          i["epName"],
-        ));
+        temp.add(
+          ImageFavorite(
+            j["page"],
+            j["imageKey"],
+            j["isAutoFavorite"],
+            i["eid"],
+            r.id,
+            i["ep"],
+            r.sourceKey,
+            i["epName"],
+          ),
+        );
       });
-      finalImageFavoritesEp.add(ImageFavoritesEp(
-          i["eid"], i["ep"], temp, i["epName"], i["maxPage"] ?? 1));
+      finalImageFavoritesEp.add(
+        ImageFavoritesEp(
+          i["eid"],
+          i["ep"],
+          temp,
+          i["epName"],
+          i["maxPage"] ?? 1,
+        ),
+      );
     });
     return ImageFavoritesComic(
-      r["id"],
+      r.id,
       finalImageFavoritesEp,
-      r["title"],
-      r["source_key"],
-      r["tags"].split(","),
-      r["translated_tags"].split(","),
-      DateTime.fromMillisecondsSinceEpoch(r["time"]),
-      r["author"],
-      jsonDecode(r["other"]),
-      r["sub_title"],
-      r["max_page"],
+      r.title,
+      r.sourceKey,
+      r.tags.split(","),
+      r.translatedTags.split(","),
+      DateTime.fromMillisecondsSinceEpoch(r.timeMillis),
+      r.author,
+      jsonDecode(r.otherJson),
+      r.subTitle,
+      r.maxPage,
     );
   }
 }
 
 class ImageFavoriteManager with ChangeNotifier {
-  Database get _db => HistoryManager()._db;
+  HistoryStore get _store => HistoryManager()._store;
+  final Map<String, ImageFavoritesComic> _comics = {};
 
-  List<ImageFavoritesComic> get comics => getAll();
+  String _key(String id, String sourceKey) => "$sourceKey::$id";
+
+  List<ImageFavoritesComic> get comics => _comics.values.toList();
 
   static ImageFavoriteManager? _cache;
 
@@ -225,30 +243,28 @@ class ImageFavoriteManager with ChangeNotifier {
 
   /// 检查表image_favorites是否存在, 不存在则创建
   void init() {
-    _db.execute("CREATE TABLE IF NOT EXISTS image_favorites ("
-        "id TEXT,"
-        "title TEXT NOT NULL,"
-        "sub_title TEXT,"
-        "author TEXT,"
-        "tags TEXT,"
-        "translated_tags TEXT,"
-        "time int,"
-        "max_page int,"
-        "source_key TEXT NOT NULL,"
-        "image_favorites_ep TEXT NOT NULL,"
-        "other TEXT NOT NULL,"
-        "PRIMARY KEY (id,source_key)"
-        ");");
+    unawaited(_loadCache());
+  }
+
+  Future<void> _loadCache() async {
+    final records = await _store.loadAllImageFavorites();
+    _comics
+      ..clear()
+      ..addEntries(
+        records.map((r) {
+          final comic = ImageFavoritesComic.fromRecord(r);
+          return MapEntry(_key(comic.id, comic.sourceKey), comic);
+        }),
+      );
+    notifyListeners();
   }
 
   // 做排序和去重的操作
   void addOrUpdateOrDelete(ImageFavoritesComic favorite, [bool notify = true]) {
     // 没有章节了就删掉
     if (favorite.imageFavoritesEp.isEmpty) {
-      _db.execute("""
-      delete from image_favorites
-      where id == ? and source_key == ?;
-    """, [favorite.id, favorite.sourceKey]);
+      _comics.remove(_key(favorite.id, favorite.sourceKey));
+      unawaited(_store.deleteImageFavorite(favorite.id, favorite.sourceKey));
     } else {
       // 去重章节
       List<ImageFavoritesEp> tempImageFavoritesEp = [];
@@ -262,21 +278,23 @@ class ImageFavoriteManager with ChangeNotifier {
         }
       }
       tempImageFavoritesEp.sort((a, b) => a.ep.compareTo(b.ep));
-      List<dynamic> finalImageFavoritesEp =
-          jsonDecode(jsonEncode(tempImageFavoritesEp));
+      List<dynamic> finalImageFavoritesEp = jsonDecode(
+        jsonEncode(tempImageFavoritesEp),
+      );
       for (var e in tempImageFavoritesEp) {
         List<Map> finalImageFavorites = [];
         int epIndex = tempImageFavoritesEp.indexOf(e);
         for (ImageFavorite j in e.imageFavorites) {
-          int index =
-              finalImageFavorites.indexWhere((i) => i["page"] == j.page);
+          int index = finalImageFavorites.indexWhere(
+            (i) => i["page"] == j.page,
+          );
           if (index == -1 && j.page > 0) {
             // isAutoFavorite 为 null 不写入数据库, 同时只保留需要的属性, 避免增加太多重复字段在数据库里
             if (j.isAutoFavorite != null) {
               finalImageFavorites.add({
                 "page": j.page,
                 "imageKey": j.imageKey,
-                "isAutoFavorite": j.isAutoFavorite
+                "isAutoFavorite": j.isAutoFavorite,
               });
             } else {
               finalImageFavorites.add({"page": j.page, "imageKey": j.imageKey});
@@ -289,22 +307,25 @@ class ImageFavoriteManager with ChangeNotifier {
       if (tempImageFavoritesEp.isEmpty) {
         throw "Error: No ImageFavoritesEp";
       }
-      _db.execute("""
-      insert or replace into image_favorites(id, title, sub_title, author, tags, translated_tags, time, max_page, source_key, image_favorites_ep, other)
-      values(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
-    """, [
-        favorite.id,
-        favorite.title,
-        favorite.subTitle,
-        favorite.author,
-        favorite.tags.join(","),
-        favorite.translatedTags.join(","),
-        favorite.time.millisecondsSinceEpoch,
-        favorite.maxPage,
-        favorite.sourceKey,
-        jsonEncode(finalImageFavoritesEp),
-        jsonEncode(favorite.other)
-      ]);
+      favorite.imageFavoritesEp = tempImageFavoritesEp;
+      _comics[_key(favorite.id, favorite.sourceKey)] = favorite;
+      unawaited(
+        _store.upsertImageFavorite(
+          ImageFavoriteRecord(
+            id: favorite.id,
+            title: favorite.title,
+            subTitle: favorite.subTitle,
+            author: favorite.author,
+            tags: favorite.tags.join(","),
+            translatedTags: favorite.translatedTags.join(","),
+            timeMillis: favorite.time.millisecondsSinceEpoch,
+            maxPage: favorite.maxPage,
+            sourceKey: favorite.sourceKey,
+            imageFavoritesEpJson: jsonEncode(finalImageFavoritesEp),
+            otherJson: jsonEncode(favorite.other),
+          ),
+        ),
+      );
     }
     if (notify) {
       notifyListeners();
@@ -324,28 +345,18 @@ class ImageFavoriteManager with ChangeNotifier {
   }
 
   List<ImageFavoritesComic> getAll([String? keyword]) {
-    ResultSet res;
-    if (keyword == null || keyword == "") {
-      res = _db.select("select * from image_favorites;");
-    } else {
-      res = _db.select(
-        """
-    select * from image_favorites
-    WHERE title LIKE ?
-    OR sub_title LIKE ?
-    OR LOWER(tags) LIKE LOWER(?)
-    OR LOWER(translated_tags) LIKE LOWER(?)
-    OR author LIKE ?;
-    """,
-        ['%$keyword%', '%$keyword%', '%$keyword%', '%$keyword%', '%$keyword%'],
-      );
+    final all = _comics.values.toList();
+    if (keyword == null || keyword.isEmpty) {
+      return all;
     }
-    try {
-      return res.map((e) => ImageFavoritesComic.fromRow(e)).toList();
-    } catch (e, stackTrace) {
-      Log.error("Unhandled Exception", e.toString(), stackTrace);
-      return [];
-    }
+    final k = keyword.toLowerCase();
+    return all.where((c) {
+      return c.title.toLowerCase().contains(k) ||
+          c.subTitle.toLowerCase().contains(k) ||
+          c.author.toLowerCase().contains(k) ||
+          c.tags.join(",").toLowerCase().contains(k) ||
+          c.translatedTags.join(",").toLowerCase().contains(k);
+    }).toList();
   }
 
   void deleteImageFavorite(Iterable<ImageFavorite> imageFavoriteList) {
@@ -357,7 +368,8 @@ class ImageFavoriteManager with ChangeNotifier {
     }
     var comics = <ImageFavoritesComic>{};
     for (var i in imageFavoriteList) {
-      var comic = comics
+      var comic =
+          comics
               .where((c) => c.id == i.id && c.sourceKey == i.sourceKey)
               .firstOrNull ??
           find(i.id, i.sourceKey);
@@ -381,8 +393,7 @@ class ImageFavoriteManager with ChangeNotifier {
   }
 
   int get length {
-    var res = _db.select("select count(*) from image_favorites;");
-    return res.first.values.first! as int;
+    return _comics.length;
   }
 
   List<ImageFavoritesComic> search(String keyword) {
@@ -429,7 +440,7 @@ class ImageFavoriteManager with ChangeNotifier {
       'dilf',
       'bbm',
       'uncensored',
-      'full censorship'
+      'full censorship',
     ];
 
     Map<String, int> tagCount = {};
@@ -499,14 +510,7 @@ class ImageFavoriteManager with ChangeNotifier {
   }
 
   ImageFavoritesComic? find(String id, String sourceKey) {
-    var row = _db.select("""
-    select * from image_favorites
-    where id == ? and source_key == ?;
-    """, [id, sourceKey]);
-    if (row.isEmpty) {
-      return null;
-    }
-    return ImageFavoritesComic.fromRow(row.first);
+    return _comics[_key(id, sourceKey)];
   }
 }
 

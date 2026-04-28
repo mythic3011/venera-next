@@ -63,7 +63,7 @@ The name of directory will be used as comic title. And the name of chapter direc
 
 ## Archive
 
-Venera supports importing comics from archive files.
+Venera supports importing comics from archive files and PDF files.
 
 The archive file must follow [Comic Book Archive](https://en.wikipedia.org/wiki/Comic_book_archive_file) format.
 
@@ -72,3 +72,26 @@ Currently, Venera supports the following archive formats:
 - `.cb7`
 - `.zip`
 - `.7z`
+
+And PDF format:
+- `.pdf`
+
+## Nested Bundle Archive
+
+If an archive contains multiple child archives and/or PDFs, Venera detects it as
+a nested bundle and asks how to import:
+
+- **One comic with chapters**: import each child item as one chapter/part.
+- **Separate comics**: import each child item as its own local comic.
+
+Mac metadata files like `__MACOSX` and `._*` are ignored automatically.
+
+## Page Order
+
+Imported pages are naturally sorted (for example, `1, 2, 10`).
+You can manually reorder pages after import from:
+
+- `Local` -> comic menu -> `Reorder Pages`
+
+Note: manual page reorder is only supported for app-managed local comics
+(comics stored in Venera's local storage path).

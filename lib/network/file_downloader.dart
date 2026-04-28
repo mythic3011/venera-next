@@ -29,6 +29,10 @@ class FileDownloader {
 
   bool _canceled = false;
 
+  bool _streamClosed = false;
+
+  Timer? _progressTimer;
+
   late List<_DownloadBlock> _blocks;
 
   Future<void> _writeStatus() async {
@@ -73,8 +77,10 @@ class FileDownloader {
 
     if (File("$savePath.download").existsSync()) {
       await _readStatus();
-      _currentBytes = _blocks.fold<int>(0,
-          (previousValue, element) => previousValue + element.downloadedBytes);
+      _currentBytes = _blocks.fold<int>(
+        0,
+        (previousValue, element) => previousValue + element.downloadedBytes,
+      );
     } else {
       if (_fileSize > 1024 * 1024 * 1024) {
         _kChunkSize = 64 * 1024 * 1024;
@@ -95,9 +101,41 @@ class FileDownloader {
   }
 
   Stream<DownloadingStatus> start() {
+    _streamClosed = false;
+    _canceled = false;
     var stream = StreamController<DownloadingStatus>();
     _download(stream);
     return stream.stream;
+  }
+
+  void _cancelProgressTimer() {
+    _progressTimer?.cancel();
+    _progressTimer = null;
+  }
+
+  Future<void> _closeFile() async {
+    await _file?.close();
+    _file = null;
+  }
+
+  Future<void> _shutdownStream(
+    StreamController<DownloadingStatus> stream, {
+    DownloadingStatus? terminalStatus,
+    Object? error,
+    StackTrace? stackTrace,
+  }) async {
+    _cancelProgressTimer();
+    await _closeFile();
+    if (_streamClosed) {
+      return;
+    }
+    if (error != null) {
+      stream.addError(error, stackTrace);
+    } else if (terminalStatus != null) {
+      stream.add(terminalStatus);
+    }
+    _streamClosed = true;
+    await stream.close();
   }
 
   void _reportStatus(StreamController<DownloadingStatus> stream) {
@@ -117,54 +155,69 @@ class FileDownloader {
       // get file size
       await _createTasks();
 
-      if (_canceled) return;
+      if (_canceled) {
+        await _shutdownStream(resultStream);
+        return;
+      }
 
       // check if file is downloaded
       if (_currentBytes >= _fileSize) {
-        await _file!.close();
-        _file = null;
+        _cancelProgressTimer();
         _reportStatus(resultStream);
-        resultStream.close();
+        await _shutdownStream(resultStream);
         return;
       }
 
       _reportStatus(resultStream);
 
-      Timer.periodic(const Duration(seconds: 1), (timer) {
-        if (_canceled || _currentBytes >= _fileSize) {
-          timer.cancel();
+      _progressTimer = Timer.periodic(const Duration(seconds: 1), (_) {
+        if (_canceled || _currentBytes >= _fileSize || _streamClosed) {
+          _cancelProgressTimer();
           return;
         }
-        resultStream.add(DownloadingStatus(
-            _currentBytes, _fileSize, _currentBytes - _lastBytes));
+        if (resultStream.isClosed) {
+          _cancelProgressTimer();
+          _streamClosed = true;
+          return;
+        }
+        resultStream.add(
+          DownloadingStatus(
+            _currentBytes,
+            _fileSize,
+            _currentBytes - _lastBytes,
+          ),
+        );
         _lastBytes = _currentBytes;
       });
 
       // start downloading
       await _scheduleDownload();
       if (_canceled) {
-        resultStream.close();
+        await _shutdownStream(resultStream);
         return;
       }
-      await _file!.close();
-      _file = null;
+      _cancelProgressTimer();
+      await _closeFile();
       await File("$savePath.download").delete();
 
       // check if download is finished
       if (_currentBytes < _fileSize) {
-        resultStream
-            .addError(Exception("Download failed: Expected $_fileSize bytes, "
-                "but only $_currentBytes bytes downloaded."));
-        resultStream.close();
+        await _shutdownStream(
+          resultStream,
+          error: Exception(
+            "Download failed: Expected $_fileSize bytes, "
+            "but only $_currentBytes bytes downloaded.",
+          ),
+        );
+        return;
       }
 
-      resultStream.add(DownloadingStatus(_currentBytes, _fileSize, 0, true));
-      resultStream.close();
+      await _shutdownStream(
+        resultStream,
+        terminalStatus: DownloadingStatus(_currentBytes, _fileSize, 0, true),
+      );
     } catch (e, s) {
-      await _file?.close();
-      _file = null;
-      resultStream.addError(e, s);
-      resultStream.close();
+      await _shutdownStream(resultStream, error: e, stackTrace: s);
     }
   }
 
@@ -175,18 +228,23 @@ class FileDownloader {
       if (tasks.length >= maxConcurrent) {
         await Future.any(tasks);
       }
-      final block = _blocks.firstWhereOrNull((element) =>
-          !element.downloading &&
-          element.end - element.start > element.downloadedBytes);
+      final block = _blocks.firstWhereOrNull(
+        (element) =>
+            !element.downloading &&
+            element.end - element.start > element.downloadedBytes,
+      );
       if (block == null) {
         break;
       }
       block.downloading = true;
       var task = _fetchBlock(block);
-      task.then((value) => tasks.remove(task), onError: (e) {
-        if(_canceled) return;
-        throw e;
-      });
+      task.then(
+        (value) => tasks.remove(task),
+        onError: (e) {
+          if (_canceled) return;
+          throw e;
+        },
+      );
       tasks.add(task);
     }
     await Future.wait(tasks);
@@ -250,8 +308,8 @@ class FileDownloader {
 
   Future<void> stop() async {
     _canceled = true;
-    await _file?.close();
-    _file = null;
+    _cancelProgressTimer();
+    await _closeFile();
   }
 }
 
@@ -269,8 +327,11 @@ class DownloadingStatus {
   final int bytesPerSecond;
 
   const DownloadingStatus(
-      this.downloadedBytes, this.totalBytes, this.bytesPerSecond,
-      [this.isFinished = false]);
+    this.downloadedBytes,
+    this.totalBytes,
+    this.bytesPerSecond, [
+    this.isFinished = false,
+  ]);
 
   @override
   String toString() {
@@ -292,8 +353,8 @@ class _DownloadBlock {
   }
 
   _DownloadBlock.fromString(String str)
-      : start = int.parse(str.split("-")[0]),
-        end = int.parse(str.split("-")[1]),
-        downloadedBytes = int.parse(str.split("-")[2]),
-        downloading = false;
+    : start = int.parse(str.split("-")[0]),
+      end = int.parse(str.split("-")[1]),
+      downloadedBytes = int.parse(str.split("-")[2]),
+      downloading = false;
 }

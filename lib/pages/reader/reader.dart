@@ -31,7 +31,14 @@ import 'package:venera/foundation/image_provider/reader_image.dart';
 import 'package:venera/foundation/local.dart';
 import 'package:venera/foundation/log.dart';
 import 'package:venera/foundation/res.dart';
+import 'package:venera/foundation/reader/local_page_provider.dart';
+import 'package:venera/foundation/reader/diagnostic_mapping.dart';
+import 'package:venera/foundation/reader/remote_page_provider.dart';
+import 'package:venera/foundation/reader/source_ref_resolver.dart';
+import 'package:venera/foundation/reader/source_ref_diagnostics.dart';
+import 'package:venera/foundation/source_ref.dart';
 import 'package:venera/network/images.dart';
+import 'package:venera/pages/comic_source_page.dart';
 import 'package:venera/pages/settings/settings_page.dart';
 import 'package:venera/utils/clipboard_image.dart';
 import 'package:venera/utils/data_sync.dart';
@@ -59,6 +66,8 @@ part 'chapters.dart';
 
 part 'chapter_comments.dart';
 
+part 'adaptive.dart';
+
 extension _ReaderContext on BuildContext {
   _ReaderState get reader => findAncestorStateOfType<_ReaderState>()!;
 
@@ -77,6 +86,7 @@ class Reader extends StatefulWidget {
     this.initialPage,
     this.initialChapter,
     this.initialChapterGroup,
+    this.sourceRef,
     required this.author,
     required this.tags,
   });
@@ -104,12 +114,19 @@ class Reader extends StatefulWidget {
 
   final History history;
 
+  final SourceRef? sourceRef;
+
   @override
   State<Reader> createState() => _ReaderState();
 }
 
 class _ReaderState extends State<Reader>
-    with _ReaderLocation, _ReaderWindow, _VolumeListener, _ImagePerPageHandler {
+    with
+        TickerProviderStateMixin,
+        _ReaderLocation,
+        _ReaderWindow,
+        _VolumeListener,
+        _ImagePerPageHandler {
   @override
   void update() {
     setState(() {});
@@ -180,6 +197,8 @@ class _ReaderState extends State<Reader>
       MediaQuery.of(context).orientation == Orientation.portrait;
 
   History? history;
+  late final ReaderPanelState panelState;
+  late final AutoTurnController autoTurnController;
 
   @override
   bool isLoading = false;
@@ -231,6 +250,18 @@ class _ReaderState extends State<Reader>
       LocalFavoritesManager().onRead(cid, type);
     });
     super.initState();
+    panelState = ReaderPanelState();
+    autoTurnController = AutoTurnController(
+      vsync: this,
+      intervalSeconds: () => appdata.settings.getReaderSetting(
+        cid,
+        type.sourceKey,
+        'autoPageTurningInterval',
+      ),
+      // Compile-contract only: provide symbols referenced by scaffold.
+      canTurnPage: () => false,
+      onTurnPage: () {},
+    );
   }
 
   bool _isInitialized = false;
@@ -273,6 +304,8 @@ class _ReaderState extends State<Reader>
     if (isFullscreen) {
       fullscreen();
     }
+    autoTurnController.dispose();
+    panelState.dispose();
     autoPageTurningTimer?.cancel();
     focusNode.dispose();
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
@@ -361,6 +394,17 @@ class _ReaderState extends State<Reader>
         history!.ep = chapter;
       }
       history!.time = DateTime.now();
+      final sourceRef = widget.sourceRef;
+      if (sourceRef != null) {
+        HistoryManager().updateResumeSnapshot(
+          comicId: history!.id,
+          type: history!.type,
+          chapter: history!.ep,
+          group: history!.group,
+          page: history!.page,
+          sourceRef: sourceRef,
+        );
+      }
       _updateHistoryTimer?.cancel();
       _updateHistoryTimer = Timer(const Duration(seconds: 1), () {
         HistoryManager().addHistoryAsync(history!);

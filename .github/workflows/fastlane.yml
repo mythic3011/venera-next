@@ -11,6 +11,13 @@ on:
       paths:
         - 'fastlane/**'
 
+permissions:
+  contents: read
+
+concurrency:
+  group: fastlane-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   go:
     runs-on: ubuntu-latest

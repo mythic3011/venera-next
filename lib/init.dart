@@ -4,6 +4,7 @@ import 'package:display_mode/display_mode.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_saf/flutter_saf.dart';
+import 'package:pdfrx/pdfrx.dart';
 import 'package:rhttp/rhttp.dart';
 import 'package:venera/foundation/app.dart';
 import 'package:venera/foundation/cache_manager.dart';
@@ -38,7 +39,9 @@ Future<void> init() async {
   await App.init().wait();
   await SingleInstanceCookieJar.createInstance();
   try {
+    await OpenCC.init().wait();
     var futures = [
+      pdfrxFlutterInitialize().wait(),
       Rhttp.init(),
       App.initComponents(),
       SAFTaskWorker().init().wait(),
@@ -46,7 +49,6 @@ Future<void> init() async {
       TagsTranslation.readData().wait(),
       JsEngine().init().wait(),
       ComicSourceManager().init().wait(),
-      OpenCC.init(),
     ];
     await Future.wait(futures);
   } catch (e, s) {

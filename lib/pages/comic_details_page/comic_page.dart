@@ -17,6 +17,7 @@ import 'package:venera/foundation/favorites.dart';
 import 'package:venera/foundation/history.dart';
 import 'package:venera/foundation/image_provider/cached_image.dart';
 import 'package:venera/foundation/local.dart';
+import 'package:venera/foundation/source_ref.dart';
 import 'package:venera/foundation/res.dart';
 import 'package:venera/network/download.dart';
 import 'package:venera/network/cache.dart';
@@ -68,6 +69,46 @@ class ComicPage extends StatefulWidget {
 
 class _ComicPageState extends LoadingState<ComicPage, ComicDetails>
     with _ComicPageActions {
+  bool get _isLocalSource => widget.sourceKey == 'local';
+
+  ComicDetails _buildLocalDetails(LocalComic localComic) {
+    final tags = <String, List<String>>{};
+    for (final raw in localComic.tags) {
+      final index = raw.indexOf(':');
+      if (index > 0 && index < raw.length - 1) {
+        final namespace = raw.substring(0, index).trim();
+        final tag = raw.substring(index + 1).trim();
+        tags.putIfAbsent(namespace, () => <String>[]).add(tag);
+      } else {
+        tags.putIfAbsent("Tags", () => <String>[]).add(raw);
+      }
+    }
+    return ComicDetails.fromJson({
+      "title": localComic.title,
+      "subtitle": localComic.subtitle,
+      "cover": "file://${localComic.coverFile.path}",
+      "description": "",
+      "tags": tags,
+      "chapters": localComic.chapters?.toJson(),
+      "sourceKey": "local",
+      "comicId": localComic.id,
+      "thumbnails": null,
+      "recommend": null,
+      "isFavorite": null,
+      "subId": null,
+      "likesCount": null,
+      "isLiked": null,
+      "commentCount": null,
+      "uploader": null,
+      "uploadTime": null,
+      "updateTime": localComic.createdAt.toIso8601String(),
+      "url": null,
+      "stars": null,
+      "maxPage": null,
+      "comments": null,
+    });
+  }
+
   @override
   History? history;
 
@@ -83,7 +124,7 @@ class _ComicPageState extends LoadingState<ComicPage, ComicDetails>
   void onReadEnd() {
     history ??= HistoryManager().find(
       widget.id,
-      ComicType(widget.sourceKey.hashCode),
+      ComicType.fromKey(widget.sourceKey),
     );
     update();
   }
@@ -210,36 +251,17 @@ class _ComicPageState extends LoadingState<ComicPage, ComicDetails>
 
   @override
   Future<Res<ComicDetails>> loadData() async {
-    if (widget.sourceKey == 'local') {
-      var localComic = LocalManager().find(widget.id, ComicType.local);
+    if (_isLocalSource) {
+      final localComic = LocalManager().find(widget.id, ComicType.local);
       if (localComic == null) {
         return const Res.error('Local comic not found');
       }
-      var history = HistoryManager().find(widget.id, ComicType.local);
-      if (isFirst) {
-        Future.microtask(() {
-          App.rootContext.to(() {
-            return Reader(
-              type: ComicType.local,
-              cid: widget.id,
-              name: localComic.title,
-              chapters: localComic.chapters,
-              initialPage: history?.page,
-              initialChapter: history?.ep,
-              initialChapterGroup: history?.group,
-              history:
-                  history ??
-                  History.fromModel(model: localComic, ep: 0, page: 0),
-              author: localComic.subTitle ?? '',
-              tags: localComic.tags,
-            );
-          });
-          App.mainNavigatorKey!.currentContext!.pop();
-        });
-        isFirst = false;
-      }
-      await Future.delayed(const Duration(milliseconds: 200));
-      return const Res.error('Local comic');
+      isAddToLocalFav = LocalFavoritesManager().isExist(
+        widget.id,
+        ComicType.local,
+      );
+      history = HistoryManager().find(widget.id, ComicType.local);
+      return Res(_buildLocalDetails(localComic));
     }
     var comicSource = ComicSource.find(widget.sourceKey);
     if (comicSource == null) {
@@ -247,11 +269,11 @@ class _ComicPageState extends LoadingState<ComicPage, ComicDetails>
     }
     isAddToLocalFav = LocalFavoritesManager().isExist(
       widget.id,
-      ComicType(widget.sourceKey.hashCode),
+      ComicType.fromKey(widget.sourceKey),
     );
     history = HistoryManager().find(
       widget.id,
-      ComicType(widget.sourceKey.hashCode),
+      ComicType.fromKey(widget.sourceKey),
     );
     return comicSource.loadComicInfo!(widget.id);
   }
@@ -260,6 +282,9 @@ class _ComicPageState extends LoadingState<ComicPage, ComicDetails>
   Future<void> onDataLoaded() async {
     isLiked = comic.isLiked ?? false;
     isFavorite = comic.isFavorite ?? false;
+    if (_isLocalSource) {
+      return;
+    }
     // For sources with multi-folder favorites, prefer querying folders to get accurate favorite status
     // Some sources may not set isFavorite reliably when multi-folder is enabled
     if (comicSource.favoriteData?.loadFolders != null && comicSource.isLogged) {
@@ -343,7 +368,10 @@ class _ComicPageState extends LoadingState<ComicPage, ComicDetails>
                     style: ts.s14,
                   ).paddingVertical(4),
                 Text(
-                  (ComicSource.find(comic.sourceKey)?.name) ?? '',
+                  comic.sourceKey == 'local'
+                      ? "Local".tl
+                      : (ComicSource.find(comic.sourceKey)?.name ??
+                          comic.sourceKey),
                   style: ts.s12,
                 ),
               ],
@@ -379,6 +407,7 @@ class _ComicPageState extends LoadingState<ComicPage, ComicDetails>
                   iconColor: context.useTextColor(Colors.orange),
                 ),
               if (!isMobile && !isDownloaded)
+                if (!_isLocalSource)
                 _ActionButton(
                   icon: const Icon(Icons.download),
                   text: 'Download'.tl,
@@ -408,7 +437,7 @@ class _ComicPageState extends LoadingState<ComicPage, ComicDetails>
                 onLongPressed: quickFavorite,
                 iconColor: context.useTextColor(Colors.purple),
               ),
-              if (comicSource.commentsLoader != null)
+              if (!_isLocalSource && comicSource.commentsLoader != null)
                 _ActionButton(
                   icon: const Icon(Icons.comment),
                   text: (comic.commentCount ?? 'Comments'.tl).toString(),
@@ -426,13 +455,14 @@ class _ComicPageState extends LoadingState<ComicPage, ComicDetails>
           if (isMobile)
             Row(
               children: [
-                Expanded(
-                  child: FilledButton.tonal(
-                    onPressed: download,
-                    child: Text("Download".tl),
+                if (!_isLocalSource)
+                  Expanded(
+                    child: FilledButton.tonal(
+                      onPressed: download,
+                      child: Text("Download".tl),
+                    ),
                   ),
-                ),
-                const SizedBox(width: 16),
+                if (!_isLocalSource) const SizedBox(width: 16),
                 Expanded(
                   child: hasHistory
                       ? FilledButton(
@@ -627,8 +657,10 @@ class _ComicPageState extends LoadingState<ComicPage, ComicDetails>
       ).paddingHorizontal(16).paddingBottom(8);
     }
 
+    final source = ComicSource.find(comic.sourceKey);
     bool enableTranslation =
-        App.locale.languageCode == 'zh' && comicSource.enableTagsTranslate;
+        App.locale.languageCode == 'zh' &&
+        (source?.enableTagsTranslate ?? false);
 
     return SliverLazyToBoxAdapter(
       child: Column(
@@ -647,7 +679,10 @@ class _ComicPageState extends LoadingState<ComicPage, ComicDetails>
             buildWrap(
               children: [
                 if (e.value.isNotEmpty)
-                  buildTag(text: e.key.ts(comicSource.key), isTitle: true),
+                  buildTag(
+                    text: source == null ? e.key : e.key.ts(source.key),
+                    isTitle: true,
+                  ),
                 for (var tag in e.value)
                   buildTag(
                     text: enableTranslation
@@ -656,7 +691,7 @@ class _ComicPageState extends LoadingState<ComicPage, ComicDetails>
                             e.key.toLowerCase(),
                           )
                         : tag,
-                    onTap: () => onTapTag(tag, e.key),
+                    onTap: source == null ? null : () => onTapTag(tag, e.key),
                   ),
               ],
             ),
@@ -706,6 +741,9 @@ class _ComicPageState extends LoadingState<ComicPage, ComicDetails>
   }
 
   Widget buildThumbnails() {
+    if (_isLocalSource) {
+      return const SliverPadding(padding: EdgeInsets.zero);
+    }
     if (comic.thumbnails == null && comicSource.loadComicThumbnail == null) {
       return const SliverPadding(padding: EdgeInsets.zero);
     }
@@ -731,12 +769,22 @@ class _ComicPageState extends LoadingState<ComicPage, ComicDetails>
     return _CommentsPart(comments: comic.comments!, showMore: showComments);
   }
 
-  void _viewCover(BuildContext context) {
-    final imageProvider = CachedImageProvider(
+  ImageProvider _coverImageProvider() {
+    if (_isLocalSource) {
+      final localComic = LocalManager().find(widget.id, ComicType.local);
+      if (localComic != null) {
+        return FileImage(localComic.coverFile);
+      }
+    }
+    return CachedImageProvider(
       widget.cover ?? comic.cover,
       sourceKey: comic.sourceKey,
       cid: comic.id,
     );
+  }
+
+  void _viewCover(BuildContext context) {
+    final ImageProvider imageProvider = _coverImageProvider();
 
     context.to(
       () => _CoverViewer(
@@ -749,11 +797,7 @@ class _ComicPageState extends LoadingState<ComicPage, ComicDetails>
 
   void _saveCover(BuildContext context) async {
     try {
-      final imageProvider = CachedImageProvider(
-        widget.cover ?? comic.cover,
-        sourceKey: comic.sourceKey,
-        cid: comic.id,
-      );
+      final ImageProvider imageProvider = _coverImageProvider();
 
       final imageStream = imageProvider.resolve(const ImageConfiguration());
       final completer = Completer<Uint8List>();

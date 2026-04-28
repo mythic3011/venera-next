@@ -8,6 +8,10 @@ permissions:
   contents: read
   issues: write
 
+concurrency:
+  group: issue-check-${{ github.event.issue.number }}
+  cancel-in-progress: true
+
 jobs:
   check:
     name: Check Issue

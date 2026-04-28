@@ -15,6 +15,7 @@ dependencies:
   intl: any
   window_manager: ^0.5.1
   sqlite3: ^2.7.4
+  drift: ^2.28.2
   sqlite3_flutter_libs: ^0.5.30
   flutter_qjs:
     git:
@@ -84,6 +85,8 @@ dependencies:
   enough_convert: ^1.6.0
   display_mode: ^0.0.2
   flutter_staggered_grid_view: ^0.7.0
+  pdfrx: ^2.2.24
+  image: ^4.8.0
 
 dev_dependencies:
   flutter_test:
@@ -99,10 +102,10 @@ flutter:
   uses-material-design: true
   assets:
     - assets/translation.json
+    - assets/i18n/
     - assets/init.js
     - assets/app_icon.png
-    - assets/tags.json
-    - assets/tags_tw.json
+    - assets/tags/
     - assets/opencc.txt
 # fonts:
 

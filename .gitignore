@@ -5,9 +5,11 @@
 *.swp
 .DS_Store
 .atom/
+.build/
 .buildlog/
 .history
 .svn/
+.swiftpm/
 migrate_working_dir/
 
 # IntelliJ related
@@ -47,3 +49,10 @@ add_translation.py
 
 */*/generated_*
 */*/Generated*
+docs/
+dist/
+macos/Podfile.lock
+.gitignore
+macos/*.xcodeproj/
+macos/Runner.xcodeproj/xcshareddata/xcschemes/Runner.xcscheme
+result/*.dmg

@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:isolate';
 import 'package:flutter_7zip/flutter_7zip.dart';
 import 'package:venera/foundation/app.dart';
 import 'package:venera/foundation/comic_source/comic_source.dart';
@@ -6,8 +7,30 @@ import 'package:venera/foundation/comic_type.dart';
 import 'package:venera/foundation/local.dart';
 import 'package:venera/utils/ext.dart';
 import 'package:venera/utils/file_type.dart';
+import 'package:venera/utils/import_sort.dart';
 import 'package:venera/utils/io.dart';
+import 'package:venera/utils/translations.dart';
 import 'package:zip_flutter/zip_flutter.dart';
+
+void _copyFilesWorker(List<Object?> args) {
+  final sendPort = args[0] as SendPort;
+  final tasks = (args[1] as List).cast<Map<String, String>>();
+  try {
+    final total = tasks.length;
+    for (var i = 0; i < tasks.length; i++) {
+      final task = tasks[i];
+      final src = File(task['src']!);
+      final dst = File(task['dst']!);
+      src.copySync(dst.path);
+      if ((i + 1) % 20 == 0 || i == tasks.length - 1) {
+        sendPort.send(<String, int>{'done': i + 1, 'total': total});
+      }
+    }
+    sendPort.send(const <String, bool>{'doneAll': true});
+  } catch (e) {
+    sendPort.send(<String, String>{'error': e.toString()});
+  }
+}
 
 class ComicMetaData {
   final String title;
@@ -19,20 +42,21 @@ class ComicMetaData {
   final List<ComicChapter>? chapters;
 
   Map<String, dynamic> toJson() => {
-        'title': title,
-        'author': author,
-        'tags': tags,
-        'chapters': chapters?.map((e) => e.toJson()).toList()
-      };
+    'title': title,
+    'author': author,
+    'tags': tags,
+    'chapters': chapters?.map((e) => e.toJson()).toList(),
+  };
 
   ComicMetaData.fromJson(Map<String, dynamic> json)
-      : title = json['title'],
-        author = json['author'],
-        tags = List<String>.from(json['tags']),
-        chapters = json['chapters'] == null
-            ? null
-            : List<ComicChapter>.from(
-                json['chapters'].map((e) => ComicChapter.fromJson(e)));
+    : title = json['title'],
+      author = json['author'],
+      tags = List<String>.from(json['tags']),
+      chapters = json['chapters'] == null
+          ? null
+          : List<ComicChapter>.from(
+              json['chapters'].map((e) => ComicChapter.fromJson(e)),
+            );
 
   ComicMetaData({
     required this.title,
@@ -52,15 +76,85 @@ class ComicChapter {
   Map<String, dynamic> toJson() => {'title': title, 'start': start, 'end': end};
 
   ComicChapter.fromJson(Map<String, dynamic> json)
-      : title = json['title'],
-        start = json['start'],
-        end = json['end'];
+    : title = json['title'],
+      start = json['start'],
+      end = json['end'];
 
   ComicChapter({required this.title, required this.start, required this.end});
 }
 
 /// Comic Book Archive. Currently supports CBZ, ZIP and 7Z formats.
 abstract class CBZ {
+  static const _imageExtensions = {'jpg', 'jpeg', 'png', 'webp', 'gif', 'jpe'};
+
+  static Future<Directory> _flattenSingleWrapper(Directory root) async {
+    var current = root;
+    while (true) {
+      final children = await current
+          .list()
+          .where((e) => !isHiddenOrMacMetadataPath(e.name))
+          .toList();
+      if (children.length == 1 && children.first is Directory) {
+        current = children.first as Directory;
+        continue;
+      }
+      return current;
+    }
+  }
+
+  static Future<List<File>> _collectImageFiles(Directory directory) async {
+    final files = <File>[];
+    await for (final entity in directory.list(
+      recursive: true,
+      followLinks: false,
+    )) {
+      if (entity is! File) {
+        continue;
+      }
+      if (isHiddenOrMacMetadataPath(entity.path)) {
+        continue;
+      }
+      if (_imageExtensions.contains(entity.extension.toLowerCase())) {
+        files.add(entity);
+      }
+    }
+    naturalSortFiles(files);
+    return files;
+  }
+
+  static Future<Map<String, List<File>>?> _collectTopLevelDirectoryChapters(
+    Directory root,
+  ) async {
+    final chapterDirs = <Directory>[];
+    await for (final entity in root.list(followLinks: false)) {
+      if (isHiddenOrMacMetadataPath(entity.path)) {
+        continue;
+      }
+      if (entity is File &&
+          _imageExtensions.contains(entity.extension.toLowerCase())) {
+        return null;
+      }
+      if (entity is Directory) {
+        chapterDirs.add(entity);
+      }
+    }
+    if (chapterDirs.length < 2) {
+      return null;
+    }
+    final result = <String, List<File>>{};
+    for (final dir in chapterDirs) {
+      final chapterImages = await _collectImageFiles(dir);
+      if (chapterImages.isEmpty) {
+        continue;
+      }
+      result[dir.name] = chapterImages;
+    }
+    if (result.length < 2) {
+      return null;
+    }
+    return result;
+  }
+
   static Future<FileType> checkType(File file) async {
     var header = <int>[];
     await for (var bytes in file.openRead()) {
@@ -81,21 +175,60 @@ abstract class CBZ {
     }
   }
 
-  static Future<LocalComic> import(File file) async {
+  static Future<void> copyFilesInBackground(
+    List<Map<String, String>> tasks, {
+    void Function(int done, int total)? onProgress,
+  }) async {
+    if (tasks.isEmpty) {
+      return;
+    }
+    final receive = ReceivePort();
+    final isolate = await Isolate.spawn(_copyFilesWorker, [
+      receive.sendPort,
+      tasks,
+    ]);
+    try {
+      await for (final event in receive) {
+        if (event is Map) {
+          if (event.containsKey('error')) {
+            throw Exception(event['error'].toString());
+          }
+          if (event.containsKey('done')) {
+            final done = event['done'] as int;
+            final total = event['total'] as int;
+            onProgress?.call(done, total);
+            continue;
+          }
+          if (event['doneAll'] == true) {
+            break;
+          }
+        }
+      }
+    } finally {
+      receive.close();
+      isolate.kill(priority: Isolate.immediate);
+    }
+  }
+
+  static Future<LocalComic> import(
+    File file, {
+    void Function(String message, double? progress)? onProgress,
+  }) async {
+    onProgress?.call("Preparing import".tl, 0.02);
+    onProgress?.call("Extracting archive".tl, 0.08);
     var cache = Directory(FilePath.join(App.cachePath, 'cbz_import'));
     if (cache.existsSync()) cache.deleteSync(recursive: true);
     cache.createSync();
     await extractArchive(file, cache);
-    var f = cache.listSync();
-    if (f.length == 1 && f.first is Directory) {
-      cache = f.first as Directory;
-    }
+    onProgress?.call("Scanning images".tl, 0.2);
+    cache = await _flattenSingleWrapper(cache);
     var metaDataFile = File(FilePath.join(cache.path, 'metadata.json'));
     ComicMetaData? metaData;
     if (metaDataFile.existsSync()) {
       try {
-        metaData =
-            ComicMetaData.fromJson(jsonDecode(metaDataFile.readAsStringSync()));
+        metaData = ComicMetaData.fromJson(
+          jsonDecode(metaDataFile.readAsStringSync()),
+        );
       } catch (_) {}
     }
     metaData ??= ComicMetaData(
@@ -107,29 +240,13 @@ abstract class CBZ {
     if (old != null) {
       throw Exception('Comic with name ${metaData.title} already exists');
     }
-    var files = cache.listSync().whereType<File>().toList();
-    files.removeWhere((e) {
-      var ext = e.path.split('.').last;
-      return !['jpg', 'jpeg', 'png', 'webp', 'gif', 'jpe'].contains(ext);
-    });
+    var files = await _collectImageFiles(cache);
     if (files.isEmpty) {
       cache.deleteSync(recursive: true);
       throw Exception('No images found in the archive');
     }
-    files.sort((a, b) {
-      var aName = a.basenameWithoutExt;
-      var bName = b.basenameWithoutExt;
-      var aIndex = int.tryParse(aName);
-      var bIndex = int.tryParse(bName);
-      if (aIndex != null && bIndex != null) {
-        return aIndex.compareTo(bIndex);
-      } else {
-        return a.path.compareTo(b.path);
-      }
-    });
     var coverFile = files.firstWhereOrNull(
-      (element) =>
-          element.path.endsWith('cover.${element.path.split('.').last}'),
+      (element) => element.basenameWithoutExt.toLowerCase() == 'cover',
     );
     if (coverFile != null) {
       files.remove(coverFile);
@@ -141,33 +258,67 @@ abstract class CBZ {
       FilePath.join(LocalManager().path, sanitizeFileName(metaData.title)),
     );
     dest.createSync();
-    coverFile.copyMem(FilePath.join(dest.path, 'cover.${coverFile.extension}'));
-    if (metaData.chapters == null) {
+    await coverFile.copyFast(
+      FilePath.join(dest.path, 'cover.${coverFile.extension}'),
+    );
+    final directoryChapters = metaData.chapters == null
+        ? await _collectTopLevelDirectoryChapters(cache)
+        : null;
+    if (metaData.chapters == null && directoryChapters == null) {
+      final tasks = <Map<String, String>>[];
       for (var i = 0; i < files.length; i++) {
-        var src = files[i];
-        var dst = File(
-            FilePath.join(dest.path, '${i + 1}.${src.path.split('.').last}'));
-        await src.copyMem(dst.path);
+        final src = files[i];
+        tasks.add({
+          'src': src.path,
+          'dst': FilePath.join(dest.path, '${i + 1}.${src.extension}'),
+        });
       }
+      await copyFilesInBackground(
+        tasks,
+        onProgress: (done, total) {
+          final progress = 0.3 + (done / total) * 0.65;
+          onProgress?.call("Copying pages".tl, progress.clamp(0.0, 0.95));
+        },
+      );
     } else {
       dest.createSync();
-      var chapters = <String, List<File>>{};
-      for (var chapter in metaData.chapters!) {
-        chapters[chapter.title] = files.sublist(chapter.start - 1, chapter.end);
+      final chapters = <String, List<File>>{};
+      if (metaData.chapters != null) {
+        for (var chapter in metaData.chapters!) {
+          chapters[chapter.title] = files.sublist(
+            chapter.start - 1,
+            chapter.end,
+          );
+        }
+      } else {
+        chapters.addAll(directoryChapters!);
       }
       int i = 0;
       cpMap = <String, String>{};
+      final tasks = <Map<String, String>>[];
       for (var chapter in chapters.entries) {
         cpMap[i.toString()] = chapter.key;
         var chapterDir = Directory(FilePath.join(dest.path, i.toString()));
         chapterDir.createSync();
-        for (var i = 0; i < chapter.value.length; i++) {
-          var src = chapter.value[i];
-          var dst = File(FilePath.join(
-              chapterDir.path, '${i + 1}.${src.path.split('.').last}'));
-          await src.copyMem(dst.path);
+        for (var pageIndex = 0; pageIndex < chapter.value.length; pageIndex++) {
+          var src = chapter.value[pageIndex];
+          tasks.add({
+            'src': src.path,
+            'dst': FilePath.join(
+              chapterDir.path,
+              '${pageIndex + 1}.${src.extension}',
+            ),
+          });
         }
+        i++;
       }
+      await copyFilesInBackground(
+        tasks,
+        onProgress: (done, total) {
+          final progress = 0.3 + (done / total) * 0.65;
+          onProgress?.call("Copying chapters".tl, progress.clamp(0.0, 0.95));
+        },
+      );
     }
     var comic = LocalComic(
       id: LocalManager().findValidId(ComicType.local),
@@ -181,6 +332,7 @@ abstract class CBZ {
       cover: 'cover.${coverFile.extension}',
       createdAt: DateTime.now(),
     );
+    onProgress?.call("Finalizing import".tl, 1.0);
     await cache.delete(recursive: true);
     return comic;
   }
@@ -233,19 +385,20 @@ abstract class CBZ {
     }
     var cover = comic.coverFile;
     await cover.copyMem(
-        FilePath.join(cache.path, 'cover.${cover.path.split('.').last}'));
+      FilePath.join(cache.path, 'cover.${cover.path.split('.').last}'),
+    );
     final metaData = ComicMetaData(
       title: comic.title,
       author: comic.subtitle,
       tags: comic.tags,
       chapters: chapters,
     );
-    await File(FilePath.join(cache.path, 'metadata.json')).writeAsString(
-      jsonEncode(metaData),
-    );
-    await File(FilePath.join(cache.path, 'ComicInfo.xml')).writeAsString(
-      _buildComicInfoXml(metaData),
-    );
+    await File(
+      FilePath.join(cache.path, 'metadata.json'),
+    ).writeAsString(jsonEncode(metaData));
+    await File(
+      FilePath.join(cache.path, 'ComicInfo.xml'),
+    ).writeAsString(_buildComicInfoXml(metaData));
     var cbz = File(outFilePath);
     if (cbz.existsSync()) cbz.deleteSync();
     await _compress(cache.path, cbz.path);
@@ -256,7 +409,9 @@ abstract class CBZ {
   static String _buildComicInfoXml(ComicMetaData data) {
     final buffer = StringBuffer();
     buffer.writeln('<?xml version="1.0" encoding="utf-8"?>');
-    buffer.writeln('<ComicInfo xmlns:xsd="http://www.w3.org/2001/XMLSchema" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">');
+    buffer.writeln(
+      '<ComicInfo xmlns:xsd="http://www.w3.org/2001/XMLSchema" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">',
+    );
 
     buffer.writeln('  <Title>${_escapeXml(data.title)}</Title>');
     buffer.writeln('  <Series>${_escapeXml(data.title)}</Series>');
@@ -274,9 +429,12 @@ abstract class CBZ {
     }
 
     if (data.chapters != null && data.chapters!.isNotEmpty) {
-      final chaptersInfo = data.chapters!.map((chapter) =>
-        '${_escapeXml(chapter.title)}: ${chapter.start}-${chapter.end}'
-      ).join('; ');
+      final chaptersInfo = data.chapters!
+          .map(
+            (chapter) =>
+                '${_escapeXml(chapter.title)}: ${chapter.start}-${chapter.end}',
+          )
+          .join('; ');
       buffer.writeln('  <Notes>Chapters: $chaptersInfo</Notes>');
     }
 
@@ -292,15 +450,14 @@ abstract class CBZ {
 
   static String _escapeXml(String text) {
     return text
-      .replaceAll('&', '&amp;')
-      .replaceAll('<', '&lt;')
-      .replaceAll('>', '&gt;')
-      .replaceAll('"', '&quot;')
-      .replaceAll("'", '&apos;');
+        .replaceAll('&', '&amp;')
+        .replaceAll('<', '&lt;')
+        .replaceAll('>', '&gt;')
+        .replaceAll('"', '&quot;')
+        .replaceAll("'", '&apos;');
   }
 
   static _compress(String src, String dst) async {
     await ZipFile.compressFolderAsync(src, dst, 4);
   }
 }
-

@@ -1,0 +1,549 @@
+import 'dart:collection';
+import 'dart:convert';
+
+import 'package:flutter_test/flutter_test.dart';
+import 'package:venera/foundation/app.dart';
+import 'package:venera/foundation/comic_source/comic_source.dart';
+import 'package:venera/foundation/comic_type.dart';
+import 'package:venera/foundation/favorites.dart';
+import 'package:venera/foundation/local.dart';
+import 'package:venera/foundation/local_metadata/local_metadata.dart';
+import 'package:venera/utils/io.dart';
+
+LocalComic _buildComic() {
+  return LocalComic(
+    id: '1',
+    title: 'Series',
+    subtitle: 'Author',
+    tags: const ['tag'],
+    directory: 'series',
+    chapters: const ComicChapters({'c1': 'Chapter 1', 'c2': 'Chapter 2'}),
+    cover: 'cover.jpg',
+    comicType: ComicType.local,
+    downloadedChapters: const ['c1', 'c2'],
+    createdAt: DateTime.fromMillisecondsSinceEpoch(0),
+  );
+}
+
+Future<(LocalManager, LocalMetadataRepository, File)> _buildManagerWithRepo({
+  required String tempPrefix,
+}) async {
+  final dir = await Directory.systemTemp.createTemp(tempPrefix);
+  final sidecar = File(FilePath.join(dir.path, 'local_metadata_v1.json'));
+  final repository = LocalMetadataRepository(sidecar.path);
+  await repository.init();
+  final manager = LocalManager();
+  manager.setMetadataRepositoryForTest(repository);
+  return (manager, repository, sidecar);
+}
+
+Future<(LocalManager, LocalMetadataRepository)> _buildInitializedManagerWithRepo({
+  required String tempPrefix,
+}) async {
+  final dir = await Directory.systemTemp.createTemp(tempPrefix);
+  App.dataPath = dir.path;
+  App.cachePath = dir.path;
+  final sidecar = File(FilePath.join(dir.path, 'local_metadata_v1.json'));
+  final repository = LocalMetadataRepository(sidecar.path);
+  await repository.init();
+  final manager = LocalManager();
+  await manager.init(skipSourceInit: true);
+  manager.setMetadataRepositoryForTest(repository);
+  return (manager, repository);
+}
+
+Future<void> _waitUntil(bool Function() check) async {
+  final deadline = DateTime.now().add(const Duration(seconds: 2));
+  while (DateTime.now().isBefore(deadline)) {
+    if (check()) return;
+    await Future<void>.delayed(const Duration(milliseconds: 20));
+  }
+  throw StateError('condition not met before timeout');
+}
+
+void main() {
+  group('LocalMetadataRepository', () {
+    test('corrupt sidecar falls back to empty document', () async {
+      final dir = await Directory.systemTemp.createTemp('local_meta_corrupt_');
+      final file = File(FilePath.join(dir.path, 'local_metadata_v1.json'));
+      await file.writeAsString('{broken json');
+
+      final repository = LocalMetadataRepository(file.path);
+      await repository.init();
+
+      expect(repository.document.series, isEmpty);
+      expect(repository.document.version, LocalMetadataDocument.currentVersion);
+    });
+
+    test('persist uses replace flow and roundtrips', () async {
+      final dir = await Directory.systemTemp.createTemp('local_meta_write_');
+      final file = File(FilePath.join(dir.path, 'local_metadata_v1.json'));
+
+      final repository = LocalMetadataRepository(file.path);
+      await repository.init();
+      await repository.upsertSeries(
+        LocalSeriesMeta(
+          seriesKey: '0:1',
+          groups: const [
+            LocalChapterGroup(id: 'g1', label: 'Season 1', sortOrder: 0),
+          ],
+          chapters: const {
+            'c1': LocalChapterMeta(
+              chapterId: 'c1',
+              displayTitle: 'Ep 1',
+              groupId: 'g1',
+              sortOrder: 0,
+            ),
+          },
+        ),
+      );
+
+      expect(await file.exists(), isTrue);
+      expect(await File('${file.path}.tmp').exists(), isFalse);
+
+      final payload = jsonDecode(await file.readAsString()) as Map<String, dynamic>;
+      expect(payload['version'], LocalMetadataDocument.currentVersion);
+      expect((payload['series'] as Map<String, dynamic>).containsKey('0:1'), isTrue);
+
+      final reloaded = LocalMetadataRepository(file.path);
+      await reloaded.init();
+      final series = reloaded.getSeries('0:1');
+      expect(series, isNotNull);
+      expect(series!.groups.single.label, 'Season 1');
+      expect(series.chapters['c1']!.displayTitle, 'Ep 1');
+    });
+
+    test('failed persist does not update in-memory document', () async {
+      final dir = await Directory.systemTemp.createTemp('local_meta_write_fail_');
+      final blocker = File(FilePath.join(dir.path, 'blocked'));
+      await blocker.writeAsString('not-a-directory');
+      final repository = LocalMetadataRepository(
+        FilePath.join(blocker.path, 'local_metadata_v1.json'),
+      );
+      await repository.init();
+
+      await expectLater(
+        () => repository.upsertSeries(
+          const LocalSeriesMeta(seriesKey: '0:1', groups: [], chapters: {}),
+        ),
+        throwsA(isA<FileSystemException>()),
+      );
+
+      expect(repository.document.series, isEmpty);
+    });
+  });
+
+  group('LocalManager metadata overlay', () {
+    test('corrupt sidecar still renders legacy chapters', () async {
+      final dir = await Directory.systemTemp.createTemp('local_meta_overlay_bad_');
+      final sidecar = File(FilePath.join(dir.path, 'local_metadata_v1.json'));
+      await sidecar.writeAsString('{bad');
+      final repository = LocalMetadataRepository(sidecar.path);
+      await repository.init();
+
+      final manager = LocalManager();
+      manager.setMetadataRepositoryForTest(repository);
+      final comic = _buildComic();
+
+      final effective = manager.readEffectiveChapters(comic);
+      expect(effective, isNotNull);
+      expect(effective!.groupedChapters.length, 1);
+      expect(effective.groupedChapters.keys.single, LocalSeriesMeta.defaultGroupLabel);
+      expect(
+        effective.groupedChapters[LocalSeriesMeta.defaultGroupLabel],
+        LinkedHashMap<String, String>.from({'c1': 'Chapter 1', 'c2': 'Chapter 2'}),
+      );
+    });
+
+    test('createGroup and renameGroup write sidecar only', () async {
+      final (manager, repository, sidecar) = await _buildManagerWithRepo(
+        tempPrefix: 'local_meta_group_',
+      );
+      final comic = _buildComic();
+      final sidecarBefore = await sidecar.exists()
+          ? await sidecar.readAsString()
+          : '';
+
+      await manager.createGroup(comic, groupId: 'g1', label: 'Season One');
+      await manager.renameGroup(comic, groupId: 'g1', newLabel: 'Season 1');
+
+      final series = repository.getSeries('0:1');
+      expect(series, isNotNull);
+      expect(series!.groups.length, 1);
+      expect(series.groups.first.id, 'g1');
+      expect(series.groups.first.label, 'Season 1');
+      expect(await sidecar.readAsString(), isNot(sidecarBefore));
+    });
+
+    test('createGroup rejects duplicate label', () async {
+      final (manager, _, _) = await _buildManagerWithRepo(
+        tempPrefix: 'local_meta_group_duplicate_create_',
+      );
+      final comic = _buildComic();
+      await manager.createGroup(comic, groupId: 'g1', label: 'Season');
+      await expectLater(
+        () => manager.createGroup(comic, groupId: 'g2', label: 'Season'),
+        throwsA(isA<Exception>()),
+      );
+    });
+
+    test('renameGroup rejects duplicate label', () async {
+      final (manager, _, _) = await _buildManagerWithRepo(
+        tempPrefix: 'local_meta_group_duplicate_rename_',
+      );
+      final comic = _buildComic();
+      await manager.createGroup(comic, groupId: 'g1', label: 'Season 1');
+      await manager.createGroup(comic, groupId: 'g2', label: 'Season 2');
+      await expectLater(
+        () => manager.renameGroup(comic, groupId: 'g2', newLabel: 'Season 1'),
+        throwsA(isA<Exception>()),
+      );
+    });
+
+    test('assignChapterToGroup and renameChapter write overrides only', () async {
+      final (manager, repository, _) = await _buildManagerWithRepo(
+        tempPrefix: 'local_meta_chapter_',
+      );
+      final comic = _buildComic();
+      await manager.createGroup(comic, groupId: 'g1', label: 'Arc 1');
+
+      await manager.assignChapterToGroup(comic, chapterId: 'c1', groupId: 'g1');
+      await manager.renameChapter(comic, chapterId: 'c1', newTitle: 'Episode One');
+
+      final series = repository.getSeries('0:1');
+      expect(series, isNotNull);
+      final c1 = series!.chapters['c1'];
+      expect(c1, isNotNull);
+      expect(c1!.groupId, 'g1');
+      expect(c1.displayTitle, 'Episode One');
+      expect(c1.sortOrder, isNull);
+    });
+
+    test('assignChapterToGroup rejects unknown groupId', () async {
+      final (manager, _, _) = await _buildManagerWithRepo(
+        tempPrefix: 'local_meta_assign_invalid_group_',
+      );
+      final comic = _buildComic();
+
+      await expectLater(
+        () => manager.assignChapterToGroup(comic, chapterId: 'c1', groupId: 'missing'),
+        throwsA(isA<Exception>()),
+      );
+    });
+
+    test('reorderChapters stores sidecar sort order only', () async {
+      final (manager, repository, _) = await _buildManagerWithRepo(
+        tempPrefix: 'local_meta_reorder_',
+      );
+      final comic = _buildComic();
+
+      await manager.reorderChapters(
+        comic,
+        groupId: LocalSeriesMeta.defaultGroupId,
+        orderedChapterIds: const ['c2', 'c1'],
+      );
+
+      final series = repository.getSeries('0:1');
+      expect(series, isNotNull);
+      expect(series!.chapters['c2']!.sortOrder, 0);
+      expect(series.chapters['c1']!.sortOrder, 1);
+      expect(series.chapters['c2']!.groupId, LocalSeriesMeta.defaultGroupId);
+      expect(series.chapters['c1']!.groupId, LocalSeriesMeta.defaultGroupId);
+      expect(comic.chapters!.allChapters['c1'], 'Chapter 1');
+      expect(comic.chapters!.allChapters['c2'], 'Chapter 2');
+    });
+
+    test('reorderChapters rejects unknown groupId', () async {
+      final (manager, _, _) = await _buildManagerWithRepo(
+        tempPrefix: 'local_meta_reorder_invalid_group_',
+      );
+      final comic = _buildComic();
+
+      await expectLater(
+        () => manager.reorderChapters(
+          comic,
+          groupId: 'missing',
+          orderedChapterIds: const ['c1', 'c2'],
+        ),
+        throwsA(isA<Exception>()),
+      );
+    });
+
+    test('reorderGroups rewrites sort order deterministically', () async {
+      final (manager, repository, _) = await _buildManagerWithRepo(
+        tempPrefix: 'local_meta_reorder_groups_',
+      );
+      final comic = _buildComic();
+      await manager.createGroup(comic, groupId: 'g1', label: 'Season 1');
+      await manager.createGroup(comic, groupId: 'g2', label: 'Season 2');
+      await manager.reorderGroups(comic, ['g2', 'g1']);
+      final series = repository.getSeries('0:1')!;
+      expect(series.groups[0].id, 'g2');
+      expect(series.groups[0].sortOrder, 0);
+      expect(series.groups[1].id, 'g1');
+      expect(series.groups[1].sortOrder, 1);
+    });
+
+    test('__default__ group id is normalized to default', () async {
+      final (manager, repository, _) = await _buildManagerWithRepo(
+        tempPrefix: 'local_meta_default_alias_',
+      );
+      final comic = _buildComic();
+      await manager.assignChapterToGroup(
+        comic,
+        chapterId: 'c1',
+        groupId: '__default__',
+      );
+      await manager.reorderChapters(
+        comic,
+        groupId: '__default__',
+        orderedChapterIds: const ['c2', 'c1'],
+      );
+      final series = repository.getSeries('0:1')!;
+      expect(series.chapters['c1']!.groupId, LocalSeriesMeta.defaultGroupId);
+      expect(series.chapters['c2']!.groupId, LocalSeriesMeta.defaultGroupId);
+    });
+
+    test('metadata APIs do not mutate local.db or page assets', () async {
+      final dir = await Directory.systemTemp.createTemp('local_meta_inert_');
+      final sidecar = File(FilePath.join(dir.path, 'local_metadata_v1.json'));
+      final localDb = File(FilePath.join(dir.path, 'local.db'));
+      final pageAsset = File(FilePath.join(dir.path, '1.jpg'));
+      await localDb.writeAsString('legacy-db-sentinel');
+      await pageAsset.writeAsString('image-sentinel');
+
+      final repository = LocalMetadataRepository(sidecar.path);
+      await repository.init();
+      final manager = LocalManager();
+      manager.setMetadataRepositoryForTest(repository);
+      final comic = _buildComic();
+
+      final dbBefore = await localDb.readAsString();
+      final pageBefore = await pageAsset.readAsString();
+
+      await manager.createGroup(comic, groupId: 'g1', label: 'Season');
+      await manager.renameGroup(comic, groupId: 'g1', newLabel: 'Season 1');
+      await manager.assignChapterToGroup(comic, chapterId: 'c1', groupId: 'g1');
+      await manager.renameChapter(comic, chapterId: 'c1', newTitle: 'Ep 1');
+      await manager.reorderChapters(
+        comic,
+        groupId: LocalSeriesMeta.defaultGroupId,
+        orderedChapterIds: const ['c2', 'c1'],
+      );
+
+      expect(await localDb.readAsString(), dbBefore);
+      expect(await pageAsset.readAsString(), pageBefore);
+    });
+
+    test('no sidecar keeps legacy render identical', () async {
+      final dir = await Directory.systemTemp.createTemp('local_meta_overlay_1_');
+      final file = File(FilePath.join(dir.path, 'local_metadata_v1.json'));
+      final repository = LocalMetadataRepository(file.path);
+      await repository.init();
+
+      final manager = LocalManager();
+      manager.setMetadataRepositoryForTest(repository);
+      final comic = _buildComic();
+
+      final effective = manager.readEffectiveChapters(comic);
+      expect(effective, isNotNull);
+      expect(effective!.groupedChapters.length, 1);
+      expect(effective.groupedChapters.keys.single, LocalSeriesMeta.defaultGroupLabel);
+      expect(
+        effective.groupedChapters[LocalSeriesMeta.defaultGroupLabel],
+        LinkedHashMap<String, String>.from({'c1': 'Chapter 1', 'c2': 'Chapter 2'}),
+      );
+      expect(comic.chapters!.allChapters, {'c1': 'Chapter 1', 'c2': 'Chapter 2'});
+    });
+
+    test('group and chapter overlays apply in read model only', () async {
+      final dir = await Directory.systemTemp.createTemp('local_meta_overlay_2_');
+      final file = File(FilePath.join(dir.path, 'local_metadata_v1.json'));
+      final repository = LocalMetadataRepository(file.path);
+      await repository.init();
+
+      final manager = LocalManager();
+      manager.setMetadataRepositoryForTest(repository);
+      final comic = _buildComic();
+
+      await manager.createGroup(comic, groupId: 's1', label: 'Season 1');
+      await manager.assignChapterToGroup(comic, chapterId: 'c1', groupId: 's1');
+      await manager.renameChapter(comic, chapterId: 'c1', newTitle: 'Episode One');
+      await manager.reorderChapters(
+        comic,
+        groupId: LocalSeriesMeta.defaultGroupId,
+        orderedChapterIds: const ['c2'],
+      );
+
+      final effective = manager.readEffectiveChapters(comic);
+      expect(effective, isNotNull);
+      expect(effective!.groupedChapters.keys.toList(), ['Chapters', 'Season 1']);
+      expect(effective.groupedChapters['Season 1']!['c1'], 'Episode One');
+      expect(effective.groupedChapters['Chapters']!['c2'], 'Chapter 2');
+
+      expect(comic.chapters!.allChapters['c1'], 'Chapter 1');
+      expect(comic.chapters!.allChapters['c2'], 'Chapter 2');
+    });
+
+    test('dangling groupId falls back to default without dropping overlays', () async {
+      final dir = await Directory.systemTemp.createTemp('local_meta_dangling_group_');
+      final file = File(FilePath.join(dir.path, 'local_metadata_v1.json'));
+      final repository = LocalMetadataRepository(file.path);
+      await repository.init();
+
+      final manager = LocalManager();
+      manager.setMetadataRepositoryForTest(repository);
+      final comic = _buildComic();
+
+      await repository.upsertSeries(
+        const LocalSeriesMeta(
+          seriesKey: '0:1',
+          groups: [],
+          chapters: {
+            'c1': LocalChapterMeta(
+              chapterId: 'c1',
+              displayTitle: 'Episode One',
+              groupId: 'dangling',
+              sortOrder: 1,
+            ),
+            'c2': LocalChapterMeta(
+              chapterId: 'c2',
+              groupId: 'dangling',
+              sortOrder: 0,
+            ),
+          },
+        ),
+      );
+
+      final effective = manager.readEffectiveChapters(comic);
+      expect(effective, isNotNull);
+      expect(effective!.groupedChapters.keys.toList(), [LocalSeriesMeta.defaultGroupLabel]);
+      final chapters = effective.groupedChapters[LocalSeriesMeta.defaultGroupLabel]!;
+      expect(chapters.keys.toList(), ['c2', 'c1']);
+      expect(chapters['c1'], 'Episode One');
+      expect(chapters['c2'], 'Chapter 2');
+    });
+
+    test('deleteComic clears sidecar metadata', () async {
+      final (manager, repository) = await _buildInitializedManagerWithRepo(
+        tempPrefix: 'local_meta_delete_comic_',
+      );
+      final comic = LocalComic(
+        id: '1',
+        title: 'Series',
+        subtitle: 'Author',
+        tags: const ['tag'],
+        directory: 'series',
+        chapters: const ComicChapters({'c1': 'Chapter 1', 'c2': 'Chapter 2'}),
+        cover: 'cover.jpg',
+        comicType: ComicType.local,
+        downloadedChapters: const ['c1', 'c2'],
+        createdAt: DateTime.fromMillisecondsSinceEpoch(0),
+      );
+      await manager.add(comic);
+      await manager.createGroup(comic, groupId: 'g1', label: 'Season');
+      await manager.renameChapter(comic, chapterId: 'c1', newTitle: 'Old Title');
+
+      manager.deleteComic(comic, false);
+
+      await _waitUntil(() => repository.getSeries('0:1') == null);
+    });
+
+    test('deleteComicChapters clears deleted chapter metadata only', () async {
+      final (manager, repository) = await _buildInitializedManagerWithRepo(
+        tempPrefix: 'local_meta_delete_chapter_',
+      );
+      final comic = LocalComic(
+        id: '1',
+        title: 'Series',
+        subtitle: 'Author',
+        tags: const ['tag'],
+        directory: 'series',
+        chapters: const ComicChapters({'c1': 'Chapter 1', 'c2': 'Chapter 2'}),
+        cover: 'cover.jpg',
+        comicType: ComicType.local,
+        downloadedChapters: const ['c1', 'c2'],
+        createdAt: DateTime.fromMillisecondsSinceEpoch(0),
+      );
+      await manager.add(comic);
+      await manager.createGroup(comic, groupId: 'g1', label: 'Season');
+      await manager.assignChapterToGroup(comic, chapterId: 'c1', groupId: 'g1');
+      await manager.renameChapter(comic, chapterId: 'c1', newTitle: 'Old Title');
+      await manager.renameChapter(comic, chapterId: 'c2', newTitle: 'Keep Title');
+
+      manager.deleteComicChapters(comic, ['c1']);
+
+      await _waitUntil(() {
+        final series = repository.getSeries('0:1');
+        if (series == null) return false;
+        return !series.chapters.containsKey('c1') && series.chapters.containsKey('c2');
+      });
+    });
+
+    test(
+      'deleteComic does not crash when favorite DB exists but favorites manager is uninitialized',
+      () async {
+        await LocalFavoritesManager().close();
+        final (manager, repository) = await _buildInitializedManagerWithRepo(
+          tempPrefix: 'local_meta_delete_uninit_favorites_',
+        );
+        final comic = LocalComic(
+          id: '1',
+          title: 'Series',
+          subtitle: 'Author',
+          tags: const ['tag'],
+          directory: 'series',
+          chapters: const ComicChapters({'c1': 'Chapter 1', 'c2': 'Chapter 2'}),
+          cover: 'cover.jpg',
+          comicType: ComicType.local,
+          downloadedChapters: const ['c1', 'c2'],
+          createdAt: DateTime.fromMillisecondsSinceEpoch(0),
+        );
+        await manager.add(comic);
+        await manager.createGroup(comic, groupId: 'g1', label: 'Season');
+        await File(FilePath.join(App.dataPath, 'local_favorite.db')).writeAsString('');
+
+        expect(() => manager.deleteComic(comic, false), returnsNormally);
+        await _waitUntil(() => repository.getSeries('0:1') == null);
+      },
+    );
+
+    test(
+      'deleteComic calls favorites cleanup when favorites manager is initialized',
+      () async {
+        final (manager, _) = await _buildInitializedManagerWithRepo(
+          tempPrefix: 'local_meta_delete_init_favorites_',
+        );
+        final comic = LocalComic(
+          id: '1',
+          title: 'Series',
+          subtitle: 'Author',
+          tags: const ['tag'],
+          directory: 'series',
+          chapters: const ComicChapters({'c1': 'Chapter 1', 'c2': 'Chapter 2'}),
+          cover: 'cover.jpg',
+          comicType: ComicType.local,
+          downloadedChapters: const ['c1', 'c2'],
+          createdAt: DateTime.fromMillisecondsSinceEpoch(0),
+        );
+        await manager.add(comic);
+        await manager.createGroup(comic, groupId: 'g1', label: 'Season');
+
+        var cleanupCalled = false;
+        final favorites = LocalFavoritesManager();
+        favorites.markInitializedForTest(true);
+        try {
+          LocalFavoritesManager.deleteLocalComicOverrideForTest = (id, type) {
+            cleanupCalled = id == comic.id && type == comic.comicType;
+          };
+
+          expect(() => manager.deleteComic(comic, false), returnsNormally);
+          expect(cleanupCalled, isTrue);
+        } finally {
+          LocalFavoritesManager.deleteLocalComicOverrideForTest = null;
+          favorites.markInitializedForTest(false);
+        }
+      },
+    );
+  });
+}

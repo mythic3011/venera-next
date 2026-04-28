@@ -237,6 +237,7 @@ class Settings with ChangeNotifier {
     'showChapterComments': true, // show chapter comments in reader
     'showChapterCommentsAtEnd':
         false, // show chapter comments at end of chapter
+    'reader_use_source_ref_resolver': false,
   };
 
   operator [](String key) {
