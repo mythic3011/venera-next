@@ -1,5 +1,16 @@
 part of 'components.dart';
 
+double resolveNaviPaneTarget(double width) {
+  final appWindowClass = classifyAppWidth(width);
+  if (appWindowClass == AppWindowClass.compact) {
+    return 0;
+  }
+  if (appWindowClass == AppWindowClass.medium) {
+    return 2;
+  }
+  return width >= changePoint2 ? 3 : 2;
+}
+
 class PaneItemEntry {
   String label;
 
@@ -143,15 +154,7 @@ class NaviPaneState extends State<NaviPane>
   }
 
   double targetFormContext(BuildContext context) {
-    var width = MediaQuery.of(context).size.width;
-    double target = 0;
-    if (width > changePoint) {
-      target = 2;
-    }
-    if (width > changePoint2) {
-      target = 3;
-    }
-    return target;
+    return resolveNaviPaneTarget(MediaQuery.of(context).size.width);
   }
 
   double? animationTarget;
