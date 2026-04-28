@@ -945,6 +945,7 @@ class _LocalComicManagePanelState extends State<_LocalComicManagePanel>
   }
 
   Future<void> _addComicsAsChapters() async {
+    if (saving) return;
     final comic = current;
     if (comic == null) return;
     final all = LocalManager().getComics(LocalSortType.name);
@@ -992,6 +993,13 @@ class _LocalComicManagePanelState extends State<_LocalComicManagePanel>
                         },
                       );
                     },
+                  ),
+                ),
+                Align(
+                  alignment: Alignment.centerRight,
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 0, 16, 4),
+                    child: Text("Selected: ${selected.length}".tl),
                   ),
                 ),
                 CheckboxListTile(
