@@ -1,3 +1,4 @@
+import 'dart:collection';
 import 'dart:convert';
 import 'dart:isolate';
 
@@ -9,6 +10,7 @@ import 'package:venera/foundation/comic_source/comic_source.dart';
 import 'package:venera/foundation/comic_type.dart';
 import 'package:venera/foundation/favorites.dart';
 import 'package:venera/foundation/log.dart';
+import 'package:venera/foundation/local_metadata/local_metadata.dart';
 import 'package:venera/foundation/source_ref.dart';
 import 'package:venera/network/download.dart';
 import 'package:venera/pages/reader/reader.dart';
@@ -185,6 +187,7 @@ class LocalManager with ChangeNotifier {
   }
 
   late Database _db;
+  late LocalMetadataRepository _metadataRepository;
 
   /// path to the directory where all the comics are stored
   late String path;
@@ -296,10 +299,253 @@ class LocalManager with ChangeNotifier {
     }
     _checkPathValidation();
     _checkNoMedia();
+    _metadataRepository = LocalMetadataRepository(
+      FilePath.join(App.dataPath, 'local_metadata_v1.json'),
+    );
+    await _metadataRepository.init();
     await ComicSourceManager().ensureInit();
     restoreDownloadingTasks();
   }
 
+
+  String _metadataSeriesKey(LocalComic comic) {
+    return '${comic.comicType.value}:${comic.id}';
+  }
+
+  void setMetadataRepositoryForTest(LocalMetadataRepository repository) {
+    _metadataRepository = repository;
+  }
+
+  Future<void> createGroup(
+    LocalComic comic, {
+    required String label,
+    String? groupId,
+  }) async {
+    final normalizedLabel = label.trim();
+    if (normalizedLabel.isEmpty) {
+      throw Exception('Group label cannot be empty');
+    }
+    final seriesKey = _metadataSeriesKey(comic);
+    final existing = _metadataRepository.getSeries(seriesKey) ??
+        LocalSeriesMeta(seriesKey: seriesKey, groups: const [], chapters: const {});
+    final groups = existing.groups.toList();
+    final id = (groupId?.trim().isNotEmpty ?? false)
+        ? groupId!.trim()
+        : 'group_${DateTime.now().microsecondsSinceEpoch}';
+    if (groups.any((g) => g.id == id)) {
+      throw Exception('Group already exists');
+    }
+    final maxSortOrder = groups.isEmpty
+        ? -1
+        : groups.map((g) => g.sortOrder).reduce((a, b) => a > b ? a : b);
+    groups.add(
+      LocalChapterGroup(
+        id: id,
+        label: normalizedLabel,
+        sortOrder: maxSortOrder + 1,
+      ),
+    );
+    await _metadataRepository.upsertSeries(existing.copyWith(groups: groups));
+  }
+
+  Future<void> renameGroup(
+    LocalComic comic, {
+    required String groupId,
+    required String newLabel,
+  }) async {
+    final normalizedLabel = newLabel.trim();
+    if (normalizedLabel.isEmpty) {
+      throw Exception('Group label cannot be empty');
+    }
+    final seriesKey = _metadataSeriesKey(comic);
+    final existing = _metadataRepository.getSeries(seriesKey) ??
+        LocalSeriesMeta(seriesKey: seriesKey, groups: const [], chapters: const {});
+    var found = false;
+    final groups = existing.groups.map((group) {
+      if (group.id != groupId) return group;
+      found = true;
+      return LocalChapterGroup(
+        id: group.id,
+        label: normalizedLabel,
+        sortOrder: group.sortOrder,
+      );
+    }).toList();
+    if (!found) {
+      throw Exception('Group not found');
+    }
+    await _metadataRepository.upsertSeries(existing.copyWith(groups: groups));
+  }
+
+  Future<void> reorderGroups(LocalComic comic, List<String> orderedGroupIds) async {
+    final seriesKey = _metadataSeriesKey(comic);
+    final existing = _metadataRepository.getSeries(seriesKey) ??
+        LocalSeriesMeta(seriesKey: seriesKey, groups: const [], chapters: const {});
+    final groupsById = {for (final group in existing.groups) group.id: group};
+    if (orderedGroupIds.toSet().length != orderedGroupIds.length ||
+        groupsById.length != orderedGroupIds.length ||
+        !orderedGroupIds.every(groupsById.containsKey)) {
+      throw Exception('Invalid group order');
+    }
+    final reordered = <LocalChapterGroup>[];
+    for (var i = 0; i < orderedGroupIds.length; i++) {
+      final current = groupsById[orderedGroupIds[i]]!;
+      reordered.add(
+        LocalChapterGroup(id: current.id, label: current.label, sortOrder: i),
+      );
+    }
+    await _metadataRepository.upsertSeries(existing.copyWith(groups: reordered));
+  }
+
+  Future<void> assignChapterToGroup(
+    LocalComic comic, {
+    required String chapterId,
+    String? groupId,
+  }) async {
+    final chapterMap = comic.chapters?.allChapters;
+    if (chapterMap == null || !chapterMap.containsKey(chapterId)) {
+      throw Exception('Chapter not found');
+    }
+    final seriesKey = _metadataSeriesKey(comic);
+    final existing = _metadataRepository.getSeries(seriesKey) ??
+        LocalSeriesMeta(seriesKey: seriesKey, groups: const [], chapters: const {});
+    if (groupId != null &&
+        groupId != LocalSeriesMeta.defaultGroupId &&
+        !existing.groups.any((g) => g.id == groupId)) {
+      throw Exception('Group not found');
+    }
+    final chapters = Map<String, LocalChapterMeta>.from(existing.chapters);
+    final current = chapters[chapterId];
+    chapters[chapterId] = LocalChapterMeta(
+      chapterId: chapterId,
+      displayTitle: current?.displayTitle,
+      groupId: groupId,
+      sortOrder: current?.sortOrder,
+    );
+    await _metadataRepository.upsertSeries(existing.copyWith(chapters: chapters));
+  }
+
+  Future<void> renameChapter(
+    LocalComic comic, {
+    required String chapterId,
+    required String newTitle,
+  }) async {
+    final normalizedTitle = newTitle.trim();
+    final chapterMap = comic.chapters?.allChapters;
+    if (normalizedTitle.isEmpty) {
+      throw Exception('Chapter title cannot be empty');
+    }
+    if (chapterMap == null || !chapterMap.containsKey(chapterId)) {
+      throw Exception('Chapter not found');
+    }
+    final seriesKey = _metadataSeriesKey(comic);
+    final existing = _metadataRepository.getSeries(seriesKey) ??
+        LocalSeriesMeta(seriesKey: seriesKey, groups: const [], chapters: const {});
+    final chapters = Map<String, LocalChapterMeta>.from(existing.chapters);
+    final current = chapters[chapterId];
+    chapters[chapterId] = LocalChapterMeta(
+      chapterId: chapterId,
+      displayTitle: normalizedTitle,
+      groupId: current?.groupId,
+      sortOrder: current?.sortOrder,
+    );
+    await _metadataRepository.upsertSeries(existing.copyWith(chapters: chapters));
+  }
+
+  Future<void> reorderChapters(
+    LocalComic comic, {
+    required String groupId,
+    required List<String> orderedChapterIds,
+  }) async {
+    final chapterMap = comic.chapters?.allChapters;
+    if (chapterMap == null) {
+      throw Exception('Comic does not have chapters');
+    }
+    final knownIds = chapterMap.keys.toSet();
+    if (orderedChapterIds.toSet().length != orderedChapterIds.length ||
+        !orderedChapterIds.every(knownIds.contains)) {
+      throw Exception('Invalid chapter order');
+    }
+    final seriesKey = _metadataSeriesKey(comic);
+    final existing = _metadataRepository.getSeries(seriesKey) ??
+        LocalSeriesMeta(seriesKey: seriesKey, groups: const [], chapters: const {});
+    final chapters = Map<String, LocalChapterMeta>.from(existing.chapters);
+    for (var i = 0; i < orderedChapterIds.length; i++) {
+      final chapterId = orderedChapterIds[i];
+      final current = chapters[chapterId];
+      chapters[chapterId] = LocalChapterMeta(
+        chapterId: chapterId,
+        displayTitle: current?.displayTitle,
+        groupId: groupId,
+        sortOrder: i,
+      );
+    }
+    await _metadataRepository.upsertSeries(existing.copyWith(chapters: chapters));
+  }
+
+  EffectiveChaptersView? readEffectiveChapters(LocalComic comic) {
+    final base = comic.chapters;
+    if (base == null) return null;
+    final series = _metadataRepository.getSeries(_metadataSeriesKey(comic));
+    if (series == null) {
+      final fallback = LinkedHashMap<String, LinkedHashMap<String, String>>();
+      fallback[LocalSeriesMeta.defaultGroupLabel] =
+          LinkedHashMap<String, String>.from(base.allChapters);
+      return EffectiveChaptersView(groupedChapters: fallback);
+    }
+
+    final grouped = LinkedHashMap<String, LinkedHashMap<String, String>>();
+    final allBase = base.allChapters;
+    final chaptersByGroup = <String, List<(String, String, int)>>{};
+
+    var fallbackOrder = 100000;
+    for (final entry in allBase.entries) {
+      final chapterId = entry.key;
+      final chapterTitle = entry.value;
+      final meta = series.chapters[chapterId];
+      final targetGroupId = meta?.groupId ?? LocalSeriesMeta.defaultGroupId;
+      final effectiveTitle = meta?.displayTitle ?? chapterTitle;
+      final sortOrder = meta?.sortOrder ?? fallbackOrder++;
+      chaptersByGroup.putIfAbsent(targetGroupId, () => []);
+      chaptersByGroup[targetGroupId]!.add((chapterId, effectiveTitle, sortOrder));
+    }
+
+    final availableGroups = <LocalChapterGroup>[
+      ...series.groups,
+      if (!series.groups.any((g) => g.id == LocalSeriesMeta.defaultGroupId))
+        const LocalChapterGroup(
+          id: LocalSeriesMeta.defaultGroupId,
+          label: LocalSeriesMeta.defaultGroupLabel,
+          sortOrder: -1,
+        ),
+    ]..sort((a, b) {
+        final byOrder = a.sortOrder.compareTo(b.sortOrder);
+        if (byOrder != 0) return byOrder;
+        return a.id.compareTo(b.id);
+      });
+
+    for (final group in availableGroups) {
+      final rows = chaptersByGroup[group.id];
+      if (rows == null || rows.isEmpty) {
+        continue;
+      }
+      rows.sort((a, b) {
+        final byOrder = a.$3.compareTo(b.$3);
+        if (byOrder != 0) return byOrder;
+        return a.$1.compareTo(b.$1);
+      });
+      final mapped = LinkedHashMap<String, String>();
+      for (final row in rows) {
+        mapped[row.$1] = row.$2;
+      }
+      grouped[group.label] = mapped;
+    }
+
+    if (grouped.isEmpty) {
+      grouped[LocalSeriesMeta.defaultGroupLabel] =
+          LinkedHashMap<String, String>.from(allBase);
+    }
+    return EffectiveChaptersView(groupedChapters: grouped);
+  }
   String findValidId(ComicType type) {
     final res = _db.select(
       '''
