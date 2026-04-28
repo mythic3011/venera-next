@@ -468,6 +468,10 @@ class LocalManager with ChangeNotifier {
     final seriesKey = _metadataSeriesKey(comic);
     final existing = _metadataRepository.getSeries(seriesKey) ??
         LocalSeriesMeta(seriesKey: seriesKey, groups: const [], chapters: const {});
+    if (groupId != LocalSeriesMeta.defaultGroupId &&
+        !existing.groups.any((g) => g.id == groupId)) {
+      throw Exception("Group not found");
+    }
     final chapters = Map<String, LocalChapterMeta>.from(existing.chapters);
     for (var i = 0; i < orderedChapterIds.length; i++) {
       final chapterId = orderedChapterIds[i];
@@ -502,7 +506,13 @@ class LocalManager with ChangeNotifier {
       final chapterId = entry.key;
       final chapterTitle = entry.value;
       final meta = series.chapters[chapterId];
-      final targetGroupId = meta?.groupId ?? LocalSeriesMeta.defaultGroupId;
+      final requestedGroupId = meta?.groupId;
+      final hasRequestedGroup = requestedGroupId == null ||
+          requestedGroupId == LocalSeriesMeta.defaultGroupId ||
+          series.groups.any((g) => g.id == requestedGroupId);
+      final targetGroupId = hasRequestedGroup
+          ? (requestedGroupId ?? LocalSeriesMeta.defaultGroupId)
+          : LocalSeriesMeta.defaultGroupId;
       final effectiveTitle = meta?.displayTitle ?? chapterTitle;
       final sortOrder = meta?.sortOrder ?? fallbackOrder++;
       chaptersByGroup.putIfAbsent(targetGroupId, () => []);

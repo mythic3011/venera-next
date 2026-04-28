@@ -149,6 +149,18 @@ void main() {
       expect(c1.sortOrder, isNull);
     });
 
+    test('assignChapterToGroup rejects unknown groupId', () async {
+      final (manager, _, _) = await _buildManagerWithRepo(
+        tempPrefix: 'local_meta_assign_invalid_group_',
+      );
+      final comic = _buildComic();
+
+      await expectLater(
+        () => manager.assignChapterToGroup(comic, chapterId: 'c1', groupId: 'missing'),
+        throwsA(isA<Exception>()),
+      );
+    });
+
     test('reorderChapters stores sidecar sort order only', () async {
       final (manager, repository, _) = await _buildManagerWithRepo(
         tempPrefix: 'local_meta_reorder_',
@@ -169,6 +181,22 @@ void main() {
       expect(series.chapters['c1']!.groupId, LocalSeriesMeta.defaultGroupId);
       expect(comic.chapters!.allChapters['c1'], 'Chapter 1');
       expect(comic.chapters!.allChapters['c2'], 'Chapter 2');
+    });
+
+    test('reorderChapters rejects unknown groupId', () async {
+      final (manager, _, _) = await _buildManagerWithRepo(
+        tempPrefix: 'local_meta_reorder_invalid_group_',
+      );
+      final comic = _buildComic();
+
+      await expectLater(
+        () => manager.reorderChapters(
+          comic,
+          groupId: 'missing',
+          orderedChapterIds: const ['c1', 'c2'],
+        ),
+        throwsA(isA<Exception>()),
+      );
     });
 
     test('metadata APIs do not mutate local.db or page assets', () async {
@@ -250,6 +278,45 @@ void main() {
 
       expect(comic.chapters!.allChapters['c1'], 'Chapter 1');
       expect(comic.chapters!.allChapters['c2'], 'Chapter 2');
+    });
+
+    test('dangling groupId falls back to default without dropping overlays', () async {
+      final dir = await Directory.systemTemp.createTemp('local_meta_dangling_group_');
+      final file = File(FilePath.join(dir.path, 'local_metadata_v1.json'));
+      final repository = LocalMetadataRepository(file.path);
+      await repository.init();
+
+      final manager = LocalManager();
+      manager.setMetadataRepositoryForTest(repository);
+      final comic = _buildComic();
+
+      await repository.upsertSeries(
+        const LocalSeriesMeta(
+          seriesKey: '0:1',
+          groups: [],
+          chapters: {
+            'c1': LocalChapterMeta(
+              chapterId: 'c1',
+              displayTitle: 'Episode One',
+              groupId: 'dangling',
+              sortOrder: 1,
+            ),
+            'c2': LocalChapterMeta(
+              chapterId: 'c2',
+              groupId: 'dangling',
+              sortOrder: 0,
+            ),
+          },
+        ),
+      );
+
+      final effective = manager.readEffectiveChapters(comic);
+      expect(effective, isNotNull);
+      expect(effective!.groupedChapters.keys.toList(), [LocalSeriesMeta.defaultGroupLabel]);
+      final chapters = effective.groupedChapters[LocalSeriesMeta.defaultGroupLabel]!;
+      expect(chapters.keys.toList(), ['c2', 'c1']);
+      expect(chapters['c1'], 'Episode One');
+      expect(chapters['c2'], 'Chapter 2');
     });
   });
 }
