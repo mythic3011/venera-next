@@ -67,13 +67,13 @@ Future<void> importAppData(File file, [bool checkVersion = false]) async {
       }
     }
     if (await historyFile.exists()) {
-      HistoryManager().close();
+      await HistoryManager().close();
       File(FilePath.join(App.dataPath, "history.db")).deleteIfExistsSync();
       historyFile.renameSync(FilePath.join(App.dataPath, "history.db"));
       HistoryManager().init();
     }
     if (await localFavoriteFile.exists()) {
-      LocalFavoritesManager().close();
+      await LocalFavoritesManager().close();
       File(FilePath.join(App.dataPath, "local_favorite.db"))
           .deleteIfExistsSync();
       localFavoriteFile
@@ -186,7 +186,7 @@ Future<void> importPicaData(File file) async {
       var db = sqlite3.open(historyFile.path);
       try {
         for (var comic in db.select("SELECT * FROM history;")) {
-          HistoryManager().addHistory(
+          await HistoryManager().addHistory(
             History.fromMap({
               "type": switch (comic['type']) {
                 0 => 'picacg'.hashCode,

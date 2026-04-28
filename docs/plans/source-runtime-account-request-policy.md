@@ -2,9 +2,9 @@
 
 ## Problem
 
-Comic source JavaScript currently owns too much mutable runtime behavior. Sources can directly manage account state, cookies, request headers, retry behavior, cooldowns, and ad hoc error handling. This makes each source implement its own policy surface and creates inconsistent behavior across account login, account switching, session recovery, and blocked requests.
+Comic source JavaScript currently owns too much mutable runtime behavior. Sources can directly manage account state, cookies, request headers, retry behavior, cooldowns, and ad hoc error handling. This creates inconsistent behavior across account login, account switching, blocked requests, and parser failures.
 
-The current model also makes multi-account support risky. If requests read the active account at execution time, a user switching accounts can cause queued or retried requests to run with different cookies than the request originally intended. That produces hard-to-debug races and source-specific failures.
+The current model also makes multi-account support risky. If requests read active account state at execution time, queued or retried requests may run with different credentials than originally bound.
 
 ## Goals
 
@@ -12,16 +12,21 @@ The current model also makes multi-account support risky. If requests read the a
 - Make the request pipeline the only owner of request-time headers, cookies, retry, cooldown, and diagnostics behavior.
 - Support multi-account profiles with immutable request-time account snapshots.
 - Keep JavaScript source logic bounded to source-specific hooks and parsers.
-- Add a first-version diagnostics taxonomy so legacy and new runtime failures can be reported consistently.
+- Add stable diagnostics taxonomy so legacy and new runtime failures can be reported consistently.
 - Keep legacy sources working through a best-effort adapter.
+- Add protected-origin classification boundaries for runtime safety and deterministic failures.
 
 ## Non-goals
 
 - Do not replace all existing source APIs in one change.
 - Do not require every existing source to migrate immediately.
 - Do not promise perfect diagnostics classification for legacy throw strings.
-- Do not build a full Source SDK v2 in the first implementation.
-- Do not implement a custom cryptographic storage layer.
+- Do not build a full Source SDK v2 in Phase 1.
+- Do not implement custom cryptographic storage.
+- Do not bypass anti-bot/CAPTCHA protections.
+- Do not include source distribution/store platform work in Phase 1.
+- Do not include source-scoped i18n catalog loading in Phase 1.
+- Do not include explorer/discovery product redesign in Phase 1.
 
 ## Ownership Model
 
@@ -33,30 +38,29 @@ Dart owns mutable runtime state and lifecycle:
 - request-time account snapshots
 - cookie application
 - header profile application
-- retry, queue, cooldown, and response classification lifecycle
-- diagnostics taxonomy and error wrapping
+- retry, queue, cooldown, response classification, and diagnostics
 
-JavaScript source files provide bounded source-specific behavior:
+JavaScript sources provide bounded source-specific behavior:
 
-- declarative capability and account metadata
-- URL builders and payload builders
+- declarative capabilities and account metadata
+- URL/payload builders
 - parsers
-- executable hooks with restricted input and structured output
+- executable hooks with structured input/output
 
-Avoid describing source policy as fully declarative. The correct model is runtime-owned lifecycle with source-provided bounded hooks.
+Use precise wording: runtime-owned lifecycle with source-provided bounded hooks.
 
 ## Runtime Architecture
 
-The MVP introduces these Dart-side components:
+Phase 1 introduces:
 
 - `ComicSourceRuntimeRequest`: single request entrypoint for source-owned network calls.
-- `ComicSourceAccountStore`: per-source account profile index plus secure secret references.
-- `ComicSourceAccountManager`: profile CRUD, active account selection, and validation orchestration.
-- `ComicSourceRequestPolicy`: retry, cooldown, queue, and response classification decisions.
+- `ComicSourceAccountStore`: per-source profile index plus secure secret references.
+- `ComicSourceAccountManager`: profile CRUD, active selection, validation orchestration.
+- `ComicSourceRequestPolicy`: retry, cooldown, queue, response classification decisions.
 - `ComicSourceDiagnostics`: structured error codes and stage-aware reporting.
-- `LegacyComicSourceAdapter`: preserves existing behavior and maps errors opportunistically.
+- `LegacyComicSourceAdapter`: behavior-preserving legacy path with opportunistic diagnostics mapping.
 
-The request pipeline is the authority:
+Request pipeline authority:
 
 ```text
 ComicSourceRuntimeRequest
@@ -70,11 +74,11 @@ ComicSourceRuntimeRequest
   -> emit Diagnostics
 ```
 
-Account manager must not directly mutate request headers for in-flight requests. Account switching only affects new request contexts.
+Account manager must not mutate in-flight request headers. Account switching affects new contexts only.
 
 ## Data Model
 
-Non-secret account metadata is stored in a source-scoped account index:
+Non-secret account metadata is stored in source-scoped account index:
 
 ```json
 {
@@ -96,37 +100,37 @@ Non-secret account metadata is stored in a source-scoped account index:
 }
 ```
 
-Secret values are not stored in ordinary source data. They are stored behind secure references:
+Secret values are never stored in ordinary source data:
 
 ```text
 comic_source_accounts/{sourceKey}/{profileId}
 comic_source_account_index/{sourceKey}
 ```
 
-The account profile revision increments when credential-like material changes.
+Profile `revision` increments when credential-like material changes.
 
 ## Secret Boundary
 
-Credential-like data includes cookie field values, tokens, passwords, and account validation secrets. These values must not be stored as ordinary JSON in source data.
+Credential-like data includes cookie fields, tokens, passwords, and validation secrets.
 
-Use platform secure storage where available:
+Rules:
 
-- iOS: Keychain-backed storage.
-- Android: Keystore-backed encrypted storage through platform secure storage.
-- Other platforms: use the strongest supported platform-backed storage and clearly mark weaker storage behavior.
+- Do not store secrets in ordinary source data.
+- Use platform secure storage abstraction.
+- Do not hand-roll crypto or use plain encrypted JSON as primary store.
 
-Do not hand-roll crypto or implement a plain encrypted JSON file as the primary secret store.
+Capability flags required on secure storage abstraction:
 
-Export/import behavior:
+- `supportsHardwareBackedKeys`
+- `supportsNonExportableKeys`
+- `supportsBiometricOrDeviceAuthGate`
+- `supportsBulkSecretStorage`
 
-- Source configuration and non-secret source data can be exported.
-- Account secret store is excluded by default.
-- Exporting secrets requires explicit user opt-in and a warning.
-- Imported secrets must be revalidated before use.
+If a platform is weaker, secrets remain isolated from source data, and export/debug surfaces must label effective protection level.
 
 ## Request Flow
 
-Each runtime request creates an immutable context:
+Each request creates immutable context:
 
 ```dart
 class SourceRequestContext {
@@ -139,92 +143,104 @@ class SourceRequestContext {
 }
 ```
 
-The context is immutable after creation. Retry, cooldown, queue, and diagnostics must reference or copy the same context. They must not reread the current active account during execution.
-
-Request execution steps:
+Execution steps:
 
 1. Resolve source and requested header profile.
 2. Create `SourceRequestContext`.
-3. Resolve account profile snapshot from `accountProfileId` and `accountRevision`.
+3. Resolve account snapshot using `accountProfileId` + `accountRevision`.
 4. Apply header profile.
-5. Load cookies or credential material for the snapshot profile.
-6. Execute request through the app HTTP client.
-7. Classify response with runtime policy and optional source hook.
-8. Emit structured diagnostics for failures.
+5. Load snapshot-bound cookies/credentials.
+6. Execute request through runtime HTTP client.
+7. Classify response through runtime policy and optional hook.
+8. Emit structured diagnostics.
 
-If the snapshot profile is deleted before execution, fail with `ACCOUNT_PROFILE_UNAVAILABLE`. Do not silently fallback to the active profile.
+Snapshot behavior:
+
+- If profile deleted before execution: `ACCOUNT_PROFILE_UNAVAILABLE`.
+- If profile exists but revision mismatches: `ACCOUNT_REVISION_MISMATCH`.
+- Future optional policy: allow stale revision only for explicitly idempotent reads.
 
 ## Account Switching Semantics
 
-Account switching updates only the active profile pointer used for new requests. It must not mutate existing `SourceRequestContext` instances.
-
-Rules:
-
-- New requests bind to the current active account unless explicitly given a profile id.
-- Queued requests continue with their original profile id and revision.
-- Retries use the same request context.
-- Cooldown keys include source key, domain, and optionally profile id when the block is account-specific.
-- Logout clears the active pointer and selected session material, but account profile deletion is explicit.
+- New requests bind current active profile unless caller provides explicit profile id.
+- Queued requests keep original profile id + revision.
+- Retries use same request context.
+- Cooldown keys include source + domain, and profile id when block is account-specific.
+- Logout clears active pointer and selected session material; profile deletion is explicit.
 
 ## Source Hooks Contract
 
-Hooks are executable source-specific logic, not plain declarative policy. They must be bounded and pure-ish.
+Hooks are executable, source-specific, and bounded.
 
 Initial hooks:
 
-- `AccountValidatorHook`: validates account fields or cookie material.
-- `ResponseClassifierHook`: classifies source-specific blocked or expired responses.
-- `SessionRecoveryHook`: attempts source-specific recovery when the runtime asks for it.
+- `AccountValidatorHook`
+- `ResponseClassifierHook`
+
+Future hooks:
+
+- `SessionRecoveryHook`
 
 Hook constraints:
 
-- Hooks receive structured input and return structured results.
-- Hooks must not write account store, cookie jar, global source data, or request headers directly.
-- Hooks must not mutate runtime-owned state.
-- Hooks run with runtime-enforced timeout.
-- Hook timeout and hook failure fail closed.
+- Structured input and structured output only.
+- Must not mutate account store, cookie jar, request headers, or global runtime state.
+- Runtime-enforced timeout.
+- Hook timeout/failure fail closed.
 
-Example result shape:
+Hook boundary recommendation:
 
-```json
-{
-  "ok": false,
-  "code": "COOKIE_EXPIRED",
-  "message": "Login cookie is expired",
-  "metadata": {
-    "field": "igneous"
-  }
-}
-```
+- Hook API must be JSON input/output.
+- Runtime should treat hooks as message-passing boundaries, even if first implementation reuses current JS engine.
+- This preserves compatibility with future isolate/out-of-process execution.
 
-Timeout behavior:
+Response classifier fallback (required behavior):
 
-- Account validation timeout maps to `SOURCE_HOOK_TIMEOUT` and then `ACCOUNT_VALIDATION_FAILED`.
-- Response classification timeout maps to `SOURCE_HOOK_TIMEOUT`; the runtime falls back to safe default classification.
-- Session recovery timeout maps to `SESSION_RECOVERY_FAILED`.
+- preserve HTTP status and content-type metadata
+- do not parse protected/challenge-looking HTML as normal comic content
+- map unknown non-2xx to `HTTP_UNEXPECTED_STATUS`
+- map challenge-looking page to `SOURCE_CHALLENGE_REQUIRED` only if runtime detector matches
+- continue normal parser path only for expected status/content-type combinations
+
+## Anti-Bot and Protected Origins
+
+Protected origins (Cloudflare challenge pages, bot mitigation interstitials, JS challenges) are explicit runtime states, not generic parser errors.
+
+Policy:
+
+- detect protected/challenge responses before parser stage where possible
+- classify with explicit diagnostics
+- avoid infinite automated retry loops on challenge pages
+- keep behavior policy-compliant and best-effort (no bypass automation)
 
 ## Diagnostics Taxonomy
 
-First-version error codes:
+Phase 1 error codes:
 
 ```text
 ACCOUNT_MISSING_FIELD
+ACCOUNT_SECRET_UNAVAILABLE
 ACCOUNT_PROFILE_UNAVAILABLE
+ACCOUNT_REVISION_MISMATCH
 ACCOUNT_VALIDATION_FAILED
 COOKIE_EXPIRED
 COOKIE_APPLY_FAILED
+SECURE_STORAGE_UNAVAILABLE
 REQUEST_COOLDOWN
 REQUEST_TIMEOUT
 HTTP_BLOCKED
 HTTP_UNEXPECTED_STATUS
+HEADER_PROFILE_UNKNOWN
 PARSER_EMPTY_RESULT
 PARSER_INVALID_CONTENT
-SESSION_RECOVERY_FAILED
+SOURCE_CAPABILITY_MISSING
+SOURCE_CHALLENGE_REQUIRED
 SOURCE_HOOK_FAILED
 SOURCE_HOOK_TIMEOUT
+SOURCE_HOOK_INVALID_RESULT
 ```
 
-Runtime errors use a common envelope:
+Runtime error envelope:
 
 ```dart
 class SourceRuntimeError {
@@ -233,67 +249,120 @@ class SourceRuntimeError {
   final String sourceKey;
   final String? requestId;
   final String? accountProfileId;
-  final String stage; // parse, account, request, parser, session
+  final SourceRuntimeStage stage;
   final Object? cause;
+}
+
+enum SourceRuntimeStage {
+  account,
+  request,
+  responseClassification,
+  parser,
+  session,
+  storage,
+  legacy,
 }
 ```
 
-UI does not need a complex diagnostics screen in the MVP. It should show the user-facing message and preserve structured details for logs/debug tooling.
+UI requirement in Phase 1:
 
-Do not expose stack traces or raw secret values in user-visible messages or logs.
+- runtime emits stable `code` + developer message
+- UI maps known codes to app-owned localized user messages
+- hook-provided text is debug metadata, not primary user-facing copy
 
 ## Legacy Compatibility
 
-Legacy sources continue to run through existing APIs. The legacy adapter preserves behavior first.
+Legacy sources continue using existing APIs. Adapter behavior is preserve-first.
 
-Diagnostics mapping on legacy paths is best-effort only. Legacy throw strings and source-specific errors may map to generic codes such as `SOURCE_HOOK_FAILED`, `HTTP_UNEXPECTED_STATUS`, or `PARSER_INVALID_CONTENT`.
-
-The runtime must not claim complete classification for legacy errors.
+Diagnostics mapping is best-effort only; legacy throw strings may map to generic runtime codes.
 
 ## Migration Plan
 
-1. Add diagnostics taxonomy and error envelope without changing source behavior.
-2. Add account store index and secure secret store abstraction.
+### Phase 1 - Runtime Account + Request Core
+
+1. Add `SourceRuntimeError`, `SourceRuntimeStage`, and stable diagnostics codes.
+2. Add secure account store abstraction + source-scoped account index.
 3. Add immutable `SourceRequestContext`.
-4. Add runtime request pipeline behind a new bridge API.
-5. Add account validation hook support.
-6. Add one migrated source as a reference implementation.
-7. Keep old source APIs as legacy adapter paths.
-8. Gradually move sources to runtime-owned account/request policy.
+4. Add runtime request bridge.
+5. Add `HeaderProfile` application in runtime pipeline.
+6. Add cookie loading from profile snapshot.
+7. Add `AccountValidatorHook`.
+8. Add `ResponseClassifierHook` + strict fallback behavior.
+9. Add legacy best-effort diagnostics adapter.
+10. Migrate one reference source (preferably e-hentai/exhentai).
+
+### Phase 2 - Platform Expansion
+
+- `SessionRecoveryHook`
+- protected-origin WebView recovery flow
+- source feed signing/provenance
+- source hub/store UI
+- source-scoped i18n catalogs
+- shared explorer descriptors
 
 ## Test Plan
 
 Unit tests:
 
-- Account profile create, update, delete, and switch.
-- Secret values are not stored in ordinary source data.
-- Export excludes account secrets by default.
-- Import requires revalidation for secrets.
-- Request context is immutable after creation.
-- Retry uses the same request context.
-- Queued request keeps original account profile after account switch.
-- Deleted snapshot profile fails with `ACCOUNT_PROFILE_UNAVAILABLE`.
-- Hook timeout maps to fail-closed diagnostics.
-- Legacy errors are mapped opportunistically without changing behavior.
+- profile CRUD and active switching
+- secrets never stored in ordinary source data
+- export excludes secrets by default
+- import requires secret revalidation
+- `SourceRequestContext` immutability
+- retry uses same request context
+- queued request keeps original profile snapshot after account switch
+- deleted profile snapshot -> `ACCOUNT_PROFILE_UNAVAILABLE`
+- revision mismatch -> `ACCOUNT_REVISION_MISMATCH`
+- hook timeout -> fail-closed diagnostics
+- malformed hook payload -> `SOURCE_HOOK_INVALID_RESULT`
+- legacy mapping remains best-effort without behavior regression
 
 Integration tests:
 
-- Add source with legacy account config.
-- Add source with runtime account config.
-- Switch accounts while requests are queued.
-- Validate cookie-based login through hook.
-- Classify blocked HTTP response through runtime policy.
+- add source with legacy account config
+- add source with runtime account config
+- switch accounts while requests are queued
+- cookie-based login validation hook
+- blocked/challenge response classification
+- challenge/interstitial response -> `SOURCE_CHALLENGE_REQUIRED`
 
 Security tests:
 
-- No secret values in logs.
-- No secret values in source data export by default.
-- Hook cannot directly mutate account store or cookie jar.
+- no secret values in logs
+- no secret values in standard source export
+- hooks cannot mutate runtime-owned account/cookie state
+- weak-storage platforms are explicitly labeled in protection metadata
+
+## Future Work
+
+### Source Distribution Model
+
+- built-in vs managed feed channels
+- feed signing, provenance, revoke list, kill-switch
+- custom feed governance
+
+Implementation planning should move to:
+`docs/plans/source-distribution-and-feed-security.md`
+
+### Localization Contract
+
+Phase 2 only:
+
+- source-scoped JSON catalogs
+- locale aliasing + deterministic fallback
+- missing-key telemetry policies
+
+### Explorer and Discovery Surface
+
+Phase 2 only:
+
+- normalized `ExploreDescriptor` for source hub preview
+- shared discovery telemetry and permission UX
 
 ## Open Questions
 
-- Which secure storage package or platform abstraction should be used for each supported platform?
-- Should cooldown scope default to domain-only or domain plus profile id?
-- Should source hooks run in the main JS engine or an isolated JS context?
-- What timeout defaults should be used for validation, response classification, and session recovery hooks?
-- Which source should be the first migrated reference source?
+- Which secure storage package/abstraction should be used per platform?
+- Should cooldown scope default to domain-only or domain+profile?
+- What timeout defaults should be used for validation/classification hooks?
+- Which source should be first migrated reference source?
+- How should UI communicate unsupported protected-origin states without encouraging bypass behavior?

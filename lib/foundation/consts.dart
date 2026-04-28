@@ -15,3 +15,10 @@ const firstPage = 1;
 
 /// Chapters for all comics is started from this value.
 const firstChapter = 1;
+
+const repoBaseUrl = "https://github.com/venera-app/venera";
+const repoDocsBaseUrl = "$repoBaseUrl/blob/master/doc";
+const importComicDocUrl = "$repoDocsBaseUrl/import_comic.md";
+const comicSourceDocUrl = "$repoDocsBaseUrl/comic_source.md";
+const appDataFieldsDocUrl =
+    "$repoBaseUrl/blob/master/lib/foundation/appdata.dart#L138";

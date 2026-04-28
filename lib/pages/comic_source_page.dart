@@ -7,6 +7,7 @@ import 'package:venera/components/components.dart';
 import 'package:venera/foundation/app.dart';
 import 'package:venera/foundation/appdata.dart';
 import 'package:venera/foundation/comic_source/comic_source.dart';
+import 'package:venera/foundation/consts.dart';
 import 'package:venera/foundation/log.dart';
 import 'package:venera/network/app_dio.dart';
 import 'package:venera/network/cookie_jar.dart';
@@ -283,9 +284,7 @@ class _BodyState extends State<_Body> {
   }
 
   void help() {
-    launchUrlString(
-      "https://github.com/venera-app/venera/blob/master/doc/comic_source.md",
-    );
+    launchUrlString(comicSourceDocUrl);
   }
 
   Future<void> handleAddSource(String url) async {
@@ -442,9 +441,7 @@ class _ComicSourceListState extends State<_ComicSourceList> {
                   children: [
                     TextButton(
                       onPressed: () {
-                        launchUrlString(
-                          "https://github.com/venera-app/venera/blob/master/doc/comic_source.md",
-                        );
+                        launchUrlString(comicSourceDocUrl);
                       },
                       child: Text("Help".tl),
                     ),

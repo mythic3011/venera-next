@@ -12,15 +12,16 @@ class ComicType {
   int get hashCode => value.hashCode;
 
   String get sourceKey {
-    if(this == local) {
+    if (this == local) {
       return "local";
     } else {
-      return comicSource!.key;
+      final source = comicSource;
+      return source?.key ?? "Unknown:$value";
     }
   }
 
   ComicSource? get comicSource {
-    if(this == local) {
+    if (this == local) {
       return null;
     } else {
       return ComicSource.fromIntKey(value);
@@ -30,8 +31,14 @@ class ComicType {
   static const local = ComicType(0);
 
   factory ComicType.fromKey(String key) {
-    if(key == "local") {
+    if (key == "local") {
       return local;
+    } else if (key.startsWith("Unknown:")) {
+      final intKey = int.tryParse(key.substring("Unknown:".length));
+      if (intKey != null) {
+        return ComicType(intKey);
+      }
+      return ComicType(key.hashCode);
     } else {
       return ComicType(key.hashCode);
     }

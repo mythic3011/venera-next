@@ -11,7 +11,18 @@ extension AppTranslation on String {
     if (locale.languageCode == "en") {
       key = "en_US";
     }
-    return (translations[key]?[this]) ?? this;
+    final fallbackKeys = <String>[
+      key,
+      if (key == "zh_HK" || key == "zh_MO") "zh_TW",
+      if (locale.languageCode == "zh") "zh_CN",
+    ];
+    for (final fallbackKey in fallbackKeys) {
+      final translated = translations[fallbackKey]?[this];
+      if (translated != null) {
+        return translated;
+      }
+    }
+    return this;
   }
 
   String get tl => _translate();
@@ -29,10 +40,23 @@ extension AppTranslation on String {
   static late final Map<String, Map<String, String>> translations;
 
   static Future<void> init() async {
+    final splitLocales = ["zh_CN", "zh_TW", "zh_HK"];
+    final loaded = <String, Map<String, String>>{};
+    for (final locale in splitLocales) {
+      try {
+        final data = await rootBundle.load("assets/i18n/$locale.json");
+        final json = jsonDecode(utf8.decode(data.buffer.asUint8List()));
+        loaded[locale] = Map<String, String>.from(json);
+      } catch (_) {}
+    }
+    if (loaded.isNotEmpty) {
+      translations = loaded;
+      return;
+    }
     var data = await rootBundle.load("assets/translation.json");
     var json = jsonDecode(utf8.decode(data.buffer.asUint8List()));
     translations = {
-      for (var e in json.entries) e.key: Map<String, String>.from(e.value)
+      for (var e in json.entries) e.key: Map<String, String>.from(e.value),
     };
   }
 

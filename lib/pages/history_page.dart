@@ -66,22 +66,10 @@ class _HistoryPageState extends State<HistoryPage> {
   }
 
   void _removeHistory(History comic) {
-    if (comic.sourceKey.startsWith("Unknown")) {
-      HistoryManager().remove(
-        comic.id,
-        ComicType(int.parse(comic.sourceKey.split(':')[1])),
-      );
-    } else if (comic.sourceKey == 'local') {
-      HistoryManager().remove(
-        comic.id,
-        ComicType.local,
-      );
-    } else {
-      HistoryManager().remove(
-        comic.id,
-        ComicType(comic.sourceKey.hashCode),
-      );
-    }
+    HistoryManager().remove(
+      comic.id,
+      ComicType.fromKey(comic.sourceKey),
+    );
   }
 
   void _refreshHistory(History comic) async {
@@ -289,7 +277,10 @@ class _HistoryPageState extends State<HistoryPage> {
                     }
                   : null,
               badgeBuilder: (c) {
-                return ComicSource.find(c.sourceKey)?.name;
+                if (c.sourceKey == 'local') {
+                  return 'Local'.tl;
+                }
+                return ComicSource.find(c.sourceKey)?.name ?? c.sourceKey;
               },
               menuBuilder: (c) {
                 return [

@@ -82,6 +82,7 @@ class _WindowFrameState extends State<WindowFrame> {
         return;
       }
     }
+    WindowPlacement.stop();
     exit(0);
   }
 
@@ -448,6 +449,9 @@ Paint getPaint(Color color, [bool isAntiAlias = false]) => Paint()
   ..strokeWidth = 1;
 
 class WindowPlacement {
+  static const Duration _writeDebounceDuration = Duration(milliseconds: 300);
+  static const Duration _fallbackPollDuration = Duration(seconds: 5);
+
   final Rect rect;
 
   final bool isMaximized;
@@ -510,22 +514,101 @@ class WindowPlacement {
 
   static WindowPlacement cache = defaultPlacement;
 
-  static Timer? timer;
+  static _WindowPlacementListener? _listener;
+  static Timer? _fallbackPollTimer;
+  static Timer? _debounceTimer;
+  static bool _isWriting = false;
+  static bool _writeQueued = false;
 
-  static void loop() async {
-    timer ??= Timer.periodic(const Duration(milliseconds: 100), (timer) async {
-      var placement = await WindowPlacement.current;
-      if (placement.rect != cache.rect ||
-          placement.isMaximized != cache.isMaximized) {
-        cache = placement;
-        await placement.writeToFile();
-      }
-    });
+  static void loop() {
+    if (_listener == null) {
+      _listener = _WindowPlacementListener();
+      windowManager.addListener(_listener!);
+    }
+    _fallbackPollTimer ??=
+        Timer.periodic(_fallbackPollDuration, (_) => _scheduleWrite());
+    _scheduleWrite();
+  }
+
+  static void stop() {
+    if (_listener != null) {
+      windowManager.removeListener(_listener!);
+      _listener = null;
+    }
+    _fallbackPollTimer?.cancel();
+    _fallbackPollTimer = null;
+    _debounceTimer?.cancel();
+    _debounceTimer = null;
+  }
+
+  static void _scheduleWrite() {
+    _debounceTimer?.cancel();
+    _debounceTimer = Timer(_writeDebounceDuration, _flushWrite);
+  }
+
+  static Future<void> _flushWrite() async {
+    if (_isWriting) {
+      _writeQueued = true;
+      return;
+    }
+
+    _isWriting = true;
+    try {
+      do {
+        _writeQueued = false;
+        final placement = await WindowPlacement.current;
+        if (placement.rect != cache.rect ||
+            placement.isMaximized != cache.isMaximized) {
+          cache = placement;
+          await placement.writeToFile();
+        }
+      } while (_writeQueued);
+    } finally {
+      _isWriting = false;
+    }
   }
 
   static bool validate(Rect rect) {
     return rect.topLeft.dx >= 0 && rect.topLeft.dy >= 0;
   }
+}
+
+class _WindowPlacementListener with WindowListener {
+  void _handleChange() {
+    WindowPlacement._scheduleWrite();
+  }
+
+  @override
+  void onWindowClose() {
+    WindowPlacement.stop();
+  }
+
+  @override
+  void onWindowMove() => _handleChange();
+
+  @override
+  void onWindowMoved() => _handleChange();
+
+  @override
+  void onWindowResize() => _handleChange();
+
+  @override
+  void onWindowResized() => _handleChange();
+
+  @override
+  void onWindowMaximize() => _handleChange();
+
+  @override
+  void onWindowUnmaximize() => _handleChange();
+
+  @override
+  void onWindowRestore() => _handleChange();
+
+  @override
+  void onWindowEnterFullScreen() => _handleChange();
+
+  @override
+  void onWindowLeaveFullScreen() => _handleChange();
 }
 
 class VirtualWindowFrame extends StatefulWidget {

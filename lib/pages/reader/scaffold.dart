@@ -119,6 +119,7 @@ class _ReaderScaffoldState extends State<_ReaderScaffold> {
   }
 
   bool? rotation;
+  ReaderWindowClass _windowClass = ReaderWindowClass.compact;
 
   void update() {
     setState(() {});
@@ -127,50 +128,115 @@ class _ReaderScaffoldState extends State<_ReaderScaffold> {
   @override
   Widget build(BuildContext context) {
     final isOnChapterCommentsPage = context.reader.isOnChapterCommentsPage;
-    return Stack(
-      children: [
-        Positioned.fill(
-          child: AbsorbPointer(
-            absorbing: context.reader.isPageAnimating,
-            child: widget.child,
-          ),
-        ),
-        if (appdata.settings['showPageNumberInReader'] == true && !isOnChapterCommentsPage)
-          buildPageInfoText(),
-        if (!isOnChapterCommentsPage)
-          buildStatusInfo(),
-        AnimatedPositioned(
-          duration: const Duration(milliseconds: 180),
-          right: 16,
-          bottom: showFloatingButtonValue == 0 ? -58 : 36,
-          child: buildEpChangeButton(),
-        ),
-        AnimatedPositioned(
-          duration: const Duration(milliseconds: 180),
-          top: _isOpen ? 0 : -(kTopBarHeight + context.padding.top),
-          left: 0,
-          right: 0,
-          height: kTopBarHeight + context.padding.top,
-          child: buildTop(),
-        ),
-        AnimatedPositioned(
-          duration: const Duration(milliseconds: 180),
-          bottom: _isOpen
-              ? 0
-              : -(kBottomBarHeight + MediaQuery.of(context).padding.bottom),
-          left: 0,
-          right: 0,
-          child: buildBottom(),
-        ),
-      ],
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        _windowClass = classifyReaderWidth(constraints.maxWidth);
+        final showInspector = _windowClass != ReaderWindowClass.compact;
+        final inspectorWidth = (constraints.maxWidth * 0.34).clamp(
+          320.0,
+          420.0,
+        );
+        final stack = Stack(
+          children: [
+            Positioned.fill(
+              child: AbsorbPointer(
+                absorbing: context.reader.isPageAnimating,
+                child: widget.child,
+              ),
+            ),
+            if (appdata.settings['showPageNumberInReader'] == true &&
+                !isOnChapterCommentsPage)
+              buildPageInfoText(),
+            if (!isOnChapterCommentsPage) buildStatusInfo(),
+            AnimatedPositioned(
+              duration: const Duration(milliseconds: 180),
+              right: 16,
+              bottom: showFloatingButtonValue == 0 ? -58 : 36,
+              child: buildEpChangeButton(),
+            ),
+            AnimatedPositioned(
+              duration: const Duration(milliseconds: 180),
+              top: _isOpen ? 0 : -(kTopBarHeight + context.padding.top),
+              left: 0,
+              right: 0,
+              height: kTopBarHeight + context.padding.top,
+              child: buildTop(),
+            ),
+            AnimatedPositioned(
+              duration: const Duration(milliseconds: 180),
+              bottom: _isOpen
+                  ? 0
+                  : -(kBottomBarHeight + MediaQuery.of(context).padding.bottom),
+              left: 0,
+              right: 0,
+              child: buildBottom(),
+            ),
+          ],
+        );
+        if (!showInspector) {
+          return stack;
+        }
+        return Row(
+          children: [
+            Expanded(child: stack),
+            AnimatedBuilder(
+              animation: context.reader.panelState,
+              builder: (context, _) {
+                if (!context.reader.panelState.hasOpenPanel) {
+                  return const SizedBox.shrink();
+                }
+                return Container(
+                  width: inspectorWidth,
+                  decoration: BoxDecoration(
+                    color: context.colorScheme.surface,
+                    border: Border(
+                      left: BorderSide(
+                        color: context.colorScheme.outlineVariant,
+                      ),
+                    ),
+                  ),
+                  child: Column(
+                    children: [
+                      SizedBox(
+                        height: 44,
+                        child: Row(
+                          children: [
+                            const SizedBox(width: 12),
+                            Text(
+                              _panelTitle(context.reader.panelState.panel),
+                              style: ts.s16,
+                            ),
+                            const Spacer(),
+                            IconButton(
+                              onPressed: () {
+                                context.reader.panelState.close();
+                              },
+                              icon: const Icon(Icons.close),
+                            ),
+                          ],
+                        ),
+                      ),
+                      const Divider(height: 1),
+                      Expanded(
+                        child: _buildPanelContent(
+                          context.reader.panelState.panel,
+                        ),
+                      ),
+                    ],
+                  ),
+                );
+              },
+            ),
+          ],
+        );
+      },
     );
   }
 
   Widget buildTop() {
-    final epName =
-      context.reader.widget.chapters?.titles.elementAtOrNull(
-        context.reader.chapter - 1,
-      );
+    final epName = context.reader.widget.chapters?.titles.elementAtOrNull(
+      context.reader.chapter - 1,
+    );
 
     return BlurEffect(
       child: Container(
@@ -178,10 +244,7 @@ class _ReaderScaffoldState extends State<_ReaderScaffold> {
         decoration: BoxDecoration(
           color: context.colorScheme.surface.toOpacity(0.92),
           border: Border(
-            bottom: BorderSide(
-              color: Colors.grey.toOpacity(0.5),
-              width: 0.5,
-            ),
+            bottom: BorderSide(color: Colors.grey.toOpacity(0.5), width: 0.5),
           ),
         ),
         child: Padding(
@@ -195,29 +258,31 @@ class _ReaderScaffoldState extends State<_ReaderScaffold> {
               const BackButton(),
               const SizedBox(width: 8),
               Expanded(
-                child: epName == null ? Text(
-                  context.reader.widget.name,
-                  style: ts.s18,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                ) : Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    Text(
-                      context.reader.widget.name,
-                      style: ts.s16,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                    Text(
-                      epName,
-                      style: ts.s12,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                  ],
-                ),
+                child: epName == null
+                    ? Text(
+                        context.reader.widget.name,
+                        style: ts.s18,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      )
+                    : Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Text(
+                            context.reader.widget.name,
+                            style: ts.s16,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                          Text(
+                            epName,
+                            style: ts.s12,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ],
+                      ),
               ),
               const SizedBox(width: 8),
               if (shouldShowChapterComments())
@@ -455,17 +520,17 @@ class _ReaderScaffoldState extends State<_ReaderScaffold> {
         ),
       Tooltip(
         message: "Auto Page Turning".tl,
-        child: IconButton(
-          icon: context.reader.autoPageTurningTimer != null
-              ? const Icon(Icons.timer)
-              : const Icon(Icons.timer_sharp),
-          onPressed: () {
-            context.reader.autoPageTurning(
-              context.reader.cid,
-              context.reader.type,
-            );
-            update();
-          },
+        child: AnimatedBuilder(
+          animation: context.reader.autoTurnController,
+          builder: (context, _) => IconButton(
+            icon: context.reader.autoTurnController.isActive
+                ? const Icon(Icons.timer)
+                : const Icon(Icons.timer_sharp),
+            onPressed: () {
+              context.reader.autoTurnController.toggle();
+              update();
+            },
+          ),
         ),
       ),
       if (context.reader.widget.chapters != null)
@@ -476,6 +541,13 @@ class _ReaderScaffoldState extends State<_ReaderScaffold> {
             onPressed: openChapterDrawer,
           ),
         ),
+      Tooltip(
+        message: "Quick controls".tl,
+        child: IconButton(
+          icon: const Icon(Icons.tune),
+          onPressed: openQuickControls,
+        ),
+      ),
       Tooltip(
         message: "Save Image".tl,
         child: IconButton(
@@ -540,10 +612,11 @@ class _ReaderScaffoldState extends State<_ReaderScaffold> {
                   for (var button in buttons)
                     if (!small)
                       button.paddingHorizontal(4)
-                    else
-                      ...[button, const Spacer()],
-                  if (!small)
-                    const SizedBox(width: 4),
+                    else ...[
+                      button,
+                      const Spacer(),
+                    ],
+                  if (!small) const SizedBox(width: 4),
                 ],
               );
             },
@@ -586,9 +659,7 @@ class _ReaderScaffoldState extends State<_ReaderScaffold> {
       focusNode: sliderFocus,
       value: displayPage.toDouble(),
       min: 1,
-      max: context.reader.maxPage
-          .clamp(displayPage, 1 << 16)
-          .toDouble(),
+      max: context.reader.maxPage.clamp(displayPage, 1 << 16).toDouble(),
       reversed: isReversed,
       divisions: (context.reader.maxPage - 1).clamp(2, 1 << 16),
       onChanged: (i) {
@@ -651,12 +722,7 @@ class _ReaderScaffoldState extends State<_ReaderScaffold> {
   }
 
   void openChapterDrawer() {
-    _openSideBar(
-      context.reader.widget.chapters!.isGrouped
-          ? _GroupedChaptersView(context.reader)
-          : _ChaptersView(context.reader),
-      width: 400,
-    );
+    _openPanel(ReaderPanelType.chapters);
   }
 
   void saveCurrentImage() async {
@@ -686,57 +752,37 @@ class _ReaderScaffoldState extends State<_ReaderScaffold> {
   }
 
   void openSetting() {
-    _openSideBar(
-      ReaderSettings(
-        comicId: context.reader.cid,
-        comicSource: context.reader.type.sourceKey,
-        onChanged: (key) {
-          if (key == "readerMode") {
-            context.reader.mode = ReaderMode.fromKey(
-              appdata.settings.getReaderSetting(
-                context.reader.cid,
-                context.reader.type.sourceKey,
-                key,
-              ),
-            );
-          }
-          if (key == "enableTurnPageByVolumeKey") {
-            if (appdata.settings.getReaderSetting(
-              context.reader.cid,
-              context.reader.type.sourceKey,
-              key,
-            )) {
-              context.reader.handleVolumeEvent();
-            } else {
-              context.reader.stopVolumeEvent();
-            }
-          }
-          if (key == "quickCollectImage") {
-            addDragListener();
-          }
-          if (key == "showChapterComments" || key == "showChapterCommentsAtEnd") {
-            update();
-          }
-          context.reader.update();
-        },
-      ),
-      width: 400,
-    );
+    _openPanel(ReaderPanelType.info);
   }
 
-  void _openSideBar(Widget widget, {double width = 400}) {
-    _gestureDetectorState?.ignoreNextTap();
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted) return;
-      showSideBar(
-        context,
-        widget,
-        width: width,
-        dismissible: true,
+  void openQuickControls() {
+    _openPanel(ReaderPanelType.quickControls);
+  }
+
+  void _openPanel(ReaderPanelType panel) {
+    if (_windowClass == ReaderWindowClass.compact) {
+      _gestureDetectorState?.ignoreNextTap();
+      context.reader.panelState.open(panel);
+      context.reader.autoTurnController.setBlocked(
+        AutoTurnBlockReason.panelOpen,
+        true,
+      );
+      showModalBottomSheet<void>(
+        context: context,
+        isScrollControlled: true,
+        useSafeArea: true,
+        showDragHandle: true,
+        builder: (context) => SizedBox(
+          height: MediaQuery.of(context).size.height * 0.7,
+          child: _buildPanelContent(panel),
+        ),
       ).whenComplete(() {
+        context.reader.panelState.close();
         _gestureDetectorState?.clearIgnoreNextTap();
       });
-    });
+      return;
+    }
+    context.reader.panelState.open(panel);
   }
 
   bool shouldShowChapterComments() {
@@ -765,20 +811,80 @@ class _ReaderScaffoldState extends State<_ReaderScaffold> {
     var chapters = context.reader.widget.chapters;
     if (chapters == null) return;
 
-    var chapterIndex = context.reader.chapter - 1;
-    var epId = chapters.ids.elementAt(chapterIndex);
-    var chapterTitle = chapters.titles.elementAt(chapterIndex);
+    _openPanel(ReaderPanelType.downloads);
+  }
 
-    showSideBar(
-      context,
-      ChapterCommentsPage(
-        comicId: context.reader.cid,
-        epId: epId,
-        source: source,
-        comicTitle: context.reader.widget.name,
-        chapterTitle: chapterTitle,
-      ),
-    );
+  Widget _buildPanelContent(ReaderPanelType panel) {
+    switch (panel) {
+      case ReaderPanelType.none:
+        return const SizedBox.shrink();
+      case ReaderPanelType.chapters:
+        return context.reader.widget.chapters!.isGrouped
+            ? _GroupedChaptersView(context.reader)
+            : _ChaptersView(context.reader);
+      case ReaderPanelType.quickControls:
+        return _ReaderQuickControls(onChanged: _onReaderSettingChanged);
+      case ReaderPanelType.info:
+        return ReaderSettings(
+          comicId: context.reader.cid,
+          comicSource: context.reader.type.sourceKey,
+          onChanged: _onReaderSettingChanged,
+        );
+      case ReaderPanelType.downloads:
+        var source = ComicSource.find(context.reader.type.sourceKey);
+        var chapters = context.reader.widget.chapters;
+        if (source == null || chapters == null) {
+          return const SizedBox.shrink();
+        }
+        var chapterIndex = context.reader.chapter - 1;
+        return ChapterCommentsPage(
+          comicId: context.reader.cid,
+          epId: chapters.ids.elementAt(chapterIndex),
+          source: source,
+          comicTitle: context.reader.widget.name,
+          chapterTitle: chapters.titles.elementAt(chapterIndex),
+        );
+    }
+  }
+
+  String _panelTitle(ReaderPanelType panel) {
+    return switch (panel) {
+      ReaderPanelType.none => '',
+      ReaderPanelType.chapters => "Chapters".tl,
+      ReaderPanelType.quickControls => "Quick controls".tl,
+      ReaderPanelType.info => "Settings".tl,
+      ReaderPanelType.downloads => "Chapter Comments".tl,
+    };
+  }
+
+  void _onReaderSettingChanged(String key) {
+    if (key == "readerMode") {
+      context.reader.mode = ReaderMode.fromKey(
+        appdata.settings.getReaderSetting(
+          context.reader.cid,
+          context.reader.type.sourceKey,
+          key,
+        ),
+      );
+    }
+    if (key == "enableTurnPageByVolumeKey") {
+      if (appdata.settings.getReaderSetting(
+        context.reader.cid,
+        context.reader.type.sourceKey,
+        key,
+      )) {
+        context.reader.handleVolumeEvent();
+      } else {
+        context.reader.stopVolumeEvent();
+      }
+    }
+    if (key == "quickCollectImage") {
+      addDragListener();
+    }
+    if (key == "showChapterComments" || key == "showChapterCommentsAtEnd") {
+      update();
+    }
+    context.reader.update();
   }
 
   Widget buildEpChangeButton() {
@@ -823,10 +929,7 @@ class _ReaderScaffoldState extends State<_ReaderScaffold> {
               borderRadius: BorderRadius.circular(16),
               child: Center(
                 child: Icon(
-                  _getArrowIcon(
-                    isReversed,
-                    showFloatingButtonValue,
-                  ),
+                  _getArrowIcon(isReversed, showFloatingButtonValue),
                   size: 24,
                   color: Theme.of(context).colorScheme.onPrimaryContainer,
                 ),
@@ -840,9 +943,13 @@ class _ReaderScaffoldState extends State<_ReaderScaffold> {
 
   IconData _getArrowIcon(bool reversed, int value) {
     if (reversed) {
-      return value == 1 ? Icons.arrow_back_ios_outlined : Icons.arrow_forward_ios;
+      return value == 1
+          ? Icons.arrow_back_ios_outlined
+          : Icons.arrow_forward_ios;
     } else {
-      return value == 1 ? Icons.arrow_forward_ios : Icons.arrow_back_ios_outlined;
+      return value == 1
+          ? Icons.arrow_forward_ios
+          : Icons.arrow_back_ios_outlined;
     }
   }
 
@@ -945,6 +1052,128 @@ class _ReaderScaffoldState extends State<_ReaderScaffold> {
 class _BatteryWidget extends StatefulWidget {
   @override
   _BatteryWidgetState createState() => _BatteryWidgetState();
+}
+
+class _ReaderQuickControls extends StatelessWidget {
+  const _ReaderQuickControls({required this.onChanged});
+
+  final void Function(String key) onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    final reader = context.reader;
+    String mode = appdata.settings.getReaderSetting(
+      reader.cid,
+      reader.type.sourceKey,
+      "readerMode",
+    );
+    bool reverseTap =
+        appdata.settings.getReaderSetting(
+          reader.cid,
+          reader.type.sourceKey,
+          "reverseTapToTurnPages",
+        ) ==
+        true;
+    int interval = appdata.settings.getReaderSetting(
+      reader.cid,
+      reader.type.sourceKey,
+      "autoPageTurningInterval",
+    );
+    return SmoothCustomScrollView(
+      slivers: [
+        SliverToBoxAdapter(
+          child: AnimatedBuilder(
+            animation: reader.autoTurnController,
+            builder: (context, _) {
+              final blocked = reader.autoTurnController.blockReasons;
+              return ListTile(
+                title: Text("Auto Page Turning".tl),
+                subtitle: blocked.isNotEmpty
+                    ? Text("Blocked: ${blocked.map((e) => e.name).join(', ')}")
+                    : null,
+                trailing: Switch(
+                  value: reader.autoTurnController.isActive,
+                  onChanged: (_) => reader.autoTurnController.toggle(),
+                ),
+              );
+            },
+          ),
+        ),
+        SliverToBoxAdapter(
+          child: ListTile(
+            title: Text("Reading mode".tl),
+            trailing: DropdownButton<String>(
+              value: mode,
+              onChanged: (value) {
+                if (value == null) return;
+                appdata.settings.setReaderSetting(
+                  reader.cid,
+                  reader.type.sourceKey,
+                  "readerMode",
+                  value,
+                );
+                onChanged("readerMode");
+              },
+              items: const [
+                DropdownMenuItem(
+                  value: "galleryLeftToRight",
+                  child: Text("Gallery LTR"),
+                ),
+                DropdownMenuItem(
+                  value: "galleryRightToLeft",
+                  child: Text("Gallery RTL"),
+                ),
+                DropdownMenuItem(
+                  value: "galleryTopToBottom",
+                  child: Text("Gallery TTB"),
+                ),
+                DropdownMenuItem(
+                  value: "continuousTopToBottom",
+                  child: Text("Continuous TTB"),
+                ),
+              ],
+            ),
+          ),
+        ),
+        SliverToBoxAdapter(
+          child: SwitchListTile(
+            title: Text("Reverse tap zones".tl),
+            value: reverseTap,
+            onChanged: (value) {
+              appdata.settings.setReaderSetting(
+                reader.cid,
+                reader.type.sourceKey,
+                "reverseTapToTurnPages",
+                value,
+              );
+              onChanged("reverseTapToTurnPages");
+            },
+          ),
+        ),
+        SliverToBoxAdapter(
+          child: ListTile(
+            title: Text("Auto page turning interval".tl),
+            subtitle: Slider(
+              value: interval.toDouble(),
+              min: 1,
+              max: 20,
+              divisions: 19,
+              label: "$interval s",
+              onChanged: (value) {
+                appdata.settings.setReaderSetting(
+                  reader.cid,
+                  reader.type.sourceKey,
+                  "autoPageTurningInterval",
+                  value.round(),
+                );
+                onChanged("autoPageTurningInterval");
+              },
+            ),
+          ),
+        ),
+      ],
+    );
+  }
 }
 
 class _BatteryWidgetState extends State<_BatteryWidget> {

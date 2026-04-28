@@ -53,22 +53,23 @@ extension WebviewExtension on InAppWebViewController {
 }
 
 class AppWebview extends StatefulWidget {
-  const AppWebview(
-      {required this.initialUrl,
-      this.onTitleChange,
-      this.onNavigation,
-      this.singlePage = false,
-      this.onStarted,
-      this.onLoadStop,
-      super.key});
+  const AppWebview({
+    required this.initialUrl,
+    this.onTitleChange,
+    this.onNavigation,
+    this.singlePage = false,
+    this.onStarted,
+    this.onLoadStop,
+    super.key,
+  });
 
   final String initialUrl;
 
   final void Function(String title, InAppWebViewController controller)?
-      onTitleChange;
+  onTitleChange;
 
   final bool Function(String url, InAppWebViewController controller)?
-      onNavigation;
+  onNavigation;
 
   final void Function(InAppWebViewController controller)? onStarted;
 
@@ -104,9 +105,7 @@ class _AppWebviewState extends State<AppWebview> {
           proxy = "http://$proxy";
         }
         await proxyController.setProxyOverride(
-          settings: ProxySettings(
-            proxyRules: [ProxyRule(url: proxy)],
-          ),
+          settings: ProxySettings(proxyRules: [ProxyRule(url: proxy)]),
         );
       }
     }
@@ -129,32 +128,29 @@ class _AppWebviewState extends State<AppWebview> {
         child: IconButton(
           icon: const Icon(Icons.more_horiz),
           onPressed: () {
-            showMenuX(
-              context,
-              Offset(context.width, context.padding.top),
-              [
-                MenuEntry(
-                  icon: Icons.open_in_browser,
-                  text: "Open in browser".tl,
-                  onClick: () async =>
-                      launchUrlString((await controller?.getUrl())!.toString()),
+            showMenuX(context, Offset(context.width, context.padding.top), [
+              MenuEntry(
+                icon: Icons.open_in_browser,
+                text: "Open in browser".tl,
+                onClick: () async =>
+                    launchUrlString((await controller?.getUrl())!.toString()),
+              ),
+              MenuEntry(
+                icon: Icons.copy,
+                text: "Copy link".tl,
+                onClick: () async => Clipboard.setData(
+                  ClipboardData(text: (await controller?.getUrl())!.toString()),
                 ),
-                MenuEntry(
-                  icon: Icons.copy,
-                  text: "Copy link".tl,
-                  onClick: () async => Clipboard.setData(ClipboardData(
-                      text: (await controller?.getUrl())!.toString())),
-                ),
-                MenuEntry(
-                  icon: Icons.refresh,
-                  text: "Reload".tl,
-                  onClick: () => controller?.reload(),
-                ),
-              ],
-            );
+              ),
+              MenuEntry(
+                icon: Icons.refresh,
+                text: "Reload".tl,
+                onClick: () => controller?.reload(),
+              ),
+            ]);
           },
         ),
-      )
+      ),
     ];
 
     Widget body = FutureBuilder(
@@ -166,9 +162,7 @@ class _AppWebviewState extends State<AppWebview> {
         if (!e.hasData) {
           return const SizedBox();
         }
-        return createWebviewWithEnvironment(
-          AppWebview.webViewEnvironment,
-        );
+        return createWebviewWithEnvironment(AppWebview.webViewEnvironment);
       },
     );
 
@@ -177,28 +171,24 @@ class _AppWebviewState extends State<AppWebview> {
         Positioned.fill(child: body),
         if (_progress < 1.0)
           const Positioned.fill(
-              child: Center(child: CircularProgressIndicator()))
+            child: Center(child: CircularProgressIndicator()),
+          ),
       ],
     );
 
     return Scaffold(
-        appBar: Appbar(
-          title: Text(
-            title,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-          ),
-          actions: actions,
-        ),
-        body: body);
+      appBar: Appbar(
+        title: Text(title, maxLines: 1, overflow: TextOverflow.ellipsis),
+        actions: actions,
+      ),
+      body: body,
+    );
   }
 
   Widget createWebviewWithEnvironment(WebViewEnvironment? e) {
     return InAppWebView(
       webViewEnvironment: e,
-      initialSettings: InAppWebViewSettings(
-        isInspectable: true,
-      ),
+      initialSettings: InAppWebViewSettings(isInspectable: true),
       initialUrlRequest: URLRequest(url: WebUri(widget.initialUrl)),
       onTitleChanged: (c, t) {
         if (mounted) {
@@ -211,7 +201,7 @@ class _AppWebviewState extends State<AppWebview> {
       shouldOverrideUrlLoading: (c, r) async {
         var res =
             widget.onNavigation?.call(r.request.url?.toString() ?? "", c) ??
-                false;
+            false;
         if (res) {
           return NavigationActionPolicy.CANCEL;
         } else {
@@ -249,12 +239,13 @@ class DesktopWebview {
 
   final void Function()? onClose;
 
-  DesktopWebview(
-      {required this.initialUrl,
-      this.onTitleChange,
-      this.onNavigation,
-      this.onStarted,
-      this.onClose});
+  DesktopWebview({
+    required this.initialUrl,
+    this.onTitleChange,
+    this.onNavigation,
+    this.onStarted,
+    this.onClose,
+  });
 
   Webview? _webview;
 
@@ -262,15 +253,64 @@ class DesktopWebview {
 
   String? title;
 
-  void onMessage(String message) {
-    var json = jsonDecode(message);
-    if (json is Map) {
-      if (json["id"] == "document_created") {
-        title = json["data"]["title"];
-        _ua = json["data"]["ua"];
-        onTitleChange?.call(title!, this);
-      }
+  String? _lastNavigationUrl;
+
+  bool _hasDocumentCreated = false;
+
+  void _cancelTimer() {
+    timer?.cancel();
+    timer = null;
+  }
+
+  void _restartTimer() {
+    _cancelTimer();
+    _runTimer();
+  }
+
+  void _handleMessage(dynamic message) {
+    final payload = switch (message) {
+      String text => text.trim(),
+      _ => '',
+    };
+    if (payload.isEmpty) {
+      return;
     }
+
+    dynamic decoded;
+    try {
+      decoded = jsonDecode(payload);
+    } catch (_) {
+      return;
+    }
+
+    if (decoded is! Map) {
+      return;
+    }
+
+    final id = decoded["id"];
+    if (id != "document_created") {
+      return;
+    }
+    final data = decoded["data"];
+    if (data is! Map) {
+      return;
+    }
+
+    final nextTitle = data["title"];
+    final nextUa = data["ua"];
+    if (nextTitle is! String || nextUa is! String) {
+      return;
+    }
+
+    title = nextTitle;
+    _ua = nextUa;
+    _hasDocumentCreated = true;
+    _cancelTimer();
+    onTitleChange?.call(nextTitle, this);
+  }
+
+  void onMessage(String message) {
+    _handleMessage(message);
   }
 
   String? get userAgent => _ua;
@@ -278,7 +318,12 @@ class DesktopWebview {
   Timer? timer;
 
   void _runTimer() {
-    timer ??= Timer.periodic(const Duration(seconds: 2), (t) async {
+    _cancelTimer();
+    timer = Timer.periodic(const Duration(seconds: 2), (t) async {
+      if (_webview == null || _hasDocumentCreated) {
+        _cancelTimer();
+        return;
+      }
       const js = '''
         function collect() {
           if(document.readyState === 'loading') {
@@ -292,35 +337,43 @@ class DesktopWebview {
               ua: navigator.userAgent
             }
           };
-          return data;
+          return JSON.stringify(data);
         }
         collect();
       ''';
-      if (_webview != null) {
-        onMessage(await evaluateJavascript(js) ?? '');
+      final webview = _webview;
+      if (webview != null) {
+        _handleMessage(await webview.evaluateJavaScript(js) ?? '');
       }
     });
   }
 
   void open() async {
     _webview = await WebviewWindow.create(
-        configuration: CreateConfiguration(
-      useWindowPositionAndSize: true,
-      userDataFolderWindows: "${App.dataPath}\\webview",
-      title: "webview",
-      proxy: await getProxy(),
-    ));
+      configuration: CreateConfiguration(
+        useWindowPositionAndSize: true,
+        userDataFolderWindows: "${App.dataPath}\\webview",
+        title: "webview",
+        proxy: await getProxy(),
+      ),
+    );
     _webview!.addOnWebMessageReceivedCallback(onMessage);
     _webview!.setOnNavigation((s) {
-      s = s.substring(1, s.length - 1);
+      if (s.length >= 2) {
+        s = s.substring(1, s.length - 1);
+      }
+      if (_lastNavigationUrl != s) {
+        _lastNavigationUrl = s;
+        _hasDocumentCreated = false;
+        _restartTimer();
+      }
       return onNavigation?.call(s, this);
     });
     _webview!.launch(initialUrl, triggerOnUrlRequestEvent: false);
     _runTimer();
     _webview!.onClose.then((value) {
       _webview = null;
-      timer?.cancel();
-      timer = null;
+      _cancelTimer();
       onClose?.call();
     });
     Future.delayed(const Duration(milliseconds: 200), () {
@@ -368,5 +421,6 @@ class DesktopWebview {
   void close() {
     _webview?.close();
     _webview = null;
+    _cancelTimer();
   }
 }
