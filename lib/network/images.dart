@@ -60,6 +60,14 @@ abstract class ImageDownloader {
     if (requestUrl.startsWith('//')) {
       requestUrl = 'https:$requestUrl';
     }
+    final requestUri = Uri.tryParse(requestUrl);
+    final isRelative = requestUri == null ||
+        (!requestUri.hasScheme && !requestUrl.startsWith('//'));
+    if (isRelative) {
+      throw StateError(
+        "Cannot load relative thumbnail URL without a valid absolute source URL.",
+      );
+    }
     var req = await dio.request<ResponseBody>(requestUrl,
         data: configs['data']);
     var stream = req.data?.stream ?? (throw "Error: Empty response body.");
@@ -177,8 +185,17 @@ abstract class ImageDownloader {
           responseType: ResponseType.stream,
         ));
 
-        var req = await dio.request<ResponseBody>(configs['url'] ?? imageKey,
-            data: configs['data']);
+        final requestUrl = configs['url'] ?? imageKey;
+        final requestUri = Uri.tryParse(requestUrl);
+        final isRelative = requestUri == null ||
+            (!requestUri.hasScheme && !requestUrl.startsWith('//'));
+        if (isRelative) {
+          throw StateError(
+            "Cannot load relative image URL without a valid absolute source URL.",
+          );
+        }
+        var req =
+            await dio.request<ResponseBody>(requestUrl, data: configs['data']);
         var stream = req.data?.stream ?? (throw "Error: Empty response body.");
         int? expectedBytes = req.data!.contentLength;
         if (expectedBytes == -1) {

@@ -10,6 +10,13 @@ class _ReaderImages extends StatefulWidget {
 class _ReaderImagesState extends State<_ReaderImages> {
   String? error;
 
+  bool get _isSourceUnavailableError {
+    final message = error?.toLowerCase() ?? '';
+    return message.contains('comic source is unavailable') ||
+        message.contains('comic source not found') ||
+        message.contains('relative image url without a valid comic source');
+  }
+
   bool inProgress = false;
 
   late _ReaderState reader;
@@ -38,13 +45,17 @@ class _ReaderImagesState extends State<_ReaderImages> {
   void load() async {
     if (inProgress) return;
     inProgress = true;
-    if (reader.type == ComicType.local ||
-        (LocalManager().isDownloaded(
-          reader.cid,
-          reader.type,
-          reader.chapter,
-          reader.widget.chapters,
-        ))) {
+    final useResolver = appdata.settings['reader_use_source_ref_resolver'] == true;
+    final loadMode = reader.type == ComicType.local ||
+            (LocalManager().isDownloaded(
+              reader.cid,
+              reader.type,
+              reader.chapter,
+              reader.widget.chapters,
+            ))
+        ? 'local'
+        : 'remote';
+    if (!useResolver && loadMode == 'local') {
       try {
         var images = await LocalManager().getImages(
           reader.cid,
@@ -67,9 +78,20 @@ class _ReaderImagesState extends State<_ReaderImages> {
           inProgress = false;
         });
       }
-    } else {
+    } else if (!useResolver) {
       var cp = reader.widget.chapters?.ids.elementAtOrNull(reader.chapter - 1);
-      var res = await reader.type.comicSource!.loadComicPages!(
+      final source = reader.type.comicSource;
+      final loadComicPages = source?.loadComicPages;
+      if (loadComicPages == null) {
+        setState(() {
+          error = "Comic source is unavailable. Please refresh/install this source and retry.";
+          reader.isLoading = false;
+          inProgress = false;
+        });
+        context.readerScaffold.update();
+        return;
+      }
+      var res = await loadComicPages(
         reader.widget.cid,
         cp,
       );
@@ -89,10 +111,6 @@ class _ReaderImagesState extends State<_ReaderImages> {
             reader.updateHistory();
           });
         });
-        Log.info(
-          "Reader Load",
-          "Done mode=remote pages=${res.data.length} elapsedMs=${stopwatch.elapsedMilliseconds}",
-        );
       }
     } else {
       final sourceRef = _buildSourceRef(loadMode);
@@ -194,6 +212,14 @@ class _ReaderImagesState extends State<_ReaderImages> {
         child: SizedBox.expand(
           child: NetworkError(
             message: error!,
+            action: _isSourceUnavailableError
+                ? FilledButton(
+                    onPressed: () {
+                      context.to(() => const ComicSourcePage());
+                    },
+                    child: Text('Manage Sources'.tl),
+                  )
+                : null,
             retry: () {
               setState(() {
                 reader.isLoading = true;
@@ -412,9 +438,7 @@ class _GalleryModeState extends State<_GalleryMode>
               startIndex,
               endIndex,
             );
-
             cache(index);
-
             photoViewControllers[index] ??= PhotoViewController();
 
             if (reader.imagesPerPage == 1 || pageImages.length == 1) {

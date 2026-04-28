@@ -38,6 +38,7 @@ import 'package:venera/foundation/reader/source_ref_resolver.dart';
 import 'package:venera/foundation/reader/source_ref_diagnostics.dart';
 import 'package:venera/foundation/source_ref.dart';
 import 'package:venera/network/images.dart';
+import 'package:venera/pages/comic_source_page.dart';
 import 'package:venera/pages/settings/settings_page.dart';
 import 'package:venera/utils/clipboard_image.dart';
 import 'package:venera/utils/data_sync.dart';
@@ -64,6 +65,8 @@ part 'loading.dart';
 part 'chapters.dart';
 
 part 'chapter_comments.dart';
+
+part 'adaptive.dart';
 
 extension _ReaderContext on BuildContext {
   _ReaderState get reader => findAncestorStateOfType<_ReaderState>()!;
@@ -118,7 +121,12 @@ class Reader extends StatefulWidget {
 }
 
 class _ReaderState extends State<Reader>
-    with _ReaderLocation, _ReaderWindow, _VolumeListener, _ImagePerPageHandler {
+    with
+        TickerProviderStateMixin,
+        _ReaderLocation,
+        _ReaderWindow,
+        _VolumeListener,
+        _ImagePerPageHandler {
   @override
   void update() {
     setState(() {});
@@ -189,6 +197,8 @@ class _ReaderState extends State<Reader>
       MediaQuery.of(context).orientation == Orientation.portrait;
 
   History? history;
+  late final ReaderPanelState panelState;
+  late final AutoTurnController autoTurnController;
 
   @override
   bool isLoading = false;
@@ -240,6 +250,18 @@ class _ReaderState extends State<Reader>
       LocalFavoritesManager().onRead(cid, type);
     });
     super.initState();
+    panelState = ReaderPanelState();
+    autoTurnController = AutoTurnController(
+      vsync: this,
+      intervalSeconds: () => appdata.settings.getReaderSetting(
+        cid,
+        type.sourceKey,
+        'autoPageTurningInterval',
+      ),
+      // Compile-contract only: provide symbols referenced by scaffold.
+      canTurnPage: () => false,
+      onTurnPage: () {},
+    );
   }
 
   bool _isInitialized = false;
@@ -282,6 +304,8 @@ class _ReaderState extends State<Reader>
     if (isFullscreen) {
       fullscreen();
     }
+    autoTurnController.dispose();
+    panelState.dispose();
     autoPageTurningTimer?.cancel();
     focusNode.dispose();
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
