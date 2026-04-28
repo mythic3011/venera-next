@@ -732,8 +732,21 @@ class _LocalComicManagePanelState extends State<_LocalComicManagePanel>
   String? selectedChapterForPages;
   String? selectedChapterForCover;
   List<String> pageOrder = [];
+  List<String> loadedPageOrder = [];
   List<String> coverPagePaths = [];
   String? selectedCoverPage;
+
+  bool get hasPageOrderDraft {
+    if (pageOrder.length != loadedPageOrder.length) {
+      return true;
+    }
+    for (int i = 0; i < pageOrder.length; i++) {
+      if (pageOrder[i] != loadedPageOrder[i]) {
+        return true;
+      }
+    }
+    return false;
+  }
 
   @override
   void initState() {
@@ -792,6 +805,7 @@ class _LocalComicManagePanelState extends State<_LocalComicManagePanel>
     if (comic == null) return;
     if (comic.hasChapters && selectedChapterForPages == null) {
       pageOrder = [];
+      loadedPageOrder = [];
       return;
     }
     final ep = comic.hasChapters ? selectedChapterForPages! : 0;
@@ -800,6 +814,7 @@ class _LocalComicManagePanelState extends State<_LocalComicManagePanel>
     pageOrder = images
         .map((e) => File(e.replaceFirst('file://', '')).name)
         .toList(growable: true);
+    loadedPageOrder = List<String>.from(pageOrder);
   }
 
   Future<void> _loadPagesForCover() async {
@@ -893,6 +908,7 @@ class _LocalComicManagePanelState extends State<_LocalComicManagePanel>
     try {
       final ep = comic.hasChapters ? selectedChapterForPages! : 0;
       await LocalManager().reorderComicPages(comic, ep, pageOrder);
+      loadedPageOrder = List<String>.from(pageOrder);
       if (mounted) context.showMessage(message: "Saved".tl);
     } catch (e) {
       if (mounted) context.showMessage(message: e.toString());
@@ -929,6 +945,7 @@ class _LocalComicManagePanelState extends State<_LocalComicManagePanel>
   }
 
   Future<void> _addComicsAsChapters() async {
+    if (saving) return;
     final comic = current;
     if (comic == null) return;
     final all = LocalManager().getComics(LocalSortType.name);
@@ -976,6 +993,13 @@ class _LocalComicManagePanelState extends State<_LocalComicManagePanel>
                         },
                       );
                     },
+                  ),
+                ),
+                Align(
+                  alignment: Alignment.centerRight,
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 0, 16, 4),
+                    child: Text("Selected: ${selected.length}".tl),
                   ),
                 ),
                 CheckboxListTile(
@@ -1139,6 +1163,9 @@ class _LocalComicManagePanelState extends State<_LocalComicManagePanel>
               values: comic.downloadedChapters,
               minWidth: 220,
               onTap: (index) async {
+                if (saving) {
+                  return;
+                }
                 selectedChapterForPages = comic.downloadedChapters[index];
                 await _loadPagesForReorder();
                 if (mounted) setState(() {});
@@ -1146,36 +1173,45 @@ class _LocalComicManagePanelState extends State<_LocalComicManagePanel>
             ),
           ),
         Expanded(
-          child: pageOrder.isEmpty
-              ? Center(child: Text("No pages".tl))
-              : ReorderableListView.builder(
-                  itemCount: pageOrder.length,
-                  onReorder: (oldIndex, newIndex) {
-                    setState(() {
-                      if (newIndex > oldIndex) {
-                        newIndex -= 1;
-                      }
-                      final moved = pageOrder.removeAt(oldIndex);
-                      pageOrder.insert(newIndex, moved);
-                    });
-                  },
-                  itemBuilder: (context, index) {
-                    final page = pageOrder[index];
-                    return ListTile(
-                      key: ValueKey(page),
-                      title: Text("${index + 1}. $page"),
-                      trailing: const Icon(Icons.drag_handle),
-                    );
-                  },
-                ),
+          child: AbsorbPointer(
+            absorbing: saving,
+            child: pageOrder.isEmpty
+                ? Center(child: Text("No pages".tl))
+                : ReorderableListView.builder(
+                    itemCount: pageOrder.length,
+                    onReorder: (oldIndex, newIndex) {
+                      setState(() {
+                        if (newIndex > oldIndex) {
+                          newIndex -= 1;
+                        }
+                        final moved = pageOrder.removeAt(oldIndex);
+                        pageOrder.insert(newIndex, moved);
+                      });
+                    },
+                    itemBuilder: (context, index) {
+                      final page = pageOrder[index];
+                      return ListTile(
+                        key: ValueKey(page),
+                        title: Text("${index + 1}. $page"),
+                        trailing: const Icon(Icons.drag_handle),
+                      );
+                    },
+                  ),
+          ),
         ),
         Padding(
           padding: const EdgeInsets.fromLTRB(12, 8, 12, 12),
           child: Row(
             mainAxisAlignment: MainAxisAlignment.end,
             children: [
+              if (!hasPageOrderDraft)
+                Text(
+                  "No changes".tl,
+                  style: ts.s12.copyWith(color: context.colorScheme.outline),
+                ).paddingRight(12),
               FilledButton(
-                onPressed: saving ? null : _savePageOrder,
+                onPressed:
+                    saving || !hasPageOrderDraft ? null : _savePageOrder,
                 child: Text("Save".tl),
               ),
             ],
@@ -1198,6 +1234,9 @@ class _LocalComicManagePanelState extends State<_LocalComicManagePanel>
               values: comic.downloadedChapters,
               minWidth: 220,
               onTap: (index) async {
+                if (saving) {
+                  return;
+                }
                 selectedChapterForCover = comic.downloadedChapters[index];
                 await _loadPagesForCover();
                 if (mounted) setState(() {});
@@ -1205,34 +1244,39 @@ class _LocalComicManagePanelState extends State<_LocalComicManagePanel>
             ),
           ),
         Expanded(
-          child: coverPagePaths.isEmpty
-              ? Center(child: Text("No pages".tl))
-              : RadioGroup<String>(
-                  groupValue: selectedCoverPage,
-                  onChanged: (v) {
-                    if (v == null) return;
-                    setState(() {
-                      selectedCoverPage = v;
-                    });
-                  },
-                  child: ListView.builder(
-                    itemCount: coverPagePaths.length,
-                    itemBuilder: (context, index) {
-                      final path = coverPagePaths[index];
-                      final filePath = path.replaceFirst("file://", "");
-                      final name = File(filePath).name;
-                      return ListTile(
-                        onTap: () {
-                          setState(() {
-                            selectedCoverPage = path;
-                          });
-                        },
-                        leading: Radio<String>(value: path),
-                        title: Text("${index + 1}. $name"),
-                      );
+          child: AbsorbPointer(
+            absorbing: saving,
+            child: coverPagePaths.isEmpty
+                ? Center(child: Text("No pages".tl))
+                : RadioGroup<String>(
+                    groupValue: selectedCoverPage,
+                    onChanged: (v) {
+                      if (v == null) return;
+                      setState(() {
+                        selectedCoverPage = v;
+                      });
                     },
+                    child: ListView.builder(
+                      itemCount: coverPagePaths.length,
+                      itemBuilder: (context, index) {
+                        final path = coverPagePaths[index];
+                        final filePath = path.replaceFirst("file://", "");
+                        final name = File(filePath).name;
+                        return ListTile(
+                          onTap: saving
+                              ? null
+                              : () {
+                                  setState(() {
+                                    selectedCoverPage = path;
+                                  });
+                                },
+                          leading: Radio<String>(value: path),
+                          title: Text("${index + 1}. $name"),
+                        );
+                      },
+                    ),
                   ),
-                ),
+          ),
         ),
         Padding(
           padding: const EdgeInsets.fromLTRB(12, 8, 12, 12),
