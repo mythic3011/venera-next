@@ -26,11 +26,10 @@ class LocalMetadataRepository {
         throw const FormatException('Invalid metadata root');
       }
       _doc = LocalMetadataDocument.fromJson(decoded);
-    } catch (e, s) {
-      Log.error(
+    } catch (e) {
+      Log.warning(
         'LocalMetadata',
-        'Invalid metadata sidecar, fallback to legacy: $e',
-        s,
+        'Invalid metadata sidecar; using empty fallback document: $e',
       );
       _doc = LocalMetadataDocument.empty();
     }
