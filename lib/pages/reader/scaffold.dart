@@ -144,6 +144,20 @@ class _ReaderScaffoldState extends State<_ReaderScaffold> {
                 child: widget.child,
               ),
             ),
+            AnimatedBuilder(
+              animation: context.reader.panelState,
+              builder: (context, _) {
+                if (!showInspector || !context.reader.panelState.hasOpenPanel) {
+                  return const SizedBox.shrink();
+                }
+                return Positioned.fill(
+                  child: GestureDetector(
+                    behavior: HitTestBehavior.opaque,
+                    onTap: _closePanelIfOpen,
+                  ),
+                );
+              },
+            ),
             if (appdata.settings['showPageNumberInReader'] == true &&
                 !isOnChapterCommentsPage)
               buildPageInfoText(),
@@ -174,9 +188,10 @@ class _ReaderScaffoldState extends State<_ReaderScaffold> {
           ],
         );
         if (!showInspector) {
-          return stack;
+          return _panelAwarePopScope(stack);
         }
-        return Row(
+        return _panelAwarePopScope(
+          Row(
           children: [
             Expanded(child: stack),
             AnimatedBuilder(
@@ -208,9 +223,7 @@ class _ReaderScaffoldState extends State<_ReaderScaffold> {
                             ),
                             const Spacer(),
                             IconButton(
-                              onPressed: () {
-                                context.reader.panelState.close();
-                              },
+                              onPressed: _closePanelIfOpen,
                               icon: const Icon(Icons.close),
                             ),
                           ],
@@ -228,8 +241,25 @@ class _ReaderScaffoldState extends State<_ReaderScaffold> {
               },
             ),
           ],
+          ),
         );
       },
+    );
+  }
+
+  Widget _panelAwarePopScope(Widget child) {
+    return AnimatedBuilder(
+      animation: context.reader.panelState,
+      builder: (context, _) => PopScope(
+        canPop: !context.reader.panelState.hasOpenPanel,
+        onPopInvokedWithResult: (didPop, _) {
+          if (didPop) {
+            return;
+          }
+          _closePanelIfOpen();
+        },
+        child: child,
+      ),
     );
   }
 
@@ -759,14 +789,26 @@ class _ReaderScaffoldState extends State<_ReaderScaffold> {
     _openPanel(ReaderPanelType.quickControls);
   }
 
+  bool _closePanelIfOpen() {
+    if (!context.reader.panelState.hasOpenPanel) {
+      return false;
+    }
+    context.reader.panelState.close();
+    context.reader.autoTurnController.setBlocked(
+      AutoTurnBlockReason.panelOpen,
+      false,
+    );
+    return true;
+  }
+
   void _openPanel(ReaderPanelType panel) {
+    context.reader.panelState.open(panel);
+    context.reader.autoTurnController.setBlocked(
+      AutoTurnBlockReason.panelOpen,
+      true,
+    );
     if (_windowClass == ReaderWindowClass.compact) {
       _gestureDetectorState?.ignoreNextTap();
-      context.reader.panelState.open(panel);
-      context.reader.autoTurnController.setBlocked(
-        AutoTurnBlockReason.panelOpen,
-        true,
-      );
       showModalBottomSheet<void>(
         context: context,
         isScrollControlled: true,
@@ -777,12 +819,11 @@ class _ReaderScaffoldState extends State<_ReaderScaffold> {
           child: _buildPanelContent(panel),
         ),
       ).whenComplete(() {
-        context.reader.panelState.close();
+        _closePanelIfOpen();
         _gestureDetectorState?.clearIgnoreNextTap();
       });
       return;
     }
-    context.reader.panelState.open(panel);
   }
 
   bool shouldShowChapterComments() {
