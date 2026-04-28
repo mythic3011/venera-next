@@ -361,10 +361,7 @@ class _GalleryModeState extends State<_GalleryMode>
 
   void cache(int startPage) {
     for (int i = startPage - 1; i <= startPage + preCacheCount; i++) {
-      if (i == startPage ||
-          i <= 0 ||
-          i > totalPages ||
-          isChapterCommentsPage(i)) {
+      if (i <= 0 || i > totalPages || i == startPage || isChapterCommentsPage(i)) {
         continue;
       }
       _cachePage(i, i == startPage + 1 || i == startPage - 1);
@@ -375,9 +372,11 @@ class _GalleryModeState extends State<_GalleryMode>
     if (isChapterCommentsPage(page)) return;
     var (startIndex, endIndex) = getPageImagesRange(page);
     for (int i = startIndex; i < endIndex; i++) {
-      shouldPreCache
-          ? _precacheImage(i + 1, context)
-          : _preDownloadImage(i + 1, context);
+      if (shouldPreCache) {
+        _precacheImage(i + 1, context);
+      } else {
+        _preDownloadImage(i + 1, context);
+      }
     }
   }
 
