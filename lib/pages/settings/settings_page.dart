@@ -19,6 +19,7 @@ import 'package:venera/utils/data.dart';
 import 'package:venera/utils/data_sync.dart';
 import 'package:venera/utils/io.dart';
 import 'package:venera/utils/translations.dart';
+import 'package:venera/foundation/adaptive/app_window_class.dart';
 import 'package:yaml/yaml.dart';
 
 part 'reader.dart';
@@ -40,12 +41,29 @@ class SettingsPage extends StatefulWidget {
   State<SettingsPage> createState() => _SettingsPageState();
 }
 
+int resolveSettingsPageIndex({
+  required int currentPage,
+  required int? initialPage,
+  required int itemCount,
+}) {
+  bool isValidPage(int page) => page >= 0 && page < itemCount;
+
+  if (isValidPage(currentPage)) {
+    return currentPage;
+  }
+  if (initialPage != null && isValidPage(initialPage)) {
+    return initialPage;
+  }
+  return 0;
+}
+
 class _SettingsPageState extends State<SettingsPage> {
   int currentPage = -1;
 
   ColorScheme get colors => Theme.of(context).colorScheme;
 
-  bool get enableTwoViews => context.width > 720;
+  bool get enableTwoViews =>
+      classifyAppWidth(context.width) != AppWindowClass.compact;
 
   final categories = <String>[
     "Explore",
@@ -84,12 +102,17 @@ class _SettingsPageState extends State<SettingsPage> {
 
   Widget buildBody() {
     if (enableTwoViews) {
+      final effectivePage = resolveSettingsPageIndex(
+        currentPage: currentPage,
+        initialPage: widget.initialPage,
+        itemCount: categories.length,
+      );
       return Row(
         children: [
           SizedBox(
             width: 280,
             height: double.infinity,
-            child: buildLeft(),
+            child: buildLeft(selectedPage: effectivePage),
           ),
           Container(
             height: double.infinity,
@@ -132,7 +155,7 @@ class _SettingsPageState extends State<SettingsPage> {
                   },
                 );
               },
-              child: buildRight(),
+              child: buildRight(effectivePage),
             ),
           )
         ],
@@ -142,7 +165,7 @@ class _SettingsPageState extends State<SettingsPage> {
     }
   }
 
-  Widget buildLeft() {
+  Widget buildLeft({int? selectedPage}) {
     return Material(
       child: Column(
         children: [
@@ -152,16 +175,18 @@ class _SettingsPageState extends State<SettingsPage> {
           SizedBox(
             height: 56,
             child: Row(children: [
-              const SizedBox(
-                width: 8,
-              ),
-              Tooltip(
-                message: "Back",
-                child: IconButton(
-                  icon: const Icon(Icons.arrow_back),
-                  onPressed: context.pop,
+              if (!enableTwoViews) ...[
+                const SizedBox(
+                  width: 8,
                 ),
-              ),
+                Tooltip(
+                  message: "Back",
+                  child: IconButton(
+                    icon: const Icon(Icons.arrow_back),
+                    onPressed: context.pop,
+                  ),
+                ),
+              ],
               const SizedBox(
                 width: 24,
               ),
@@ -175,16 +200,16 @@ class _SettingsPageState extends State<SettingsPage> {
             height: 4,
           ),
           Expanded(
-            child: buildCategories(),
+            child: buildCategories(selectedPage: selectedPage),
           )
         ],
       ),
     );
   }
 
-  Widget buildCategories() {
+  Widget buildCategories({int? selectedPage}) {
     Widget buildItem(String name, int id) {
-      final bool selected = id == currentPage;
+      final bool selected = id == (selectedPage ?? currentPage);
 
       Widget content = AnimatedContainer(
         key: ValueKey(id),
@@ -237,15 +262,12 @@ class _SettingsPageState extends State<SettingsPage> {
     );
   }
 
-  Widget buildRight() {
-    if (currentPage == -1) {
-      return const SizedBox();
-    }
+  Widget buildRight(int pageIndex) {
     return Navigator(
       onGenerateRoute: (settings) {
         return PageRouteBuilder(
           pageBuilder: (context, animation, secondaryAnimation) {
-            return _buildSettingsContent(currentPage);
+            return _buildSettingsContent(pageIndex);
           },
           transitionDuration: Duration.zero,
         );
