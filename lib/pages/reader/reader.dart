@@ -370,6 +370,17 @@ class _ReaderState extends State<Reader>
         history!.ep = chapter;
       }
       history!.time = DateTime.now();
+      final sourceRef = widget.sourceRef;
+      if (sourceRef != null) {
+        HistoryManager().updateResumeSnapshot(
+          comicId: history!.id,
+          type: history!.type,
+          chapter: history!.ep,
+          group: history!.group,
+          page: history!.page,
+          sourceRef: sourceRef,
+        );
+      }
       _updateHistoryTimer?.cancel();
       _updateHistoryTimer = Timer(const Duration(seconds: 1), () {
         HistoryManager().addHistoryAsync(history!);

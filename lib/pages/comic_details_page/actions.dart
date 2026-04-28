@@ -102,6 +102,13 @@ abstract mixin class _ComicPageActions {
   ///
   /// [group] the chapter group number, start from 1
   void read([int? ep, int? page, int? group]) {
+    final sourceRef =
+        HistoryManager().findResumeSourceRef(comic.id, comic.comicType) ??
+        SourceRef.fromLegacy(
+          comicId: comic.id,
+          sourceKey: comic.comicType.sourceKey,
+          chapterId: null,
+        );
     App.rootContext
         .to(
       () => Reader(
@@ -113,6 +120,7 @@ abstract mixin class _ComicPageActions {
         initialPage: page,
         initialChapterGroup: group,
         history: history ?? History.fromModel(model: comic, ep: 0, page: 0),
+        sourceRef: sourceRef,
         author: comic.findAuthor() ?? '',
         tags: comic.plainTags,
       )

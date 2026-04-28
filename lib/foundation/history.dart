@@ -12,11 +12,14 @@ import 'package:venera/foundation/db/history_store.dart';
 import 'package:venera/foundation/favorites.dart';
 import 'package:venera/foundation/image_provider/image_favorites_provider.dart';
 import 'package:venera/foundation/log.dart';
+import 'package:venera/foundation/source_ref.dart';
+import 'package:venera/foundation/reader/resume_target_store.dart';
 import 'package:venera/utils/channel.dart';
 import 'package:venera/utils/ext.dart';
 import 'package:venera/utils/translations.dart';
 
 import 'app.dart';
+import 'appdata.dart';
 import 'consts.dart';
 
 part "image_favorites.dart";
@@ -181,6 +184,11 @@ class HistoryManager with ChangeNotifier {
 
   late HistoryStore _store;
   final Map<String, History> _historyMap = {};
+  late final ResumeTargetStore _resumeStore = ResumeTargetStore(
+    appdata.implicitData,
+  );
+
+  static const _snapshotFlag = 'reader_use_resume_source_ref_snapshot';
 
   int get length => _historyMap.length;
 
@@ -244,6 +252,56 @@ class HistoryManager with ChangeNotifier {
       cachedHistories.remove(cachedHistories.keys.first);
     }
     notifyListeners();
+  }
+
+  void updateResumeSnapshot({
+    required String comicId,
+    required ComicType type,
+    required int chapter,
+    required int? group,
+    required int page,
+    required SourceRef sourceRef,
+  }) {
+    if (!_isResumeSnapshotEnabled()) {
+      return;
+    }
+    _resumeStore.write(
+      comicId: comicId,
+      type: type,
+      chapter: chapter,
+      group: group,
+      page: page,
+      sourceRef: sourceRef,
+    );
+    appdata.writeImplicitData();
+  }
+
+  SourceRef? findResumeSourceRef(String comicId, ComicType type) {
+    if (!_isResumeSnapshotEnabled()) {
+      return null;
+    }
+    final result = _resumeStore.readWithDiagnostic(comicId, type);
+    if (result.diagnostic != null) {
+      Log.info("History", _mapSnapshotDiagnostic(result.diagnostic!));
+    }
+    return result.snapshot?.sourceRef;
+  }
+
+  bool _isResumeSnapshotEnabled() {
+    return appdata.settings['reader_use_source_ref_resolver'] == true &&
+        appdata.settings[_snapshotFlag] == true;
+  }
+
+  String _mapSnapshotDiagnostic(ResumeSnapshotDiagnosticCode code) {
+    return switch (code) {
+      ResumeSnapshotDiagnosticCode.malformed => 'RESUME_SNAPSHOT_MALFORMED',
+      ResumeSnapshotDiagnosticCode.unsupportedVersion =>
+        'RESUME_SNAPSHOT_UNSUPPORTED_VERSION',
+      ResumeSnapshotDiagnosticCode.missingRequiredField =>
+        'RESUME_SNAPSHOT_MISSING_REQUIRED_FIELD',
+      ResumeSnapshotDiagnosticCode.sourceRefInvalid =>
+        'RESUME_SNAPSHOT_SOURCE_REF_INVALID',
+    };
   }
 
   /// add history. if exists, update time.
