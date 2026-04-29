@@ -9,6 +9,15 @@ import 'base_image_provider.dart';
 import 'reader_image.dart' as image_provider;
 import 'package:venera/foundation/appdata.dart';
 
+@visibleForTesting
+String readerImageFilePathForTesting(String imageKey) {
+  const fileScheme = 'file://';
+  if (imageKey.startsWith(fileScheme)) {
+    return imageKey.substring(fileScheme.length);
+  }
+  return imageKey;
+}
+
 class ReaderImageProvider
     extends BaseImageProvider<image_provider.ReaderImageProvider> {
   /// Image provider for normal image.
@@ -31,7 +40,7 @@ class ReaderImageProvider
   Future<Uint8List> load(chunkEvents, checkStop) async {
     Uint8List? imageBytes;
     if (imageKey.startsWith('file://')) {
-      var file = File(imageKey);
+      var file = File(readerImageFilePathForTesting(imageKey));
       if (await file.exists()) {
         imageBytes = await file.readAsBytes();
       } else {
