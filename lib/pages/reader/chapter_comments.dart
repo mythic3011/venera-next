@@ -1,18 +1,5 @@
 part of 'reader.dart';
 
-bool _shouldBlockComment(Comment comment) {
-  var blockedWords = appdata.settings["blockedCommentWords"] as List;
-  if (blockedWords.isEmpty) return false;
-  
-  var content = comment.content.toLowerCase();
-  for (var word in blockedWords) {
-    if (content.contains(word.toString().toLowerCase())) {
-      return true;
-    }
-  }
-  return false;
-}
-
 class ChapterCommentsPage extends StatefulWidget {
   const ChapterCommentsPage({
     super.key,
@@ -58,7 +45,9 @@ class _ChapterCommentsPageState extends State<ChapterCommentsPage> {
         _loading = false;
       });
     } else {
-      var filteredComments = res.data.where((c) => !_shouldBlockComment(c)).toList();
+      var filteredComments = CommentFilter.fromSettings().filterComments(
+        res.data,
+      );
       setState(() {
         _comments = filteredComments;
         _loading = false;
@@ -78,7 +67,9 @@ class _ChapterCommentsPageState extends State<ChapterCommentsPage> {
     if (res.error) {
       context.showMessage(message: res.errorMessage ?? "Unknown Error");
     } else {
-      var filteredComments = res.data.where((c) => !_shouldBlockComment(c)).toList();
+      var filteredComments = CommentFilter.fromSettings().filterComments(
+        res.data,
+      );
       setState(() {
         _comments!.addAll(filteredComments);
         _page++;
@@ -642,8 +633,9 @@ class _EmbeddedChapterCommentsPageState
         _loading = false;
       });
     } else {
-      var filteredComments =
-          res.data.where((c) => !_shouldBlockComment(c)).toList();
+      var filteredComments = CommentFilter.fromSettings().filterComments(
+        res.data,
+      );
       setState(() {
         _comments = filteredComments;
         _loading = false;
@@ -663,8 +655,9 @@ class _EmbeddedChapterCommentsPageState
     if (res.error) {
       context.showMessage(message: res.errorMessage ?? "Unknown Error");
     } else {
-      var filteredComments =
-          res.data.where((c) => !_shouldBlockComment(c)).toList();
+      var filteredComments = CommentFilter.fromSettings().filterComments(
+        res.data,
+      );
       setState(() {
         _comments!.addAll(filteredComments);
         _page++;
