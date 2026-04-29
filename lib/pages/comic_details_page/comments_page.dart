@@ -34,12 +34,13 @@ class _CommentsPageState extends State<CommentsPage> {
   void firstLoad() async {
     var res = await widget.source.commentsLoader!(
         widget.data.comicId, widget.data.subId, 1, widget.replyComment?.id);
+    if (!mounted) return;
     if (res.error) {
       setState(() {
         _error = res.errorMessage;
         _loading = false;
       });
-    } else if (mounted) {
+    } else {
       var filteredComments = CommentFilter.fromSettings().filterComments(
         res.data,
       );
@@ -58,6 +59,7 @@ class _CommentsPageState extends State<CommentsPage> {
       _page + 1,
       widget.replyComment?.id,
     );
+    if (!mounted) return;
     if (res.error) {
       context.showMessage(message: res.errorMessage ?? "Unknown Error");
     } else {
