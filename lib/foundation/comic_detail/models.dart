@@ -200,20 +200,23 @@ class ComicDetailViewModel {
   final ComicDetailActions availableActions;
   final DateTime? updatedAt;
 
-  const ComicDetailViewModel({
+  ComicDetailViewModel({
     required this.comicId,
     required this.title,
     this.coverLocalPath,
     required this.libraryState,
     this.primarySource,
-    this.userTags = const <ComicTagVm>[],
-    this.sourceTags = const <SourceTagVm>[],
-    this.chapters = const <ChapterVm>[],
-    this.readerTabs = const <ReaderTabVm>[],
+    List<ComicTagVm> userTags = const <ComicTagVm>[],
+    List<SourceTagVm> sourceTags = const <SourceTagVm>[],
+    List<ChapterVm> chapters = const <ChapterVm>[],
+    List<ReaderTabVm> readerTabs = const <ReaderTabVm>[],
     this.pageOrderSummary = PageOrderSummaryVm.empty,
     this.availableActions = ComicDetailActions.none,
     this.updatedAt,
-  });
+  }) : userTags = List.unmodifiable(userTags),
+       sourceTags = List.unmodifiable(sourceTags),
+       chapters = List.unmodifiable(chapters),
+       readerTabs = List.unmodifiable(readerTabs);
 
   factory ComicDetailViewModel.scaffold({
     required String comicId,

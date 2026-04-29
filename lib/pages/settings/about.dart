@@ -36,10 +36,7 @@ class _AboutSettingsState extends State<AboutSettings> {
         Column(
           children: [
             const SizedBox(height: 8),
-            Text(
-              "V${App.version}",
-              style: const TextStyle(fontSize: 16),
-            ),
+            Text("V${App.version}", style: const TextStyle(fontSize: 16)),
             Text("Venera is a free and open-source app for comic reading.".tl),
             const SizedBox(height: 8),
           ],
@@ -69,7 +66,7 @@ class _AboutSettingsState extends State<AboutSettings> {
           title: const Text("Github"),
           trailing: const Icon(Icons.open_in_new),
           onTap: () {
-            launchUrlString("https://github.com/venera-app/venera");
+            launchUrlString("https://github.com/mythic3011/venera");
           },
         ).toSliver(),
         ListTile(
@@ -85,8 +82,9 @@ class _AboutSettingsState extends State<AboutSettings> {
 }
 
 Future<bool> checkUpdate() async {
-  var res = await AppDio()
-      .get("https://cdn.jsdelivr.net/gh/venera-app/venera@master/pubspec.yaml");
+  var res = await AppDio().get(
+    "https://raw.githubusercontent.com/mythic3011/venera/master/pubspec.yaml",
+  );
   if (res.statusCode == 200) {
     var data = loadYaml(res.data);
     if (data["version"] != null) {
@@ -96,7 +94,10 @@ Future<bool> checkUpdate() async {
   return false;
 }
 
-Future<void> checkUpdateUi([bool showMessageIfNoUpdate = true, bool delay = false]) async {
+Future<void> checkUpdateUi([
+  bool showMessageIfNoUpdate = true,
+  bool delay = false,
+]) async {
   try {
     var value = await checkUpdate();
     if (value) {
@@ -104,26 +105,27 @@ Future<void> checkUpdateUi([bool showMessageIfNoUpdate = true, bool delay = fals
         await Future.delayed(const Duration(seconds: 2));
       }
       showDialog(
-          context: App.rootContext,
-          builder: (context) {
-            return ContentDialog(
-              title: "New version available".tl,
-              content: Text(
-                      "A new version is available. Do you want to update now?"
-                          .tl)
-                  .paddingHorizontal(16),
-              actions: [
-                Button.text(
-                  onPressed: () {
-                    Navigator.pop(context);
-                    launchUrlString(
-                        "https://github.com/venera-app/venera/releases");
-                  },
-                  child: Text("Update".tl),
-                ),
-              ],
-            );
-          });
+        context: App.rootContext,
+        builder: (context) {
+          return ContentDialog(
+            title: "New version available".tl,
+            content: Text(
+              "A new version is available. Do you want to update now?".tl,
+            ).paddingHorizontal(16),
+            actions: [
+              Button.text(
+                onPressed: () {
+                  Navigator.pop(context);
+                  launchUrlString(
+                    "https://github.com/mythic3011/venera/releases",
+                  );
+                },
+                child: Text("Update".tl),
+              ),
+            ],
+          );
+        },
+      );
     } else if (showMessageIfNoUpdate) {
       App.rootContext.showMessage(message: "No new version available".tl);
     }

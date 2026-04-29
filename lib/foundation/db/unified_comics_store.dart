@@ -122,6 +122,18 @@ class LocalLibraryItemRecord {
   final String? updatedAt;
 }
 
+class FavoriteRecord {
+  const FavoriteRecord({
+    required this.comicId,
+    required this.sourceKey,
+    this.createdAt,
+  });
+
+  final String comicId;
+  final String sourceKey;
+  final String? createdAt;
+}
+
 class ChapterRecord {
   const ChapterRecord({
     required this.id,
@@ -220,6 +232,40 @@ class PageOrderSummaryRecord {
   final int visiblePageCount;
 }
 
+class HistoryEventRecord {
+  const HistoryEventRecord({
+    required this.id,
+    required this.comicId,
+    required this.sourceTypeValue,
+    required this.sourceKey,
+    required this.title,
+    required this.subtitle,
+    required this.cover,
+    required this.eventTime,
+    required this.chapterIndex,
+    required this.pageIndex,
+    required this.readEpisode,
+    this.chapterGroup,
+    this.maxPage,
+    this.createdAt,
+  });
+
+  final String id;
+  final String comicId;
+  final int sourceTypeValue;
+  final String sourceKey;
+  final String title;
+  final String subtitle;
+  final String cover;
+  final String eventTime;
+  final int chapterIndex;
+  final int pageIndex;
+  final String readEpisode;
+  final int? chapterGroup;
+  final int? maxPage;
+  final String? createdAt;
+}
+
 class ResolvedSourcePlatform {
   const ResolvedSourcePlatform({
     required this.platformId,
@@ -247,12 +293,14 @@ class UnifiedComicSnapshot {
     required this.comic,
     required this.titles,
     required this.localLibraryItems,
+    this.favorite,
     this.chapters = const <ChapterRecord>[],
   });
 
   final ComicRecord comic;
   final List<ComicTitleRecord> titles;
   final List<LocalLibraryItemRecord> localLibraryItems;
+  final FavoriteRecord? favorite;
   final List<ChapterRecord> chapters;
 }
 
@@ -405,6 +453,20 @@ class UnifiedComicsStore extends GeneratedDatabase {
       ON local_library_items(storage_type, updated_at DESC);
     ''');
     await customStatement('''
+      CREATE TABLE IF NOT EXISTS favorites (
+        comic_id TEXT PRIMARY KEY,
+        source_key TEXT NOT NULL,
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (comic_id)
+          REFERENCES comics(id)
+          ON DELETE CASCADE
+      );
+    ''');
+    await customStatement('''
+      CREATE INDEX IF NOT EXISTS idx_favorites_source_key
+      ON favorites(source_key, created_at DESC);
+    ''');
+    await customStatement('''
       CREATE TABLE IF NOT EXISTS chapters (
         id TEXT PRIMARY KEY,
         comic_id TEXT NOT NULL,
@@ -481,6 +543,31 @@ class UnifiedComicsStore extends GeneratedDatabase {
           ON DELETE CASCADE,
         UNIQUE(page_order_id, sort_order)
       );
+    ''');
+    await customStatement('''
+      CREATE TABLE IF NOT EXISTS history_events (
+        id TEXT PRIMARY KEY,
+        comic_id TEXT NOT NULL,
+        source_type_value INTEGER NOT NULL,
+        source_key TEXT NOT NULL,
+        title TEXT NOT NULL,
+        subtitle TEXT NOT NULL,
+        cover TEXT NOT NULL,
+        event_time TEXT NOT NULL,
+        chapter_index INTEGER NOT NULL,
+        page_index INTEGER NOT NULL,
+        chapter_group INTEGER,
+        read_episode TEXT NOT NULL,
+        max_page INTEGER,
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (comic_id)
+          REFERENCES comics(id)
+          ON DELETE CASCADE
+      );
+    ''');
+    await customStatement('''
+      CREATE INDEX IF NOT EXISTS idx_history_events_comic_time
+      ON history_events(comic_id, event_time DESC);
     ''');
   }
 
@@ -725,6 +812,12 @@ class UnifiedComicsStore extends GeneratedDatabase {
     ]);
   }
 
+  Future<void> deleteChaptersForComic(String comicId) {
+    return customStatement('DELETE FROM chapters WHERE comic_id = ?;', [
+      comicId,
+    ]);
+  }
+
   Future<void> upsertLocalLibraryItem(LocalLibraryItemRecord record) {
     return customStatement(
       '''
@@ -765,6 +858,28 @@ class UnifiedComicsStore extends GeneratedDatabase {
         record.updatedAt,
       ],
     );
+  }
+
+  Future<void> upsertFavorite(FavoriteRecord record) {
+    return customStatement(
+      '''
+      INSERT INTO favorites (
+        comic_id,
+        source_key,
+        created_at
+      )
+      VALUES (?, ?, COALESCE(?, CURRENT_TIMESTAMP))
+      ON CONFLICT(comic_id) DO UPDATE SET
+        source_key = excluded.source_key;
+      ''',
+      [record.comicId, record.sourceKey, record.createdAt],
+    );
+  }
+
+  Future<void> deleteFavorite(String comicId) {
+    return customStatement('DELETE FROM favorites WHERE comic_id = ?;', [
+      comicId,
+    ]);
   }
 
   Future<void> upsertChapter(ChapterRecord record) {
@@ -905,6 +1020,59 @@ class UnifiedComicsStore extends GeneratedDatabase {
     });
   }
 
+  Future<void> upsertHistoryEvent(HistoryEventRecord record) {
+    return customStatement(
+      '''
+      INSERT INTO history_events (
+        id,
+        comic_id,
+        source_type_value,
+        source_key,
+        title,
+        subtitle,
+        cover,
+        event_time,
+        chapter_index,
+        page_index,
+        chapter_group,
+        read_episode,
+        max_page,
+        created_at
+      )
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, COALESCE(?, CURRENT_TIMESTAMP))
+      ON CONFLICT(id) DO UPDATE SET
+        comic_id = excluded.comic_id,
+        source_type_value = excluded.source_type_value,
+        source_key = excluded.source_key,
+        title = excluded.title,
+        subtitle = excluded.subtitle,
+        cover = excluded.cover,
+        event_time = excluded.event_time,
+        chapter_index = excluded.chapter_index,
+        page_index = excluded.page_index,
+        chapter_group = excluded.chapter_group,
+        read_episode = excluded.read_episode,
+        max_page = excluded.max_page;
+      ''',
+      [
+        record.id,
+        record.comicId,
+        record.sourceTypeValue,
+        record.sourceKey,
+        record.title,
+        record.subtitle,
+        record.cover,
+        record.eventTime,
+        record.chapterIndex,
+        record.pageIndex,
+        record.chapterGroup,
+        record.readEpisode,
+        record.maxPage,
+        record.createdAt,
+      ],
+    );
+  }
+
   Future<UnifiedComicSnapshot?> loadComicSnapshot(String comicId) async {
     final comicRow = await customSelect(
       'SELECT * FROM comics WHERE id = ? LIMIT 1;',
@@ -937,12 +1105,33 @@ class UnifiedComicsStore extends GeneratedDatabase {
       ''',
       variables: [Variable<String>(comicId)],
     ).get();
+    final favoriteRow = await customSelect(
+      '''
+      SELECT * FROM favorites
+      WHERE comic_id = ?
+      LIMIT 1;
+      ''',
+      variables: [Variable<String>(comicId)],
+    ).getSingleOrNull();
     return UnifiedComicSnapshot(
       comic: _comicRecordFromRow(comicRow),
       titles: titleRows.map(_comicTitleRecordFromRow).toList(),
       localLibraryItems: localRows.map(_localLibraryItemRecordFromRow).toList(),
+      favorite: favoriteRow == null ? null : _favoriteRecordFromRow(favoriteRow),
       chapters: chapterRows.map(_chapterRecordFromRow).toList(),
     );
+  }
+
+  Future<bool> isComicFavorited(String comicId) async {
+    final row = await customSelect(
+      '''
+      SELECT COUNT(*) AS c
+      FROM favorites
+      WHERE comic_id = ?;
+      ''',
+      variables: [Variable<String>(comicId)],
+    ).getSingle();
+    return row.read<int>('c') > 0;
   }
 
   Future<int> countPagesForChapter(String chapterId) async {
@@ -1023,6 +1212,22 @@ class UnifiedComicsStore extends GeneratedDatabase {
     );
   }
 
+  Future<HistoryEventRecord?> loadLatestHistoryEvent(String comicId) async {
+    final row = await customSelect(
+      '''
+      SELECT * FROM history_events
+      WHERE comic_id = ?
+      ORDER BY event_time DESC
+      LIMIT 1;
+      ''',
+      variables: [Variable<String>(comicId)],
+    ).getSingleOrNull();
+    if (row == null) {
+      return null;
+    }
+    return _historyEventRecordFromRow(row);
+  }
+
   ComicRecord _comicRecordFromRow(QueryRow row) {
     return ComicRecord(
       id: row.read<String>('id'),
@@ -1061,6 +1266,14 @@ class UnifiedComicsStore extends GeneratedDatabase {
     );
   }
 
+  FavoriteRecord _favoriteRecordFromRow(QueryRow row) {
+    return FavoriteRecord(
+      comicId: row.read<String>('comic_id'),
+      sourceKey: row.read<String>('source_key'),
+      createdAt: row.read<String>('created_at'),
+    );
+  }
+
   ChapterRecord _chapterRecordFromRow(QueryRow row) {
     return ChapterRecord(
       id: row.read<String>('id'),
@@ -1070,6 +1283,25 @@ class UnifiedComicsStore extends GeneratedDatabase {
       normalizedTitle: row.read<String>('normalized_title'),
       createdAt: row.read<String>('created_at'),
       updatedAt: row.read<String>('updated_at'),
+    );
+  }
+
+  HistoryEventRecord _historyEventRecordFromRow(QueryRow row) {
+    return HistoryEventRecord(
+      id: row.read<String>('id'),
+      comicId: row.read<String>('comic_id'),
+      sourceTypeValue: row.read<int>('source_type_value'),
+      sourceKey: row.read<String>('source_key'),
+      title: row.read<String>('title'),
+      subtitle: row.read<String>('subtitle'),
+      cover: row.read<String>('cover'),
+      eventTime: row.read<String>('event_time'),
+      chapterIndex: row.read<int>('chapter_index'),
+      pageIndex: row.read<int>('page_index'),
+      chapterGroup: row.read<int?>('chapter_group'),
+      readEpisode: row.read<String>('read_episode'),
+      maxPage: row.read<int?>('max_page'),
+      createdAt: row.read<String>('created_at'),
     );
   }
 

@@ -1,24 +1,24 @@
 {
   "name": "Venera",
-  "identifier": "com.github.wgh136.venera.source",
-  "website": "https://github.com/venera-app/venera",
+  "identifier": "com.mythic3011.veneranext.source",
+  "website": "https://github.com/mythic3011/venera",
   "subtitle": "Venera official AltStore Source.",
   "description": "This is the official AltStore Source for Venera.\n\n A comic reader that supports reading local and network comics",
   "tintColor": "#0784FC",
-  "iconURL": "https://raw.githubusercontent.com/venera-app/venera/master/assets/app_icon.png",
+  "iconURL": "https://raw.githubusercontent.com/mythic3011/venera/master/assets/app_icon.png",
   "apps": [
     {
       "beta": false,
       "name": "Venera",
-      "bundleIdentifier": "com.github.wgh136.venera",
-      "developerName": "wgh136",
+      "bundleIdentifier": "com.mythic3011.veneranext",
+      "developerName": "mythic3011",
       "subtitle": "A comic reader that supports reading local and network comics",
       "version": "1.6.3",
       "versionDate": "2026-03-08",
       "versionDescription": "What's Changed\r\n* Update AltStore source with latest release by @github-actions[bot] in https://github.com/venera-app/venera/pull/736\r\n* deps: flutter 3.41.4 and upgrade dependencies by @ynyxx in https://github.com/venera-app/venera/pull/809\r\n* Add downloaded comic restore in import comic by @bustesoul in https://github.com/venera-app/venera/pull/765\r\n* chore: update Android Gradle plugin to version 8.12.3 and upgrade Gra\u2026 by @ynyxx in https://github.com/venera-app/venera/pull/810\r\n* Fix customImageProcessing not triggering due to async keyword mismatch by @UCPr251 in https://github.com/venera-app/venera/pull/763\r\n* Add device-specific settings by @Arkalin in https://github.com/venera-app/venera/pull/808\r\n* Fix: reader swipe gesture causing  back navigation when image is loading by @boa-z in https://github.com/venera-app/venera/pull/764\r\n* Enhance image resizing logic. Close 800 by @ynyxx in https://github.com/venera-app/venera/pull/812\r \nNew Contributors\r\n* @UCPr251 made their first contribution in https://github.com/venera-app/venera/pull/763\r\n* @Arkalin made their first contribution in https://github.com/venera-app/venera/pull/808\r \nFull Changelog: https://github.com/venera-app/venera/compare/v1.6.2...v1.6.3",
       "downloadURL": "https://github.com/venera-app/venera/releases/download/v1.6.3/venera-ios-1.6.3%2B163.ipa",
       "localizedDescription": "A comic reader that supports reading local and network comics",
-      "iconURL": "https://raw.githubusercontent.com/venera-app/venera/master/assets/app_icon.png",
+      "iconURL": "https://raw.githubusercontent.com/mythic3011/venera/master/assets/app_icon.png",
       "tintColor": "#0784FC",
       "category": "utilities",
       "size": 15489327,
@@ -86,7 +86,7 @@
   ],
   "news": [
     {
-      "appID": "com.github.wgh136.venera",
+      "appID": "com.mythic3011.veneranext",
       "caption": "Update of Venera just got released!",
       "date": "2025-06-18T09:02:01Z",
       "identifier": "release-v1.4.5",
@@ -96,7 +96,7 @@
       "url": "https://github.com/venera-app/venera/releases/tag/v1.4.5"
     },
     {
-      "appID": "com.github.wgh136.venera",
+      "appID": "com.mythic3011.veneranext",
       "caption": "Update of Venera just got released!",
       "date": "2025-10-13T12:47:27Z",
       "identifier": "release-v1.5.3",
@@ -106,7 +106,7 @@
       "url": "https://github.com/venera-app/venera/releases/tag/v1.5.3"
     },
     {
-      "appID": "com.github.wgh136.venera",
+      "appID": "com.mythic3011.veneranext",
       "caption": "Update of Venera just got released!",
       "date": "2025-11-01T07:31:38Z",
       "identifier": "release-v1.6.0",
@@ -116,7 +116,7 @@
       "url": "https://github.com/venera-app/venera/releases/tag/v1.6.0"
     },
     {
-      "appID": "com.github.wgh136.venera",
+      "appID": "com.mythic3011.veneranext",
       "caption": "Update of Venera just got released!",
       "date": "2025-11-29T08:51:14Z",
       "identifier": "release-v1.6.1",
@@ -126,7 +126,7 @@
       "url": "https://github.com/venera-app/venera/releases/tag/v1.6.1"
     },
     {
-      "appID": "com.github.wgh136.venera",
+      "appID": "com.mythic3011.veneranext",
       "caption": "Update of Venera just got released!",
       "date": "2026-01-01T08:31:16Z",
       "identifier": "release-v1.6.2",
@@ -136,7 +136,7 @@
       "url": "https://github.com/venera-app/venera/releases/tag/v1.6.2"
     },
     {
-      "appID": "com.github.wgh136.venera",
+      "appID": "com.mythic3011.veneranext",
       "caption": "Update of Venera just got released!",
       "date": "2026-03-08T09:49:52Z",
       "identifier": "release-v1.6.3",

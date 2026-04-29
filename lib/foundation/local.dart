@@ -11,6 +11,7 @@ import 'package:venera/foundation/comic_type.dart';
 import 'package:venera/foundation/favorites.dart';
 import 'package:venera/foundation/log.dart';
 import 'package:venera/foundation/local_metadata/local_metadata.dart';
+import 'package:venera/foundation/reader/reader_open_target.dart';
 import 'package:venera/foundation/source_ref.dart';
 import 'package:venera/network/download.dart';
 import 'package:venera/pages/reader/reader.dart';
@@ -142,6 +143,14 @@ class LocalComic with HistoryMixin implements Comic {
         }
       }
     }
+    final sourceRef = resolveReaderTargetSourceRef(
+      comicId: id,
+      sourceKey: comicType.sourceKey,
+      chapters: chapters,
+      ep: history?.ep ?? firstDownloadedChapter,
+      group: history?.group ?? firstDownloadedChapterGroup,
+      resumeSourceRef: HistoryManager().findResumeSourceRef(id, comicType),
+    );
     App.rootContext.to(
       () => Reader(
         type: comicType,
@@ -152,11 +161,7 @@ class LocalComic with HistoryMixin implements Comic {
         initialPage: history?.page,
         initialChapterGroup: history?.group ?? firstDownloadedChapterGroup,
         history: history ?? History.fromModel(model: this, ep: 0, page: 0),
-        sourceRef: SourceRef.fromLegacyLocal(
-          localType: comicType.sourceKey,
-          localComicId: id,
-          chapterId: null,
-        ),
+        sourceRef: sourceRef,
         author: subtitle,
         tags: tags,
       )

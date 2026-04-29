@@ -1,10 +1,14 @@
 import 'constants.dart';
 import 'source_platform_resolver.dart';
 
-final Map<int, String> legacySourceTypeSourceKeys = <int, String>{
-  ...sourcePlatformResolver.legacyTypeMappingsFor(SourceLookupContext.favorite),
-  ...sourcePlatformResolver.legacyTypeMappingsFor(SourceLookupContext.history),
-};
+const List<SourceLookupContext> sourceTypeCompatibilityContexts =
+    <SourceLookupContext>[
+      SourceLookupContext.favorite,
+      SourceLookupContext.history,
+    ];
+
+final Map<int, String> legacySourceTypeSourceKeys = sourcePlatformResolver
+    .legacyTypeMappingsForContexts(sourceTypeCompatibilityContexts);
 
 class SourceIdentityAudit {
   final String? source;
@@ -249,9 +253,26 @@ int normalizeFavoriteJsonTypeValue({
   if (typeValue == 0 && !coverPath.startsWith('http')) {
     return 0;
   }
-  final resolved = sourcePlatformResolver.resolveLegacyType(
+  return normalizeLegacySourceTypeValue(
     typeValue,
     context: SourceLookupContext.favorite,
+  );
+}
+
+int normalizeLegacyHistoryTypeValue(int typeValue) {
+  return normalizeLegacySourceTypeValue(
+    typeValue,
+    context: SourceLookupContext.history,
+  );
+}
+
+int normalizeLegacySourceTypeValue(
+  int typeValue, {
+  required SourceLookupContext context,
+}) {
+  final resolved = sourcePlatformResolver.resolveLegacyType(
+    typeValue,
+    context: context,
   );
   if (resolved == null) {
     return typeValue;
@@ -259,15 +280,11 @@ int normalizeFavoriteJsonTypeValue({
   return sourceTypeValueFromKey(resolved.canonicalKey);
 }
 
-int normalizeLegacyHistoryTypeValue(int typeValue) {
-  final resolved = sourcePlatformResolver.resolveLegacyType(
+SourcePlatformRef? resolveCompatibleSourceTypeValue(int typeValue) {
+  return sourcePlatformResolver.resolveLegacyTypeAcrossContexts(
     typeValue,
-    context: SourceLookupContext.history,
+    contexts: sourceTypeCompatibilityContexts,
   );
-  if (resolved == null) {
-    return typeValue;
-  }
-  return sourceTypeValueFromKey(resolved.canonicalKey);
 }
 
 String normalizeLegacyImportedSourceKey(

@@ -166,6 +166,19 @@ class SourcePlatformResolver {
     return null;
   }
 
+  SourcePlatformRef? resolveLegacyTypeAcrossContexts(
+    int legacyType, {
+    required Iterable<SourceLookupContext> contexts,
+  }) {
+    for (final context in contexts) {
+      final resolved = resolveLegacyType(legacyType, context: context);
+      if (resolved != null) {
+        return resolved;
+      }
+    }
+    return null;
+  }
+
   Map<int, String> legacyTypeMappingsFor(SourceLookupContext context) {
     final mappings = <int, String>{};
     for (final platform in platforms) {
@@ -176,6 +189,16 @@ class SourcePlatformResolver {
           mappings[legacyType] = platform.canonicalKey;
         }
       }
+    }
+    return mappings;
+  }
+
+  Map<int, String> legacyTypeMappingsForContexts(
+    Iterable<SourceLookupContext> contexts,
+  ) {
+    final mappings = <int, String>{};
+    for (final context in contexts) {
+      mappings.addAll(legacyTypeMappingsFor(context));
     }
     return mappings;
   }

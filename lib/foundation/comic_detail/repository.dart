@@ -10,7 +10,8 @@ abstract class ComicDetailRepository {
 }
 
 class StaticComicDetailRepository implements ComicDetailRepository {
-  const StaticComicDetailRepository(this.records);
+  StaticComicDetailRepository(Map<String, ComicDetailViewModel> records)
+    : records = Map.unmodifiable(records);
 
   final Map<String, ComicDetailViewModel> records;
 
@@ -21,7 +22,8 @@ class StaticComicDetailRepository implements ComicDetailRepository {
 }
 
 class CompositeComicDetailRepository implements ComicDetailRepository {
-  const CompositeComicDetailRepository({required this.loaders});
+  CompositeComicDetailRepository({required List<ComicDetailLoader> loaders})
+    : loaders = List.unmodifiable(loaders);
 
   final List<ComicDetailLoader> loaders;
 
@@ -67,6 +69,8 @@ class UnifiedLocalComicDetailRepository implements ComicDetailRepository {
     }
 
     final chapters = <ChapterVm>[];
+    final latestHistory = await store.loadLatestHistoryEvent(comicId);
+    final latestHistoryReadAt = _parseStoreDateTime(latestHistory?.eventTime);
     for (final chapter in snapshot.chapters) {
       chapters.add(
         ChapterVm(
@@ -74,6 +78,13 @@ class UnifiedLocalComicDetailRepository implements ComicDetailRepository {
           title: chapter.title,
           chapterNo: chapter.chapterNo,
           pageCount: await store.countPagesForChapter(chapter.id),
+          lastReadAt:
+              _matchesHistoryChapter(
+                chapterNo: chapter.chapterNo,
+                historyChapterIndex: latestHistory?.chapterIndex,
+              )
+              ? latestHistoryReadAt
+              : null,
         ),
       );
     }
@@ -92,8 +103,9 @@ class UnifiedLocalComicDetailRepository implements ComicDetailRepository {
         totalPageCount: summary.totalPageCount,
         visiblePageCount: summary.visiblePageCount,
       ),
-      availableActions: const ComicDetailActions(
-        canContinueReading: true,
+      updatedAt: _parseStoreDateTime(snapshot.comic.updatedAt),
+      availableActions: ComicDetailActions(
+        canContinueReading: latestHistory != null,
         canStartReading: true,
         canOpenInNewTab: true,
         canFavorite: true,
@@ -104,6 +116,23 @@ class UnifiedLocalComicDetailRepository implements ComicDetailRepository {
       ),
     );
   }
+}
+
+bool _matchesHistoryChapter({
+  required double? chapterNo,
+  required int? historyChapterIndex,
+}) {
+  if (chapterNo == null || historyChapterIndex == null) {
+    return false;
+  }
+  return chapterNo == historyChapterIndex.toDouble();
+}
+
+DateTime? _parseStoreDateTime(String? value) {
+  if (value == null) {
+    return null;
+  }
+  return DateTime.tryParse(value)?.toLocal();
 }
 
 PageOrderKind? _mapPageOrderKind(String? orderType) {

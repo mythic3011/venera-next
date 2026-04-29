@@ -48,15 +48,44 @@ void main() {
     },
   );
 
+  test(
+    'resolver can expose shared source type compatibility across favorite and history',
+    () {
+      expect(
+        sourcePlatformResolver
+            .resolveLegacyTypeAcrossContexts(
+              5,
+              contexts: sourceTypeCompatibilityContexts,
+            )
+            ?.canonicalKey,
+        'nhentai',
+      );
+      expect(
+        sourcePlatformResolver
+            .resolveLegacyTypeAcrossContexts(
+              6,
+              contexts: sourceTypeCompatibilityContexts,
+            )
+            ?.canonicalKey,
+        'nhentai',
+      );
+      expect(
+        sourcePlatformResolver.resolveLegacyTypeAcrossContexts(
+          999,
+          contexts: sourceTypeCompatibilityContexts,
+        ),
+        isNull,
+      );
+    },
+  );
+
   test('favorite legacy mapping export is derived from resolver authority', () {
-    expect(legacySourceTypeSourceKeys, <int, String>{
-      ...sourcePlatformResolver.legacyTypeMappingsFor(
-        SourceLookupContext.favorite,
+    expect(
+      legacySourceTypeSourceKeys,
+      sourcePlatformResolver.legacyTypeMappingsForContexts(
+        sourceTypeCompatibilityContexts,
       ),
-      ...sourcePlatformResolver.legacyTypeMappingsFor(
-        SourceLookupContext.history,
-      ),
-    });
+    );
     expect(legacySourceTypeSourceKeys[6], 'nhentai');
     expect(legacySourceTypeSourceKeys[5], 'nhentai');
   });

@@ -3,8 +3,8 @@
 
 #define MyAppName "Venera"
 #define MyAppVersion "{{version}}"
-#define MyAppPublisher "nyne"
-#define MyAppURL "https://github.com/venera-app/venera"
+#define MyAppPublisher "mythic3011"
+#define MyAppURL "https://github.com/mythic3011/venera"
 #define MyAppExeName "venera.exe"
 #define RootPath "{{root_path}}"
 
@@ -36,7 +36,7 @@ end;
 [Setup]
 ; NOTE: The value of AppId uniquely identifies this application. Do not use the same AppId value in installers for other applications.
 ; (To generate a new GUID, click Tools | Generate GUID inside the IDE.)
-AppId={{1A39CB64-0A5B-478E-9590-978614C804A8}
+AppId={{8B19F6A2-9E2B-4D82-A4A8-2EBA6A6D03F0}
 AppName={#MyAppName}
 AppVersion={#MyAppVersion}
 ;AppVerName={#MyAppName} {#MyAppVersion}

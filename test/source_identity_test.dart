@@ -60,6 +60,8 @@ void main() {
   test('legacy favorite and history type values normalize to stable ids', () {
     expect(legacySourceTypeSourceKeys[5], 'nhentai');
     expect(legacySourceTypeSourceKeys[6], 'nhentai');
+    expect(resolveCompatibleSourceTypeValue(5)?.canonicalKey, 'nhentai');
+    expect(resolveCompatibleSourceTypeValue(6)?.canonicalKey, 'nhentai');
     expect(
       normalizeFavoriteJsonTypeValue(
         typeValue: 4,
@@ -69,6 +71,10 @@ void main() {
     );
     expect(
       normalizeLegacyHistoryTypeValue(5),
+      ComicType.fromKey('nhentai').value,
+    );
+    expect(
+      normalizeLegacySourceTypeValue(6, context: SourceLookupContext.favorite),
       ComicType.fromKey('nhentai').value,
     );
   });

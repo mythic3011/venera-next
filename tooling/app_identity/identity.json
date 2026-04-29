@@ -1,0 +1,38 @@
+{
+  "app": {
+    "name": "Venera",
+    "executableName": "venera",
+    "baseId": "com.mythic3011.veneranext",
+    "publisher": "mythic3011",
+    "copyrightYear": "2024",
+    "windowsAppIdGuid": "8B19F6A2-9E2B-4D82-A4A8-2EBA6A6D03F0"
+  },
+  "repo": {
+    "slug": "mythic3011/venera",
+    "defaultBranch": "master",
+    "comicSourceIssuesSlug": "venera-app/venera-configs"
+  },
+  "support": {
+    "telegramUrl": "https://t.me/venera_release",
+    "comicSourceListUrl": "https://cdn.jsdelivr.net/gh/venera-app/venera-configs@main/index.json"
+  },
+  "altStore": {
+    "sourceName": "Venera",
+    "sourceSubtitle": "Venera official AltStore Source.",
+    "sourceDescription": "This is the official AltStore Source for Venera.\n\n A comic reader that supports reading local and network comics",
+    "developerName": "mythic3011",
+    "iconPath": "assets/app_icon.png",
+    "tintColor": "#0784FC",
+    "releaseArtifactNameTemplate": "venera-ios-{version}+{build}.ipa",
+    "newsCaption": "Update of Venera just got released!"
+  },
+  "store": {
+    "shortDescription": "A comic reader that support reading local and network comics.",
+    "fullDescriptionHtml": "<p>A comic reader that support reading local and network comics.</p>\n<h3>Features</h3>\n<ul>\n<li>Read local comics</li>\n<li>Use javascript to create comic sources</li>\n<li>Read comics from network sources</li>\n<li>Manage favorite comics</li>\n<li>Download comics</li>\n<li>View comments, tags, and other information of comics if the source supports</li>\n<li>Login to comment, rate, and other operations if the source supports</li>\n</ul>\n<h3>Thanks</h3>\n<h4>Tags Translation</h4>\n<li><a href=\"https://github.com/EhTagTranslation/Database\">github.com/EhTagTranslation/Database</a></li>\n<p>The Chinese translation of the manga tags is from this project.</p>"
+  },
+  "debian": {
+    "packageName": "venera",
+    "maintainer": "mythic3011",
+    "description": "venera"
+  }
+}

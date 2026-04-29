@@ -41,7 +41,7 @@ jobs:
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       run: |
-        python update_alt_store.py
+        python tooling/app_identity/update_alt_store.py
         git config --global user.name 'GitHub Action'
         git config --global user.email 'action@github.com'
         git add alt_store.json

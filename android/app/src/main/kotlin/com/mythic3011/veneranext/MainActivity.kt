@@ -1,4 +1,4 @@
-package com.github.wgh136.venera
+package com.mythic3011.veneranext
 
 import android.Manifest
 import android.app.Activity

@@ -32,6 +32,8 @@ void main() {
         'chapters',
         'comic_titles',
         'comics',
+        'favorites',
+        'history_events',
         'local_library_items',
         'page_order_items',
         'page_orders',
@@ -104,7 +106,7 @@ void main() {
   );
 
   test(
-    'comic snapshot readback includes titles and local library items',
+    'comic snapshot readback includes titles local library items and favorite state',
     () async {
       await store.seedDefaultSourcePlatforms();
       await store.upsertComic(
@@ -144,6 +146,9 @@ void main() {
           contentFingerprint: 'fp-1',
         ),
       );
+      await store.upsertFavorite(
+        const FavoriteRecord(comicId: 'comic-1', sourceKey: 'local'),
+      );
 
       final snapshot = await store.loadComicSnapshot('comic-1');
 
@@ -155,10 +160,13 @@ void main() {
       ]);
       expect(snapshot?.localLibraryItems.single.storageType, 'user_imported');
       expect(snapshot?.localLibraryItems.single.fileCount, 27);
+      expect(snapshot?.favorite?.comicId, 'comic-1');
+      expect(snapshot?.favorite?.sourceKey, 'local');
+      expect(await store.isComicFavorited('comic-1'), isTrue);
     },
   );
 
-  test('comic delete cascades into titles and local library items', () async {
+  test('comic delete cascades into titles local library items and favorites', () async {
     final db = sqlite3.open(dbPath);
     addTearDown(db.dispose);
 
@@ -185,6 +193,9 @@ void main() {
         localRootPath: '/library/cascade',
       ),
     );
+    await store.upsertFavorite(
+      const FavoriteRecord(comicId: 'comic-cascade', sourceKey: 'local'),
+    );
 
     db.execute('PRAGMA foreign_keys = ON;');
     db.execute('DELETE FROM comics WHERE id = ?;', ['comic-cascade']);
@@ -201,7 +212,14 @@ void main() {
               ['comic-cascade'],
             ).single['c']
             as int;
+    final favoriteCount =
+        db.select(
+              'SELECT COUNT(*) AS c FROM favorites WHERE comic_id = ?;',
+              ['comic-cascade'],
+            ).single['c']
+            as int;
     expect(titleCount, 0);
     expect(localCount, 0);
+    expect(favoriteCount, 0);
   });
 }

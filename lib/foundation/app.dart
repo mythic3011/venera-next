@@ -3,6 +3,7 @@ import 'dart:ui';
 
 import 'package:flutter/material.dart';
 import 'package:path_provider/path_provider.dart';
+import 'package:venera/foundation/db/unified_comics_store.dart';
 import 'package:venera/foundation/history.dart';
 
 import 'appdata.dart';
@@ -67,6 +68,8 @@ class _App {
 
   final LocalManager local = LocalManager();
 
+  late final UnifiedComicsStore unifiedComicsStore;
+
   void rootPop() {
     rootNavigatorKey.currentState?.maybePop();
   }
@@ -82,6 +85,7 @@ class _App {
   Future<void> init() async {
     cachePath = (await getApplicationCacheDirectory()).path;
     dataPath = (await getApplicationSupportDirectory()).path;
+    unifiedComicsStore = UnifiedComicsStore.atCanonicalPath(dataPath);
     if (isAndroid) {
       externalStoragePath = (await getExternalStorageDirectory())!.path;
     }
@@ -94,6 +98,9 @@ class _App {
       history.init(),
       favorites.init(),
       local.init(),
+      unifiedComicsStore.init().then((_) {
+        return unifiedComicsStore.seedDefaultSourcePlatforms();
+      }),
     ]);
   }
 

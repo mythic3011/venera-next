@@ -21,6 +21,46 @@ void main() {
     expect(detail.isReadable, isFalse);
   });
 
+  test('view model freezes caller-owned collections', () {
+    final sourceTags = <SourceTagVm>[];
+    final chapters = <ChapterVm>[
+      const ChapterVm(chapterId: 'chapter-1', title: 'Chapter 1'),
+    ];
+    final detail = ComicDetailViewModel(
+      comicId: 'comic-1',
+      title: 'Demo',
+      libraryState: LibraryState.localOnly,
+      sourceTags: sourceTags,
+      chapters: chapters,
+    );
+
+    sourceTags.add(
+      const SourceTagVm(
+        id: 'tag-1',
+        name: 'tag',
+        namespace: 'meta',
+        platform: SourcePlatformRef(
+          platformId: 'local',
+          canonicalKey: 'local',
+          displayName: 'Local',
+          kind: SourcePlatformKind.local,
+          matchedAlias: 'local',
+          matchedAliasType: SourceAliasType.canonical,
+        ),
+      ),
+    );
+    chapters.add(const ChapterVm(chapterId: 'chapter-2', title: 'Chapter 2'));
+
+    expect(detail.sourceTags, isEmpty);
+    expect(detail.chapters, hasLength(1));
+    expect(
+      () => detail.chapters.add(
+        const ChapterVm(chapterId: 'chapter-3', title: 'Chapter 3'),
+      ),
+      throwsUnsupportedError,
+    );
+  });
+
   test(
     'page order summary exposes custom overlay state without mutating pages',
     () {

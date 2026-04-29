@@ -1,62 +1,5 @@
 part of 'comic_page.dart';
 
-String? resolveComicDetailsReadChapterId({
-  required ComicChapters? chapters,
-  required int? ep,
-  required int? group,
-}) {
-  if (chapters == null || ep == null || ep < 1) {
-    return null;
-  }
-
-  var chapterIndex = ep - 1;
-  if (group != null && group > 1 && chapters.isGrouped) {
-    for (int i = 0; i < group - 1; i++) {
-      chapterIndex += chapters.getGroupByIndex(i).length;
-    }
-  }
-  return chapters.ids.elementAtOrNull(chapterIndex);
-}
-
-SourceRef resolveComicDetailsReadSourceRef({
-  required String comicId,
-  required String sourceKey,
-  required ComicChapters? chapters,
-  required int? ep,
-  required int? group,
-  required SourceRef? resumeSourceRef,
-}) {
-  final targetChapterId = resolveComicDetailsReadChapterId(
-    chapters: chapters,
-    ep: ep,
-    group: group,
-  );
-  final sourceRef =
-      resumeSourceRef ??
-      SourceRef.fromLegacy(
-        comicId: comicId,
-        sourceKey: sourceKey,
-        chapterId: targetChapterId,
-      );
-  if (targetChapterId == null ||
-      sourceRef.params['chapterId']?.toString() == targetChapterId) {
-    return sourceRef;
-  }
-  return switch (sourceRef.type) {
-    SourceRefType.local => SourceRef.fromLegacyLocal(
-      localType: sourceRef.params['localType']?.toString() ?? 'local',
-      localComicId: sourceRef.params['localComicId']?.toString() ?? comicId,
-      chapterId: targetChapterId,
-    ),
-    SourceRefType.remote => SourceRef.fromLegacyRemote(
-      sourceKey: sourceRef.sourceKey,
-      comicId: sourceRef.params['comicId']?.toString() ?? comicId,
-      chapterId: targetChapterId,
-      routeKey: sourceRef.routeKey,
-    ),
-  };
-}
-
 abstract mixin class _ComicPageActions {
   void update();
 
@@ -159,7 +102,7 @@ abstract mixin class _ComicPageActions {
   ///
   /// [group] the chapter group number, start from 1
   void read([int? ep, int? page, int? group]) {
-    final sourceRef = resolveComicDetailsReadSourceRef(
+    final sourceRef = resolveReaderTargetSourceRef(
       comicId: comic.id,
       sourceKey: comic.comicType.sourceKey,
       chapters: comic.chapters,

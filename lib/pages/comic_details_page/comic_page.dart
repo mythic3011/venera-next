@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -18,8 +19,11 @@ import 'package:venera/foundation/favorites.dart';
 import 'package:venera/foundation/history.dart';
 import 'package:venera/foundation/image_provider/cached_image.dart';
 import 'package:venera/foundation/local.dart';
+import 'package:venera/foundation/db/local_comic_sync.dart';
+import 'package:venera/foundation/comic_detail/repository.dart';
 import 'package:venera/foundation/source_ref.dart';
 import 'package:venera/foundation/source_identity/source_identity.dart';
+import 'package:venera/foundation/reader/reader_open_target.dart';
 import 'package:venera/foundation/res.dart';
 import 'package:venera/network/download.dart';
 import 'package:venera/network/cache.dart';
@@ -73,7 +77,10 @@ class _ComicPageState extends LoadingState<ComicPage, ComicDetails>
     with _ComicPageActions {
   bool get _isLocalSource => isLocalSourceKey(widget.sourceKey);
 
-  ComicDetails _buildLocalDetails(LocalComic localComic) {
+  ComicDetails _buildLocalDetailsFromCanonical(
+    ComicDetailViewModel detail,
+    LocalComic localComic,
+  ) {
     final tags = <String, List<String>>{};
     for (final raw in localComic.tags) {
       final index = raw.indexOf(':');
@@ -85,15 +92,23 @@ class _ComicPageState extends LoadingState<ComicPage, ComicDetails>
         tags.putIfAbsent("Tags", () => <String>[]).add(raw);
       }
     }
+    final chapters = detail.chapters.isEmpty
+        ? null
+        : ComicChapters({
+            for (final chapter in detail.chapters) chapter.chapterId: chapter.title,
+          });
     return ComicDetails.fromJson({
-      "title": localComic.title,
+      "title": detail.title,
       "subtitle": localComic.subtitle,
-      "cover": localComic.coverFile.uri.toString(),
+      "cover":
+          (detail.coverLocalPath != null
+                  ? File(detail.coverLocalPath!).uri.toString()
+                  : localComic.coverFile.uri.toString()),
       "description": "",
       "tags": tags,
-      "chapters": localComic.chapters?.toJson(),
+      "chapters": chapters?.toJson(),
       "sourceKey": "local",
-      "comicId": localComic.id,
+      "comicId": detail.comicId,
       "thumbnails": null,
       "recommend": null,
       "isFavorite": null,
@@ -103,7 +118,8 @@ class _ComicPageState extends LoadingState<ComicPage, ComicDetails>
       "commentCount": null,
       "uploader": null,
       "uploadTime": null,
-      "updateTime": localComic.createdAt.toIso8601String(),
+      "updateTime":
+          (detail.updatedAt ?? localComic.createdAt).toIso8601String(),
       "url": null,
       "stars": null,
       "maxPage": null,
@@ -190,9 +206,9 @@ class _ComicPageState extends LoadingState<ComicPage, ComicDetails>
 
   ImageProvider _comicPageCoverImageProvider() {
     if (_isLocalSource) {
-      final localComic = LocalManager().find(widget.id, ComicType.local);
-      if (localComic != null) {
-        return FileImage(localComic.coverFile);
+      final localCoverPath = data?.cover;
+      if (localCoverPath != null && localCoverPath.startsWith('file:')) {
+        return FileImage(File(Uri.parse(localCoverPath).toFilePath()));
       }
     }
     return CachedImageProvider(
@@ -272,12 +288,21 @@ class _ComicPageState extends LoadingState<ComicPage, ComicDetails>
       if (localComic == null) {
         return const Res.error('Local comic not found');
       }
+      await LocalComicCanonicalSyncService(
+        store: App.unifiedComicsStore,
+      ).syncComic(localComic);
+      final detail = await UnifiedLocalComicDetailRepository(
+        store: App.unifiedComicsStore,
+      ).getComicDetail(widget.id);
+      if (detail == null) {
+        return const Res.error('Canonical local comic not found');
+      }
       isAddToLocalFav = LocalFavoritesManager().isExist(
         widget.id,
         ComicType.local,
       );
       history = HistoryManager().find(widget.id, ComicType.local);
-      return Res(_buildLocalDetails(localComic));
+      return Res(_buildLocalDetailsFromCanonical(detail, localComic));
     }
     var comicSource = ComicSource.find(widget.sourceKey);
     if (comicSource == null) {
