@@ -23,10 +23,53 @@ ImageProvider? _findImageProvider(Comic comic) {
   return image;
 }
 
+class ComicTileMeta {
+  const ComicTileMeta({
+    required this.displayMode,
+    required this.isFavorite,
+    required this.history,
+  });
+
+  final String displayMode;
+  final bool isFavorite;
+  final History? history;
+
+  factory ComicTileMeta.fromStatus({
+    required bool isFavorite,
+    required History? history,
+    required String displayMode,
+  }) {
+    return ComicTileMeta(
+      displayMode: displayMode,
+      isFavorite: isFavorite,
+      history: _normalizedHistory(history),
+    );
+  }
+
+  static History? _normalizedHistory(History? history) {
+    if (history == null || history.page != 0) {
+      return history;
+    }
+    return History.fromMap({
+      'type': history.type.value,
+      'time': history.time.millisecondsSinceEpoch,
+      'title': history.title,
+      'subtitle': history.subtitle,
+      'cover': history.cover,
+      'ep': history.ep,
+      'page': 1,
+      'id': history.id,
+      'readEpisode': history.readEpisode.toList(),
+      'max_page': history.maxPage,
+    })..group = history.group;
+  }
+}
+
 class ComicTile extends StatelessWidget {
   const ComicTile({
     super.key,
     required this.comic,
+    this.meta,
     this.enableLongPressed = true,
     this.badge,
     this.menuOptions,
@@ -36,6 +79,7 @@ class ComicTile extends StatelessWidget {
   });
 
   final Comic comic;
+  final ComicTileMeta? meta;
 
   final bool enableLongPressed;
 
@@ -132,22 +176,31 @@ class ComicTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    var type = appdata.settings['comicDisplayMode'];
+    final tileMeta =
+        meta ??
+        ComicTileMeta.fromStatus(
+          isFavorite: appdata.settings['showFavoriteStatusOnTile']
+              ? LocalFavoritesManager().isExist(
+                  comic.id,
+                  ComicType.fromKey(comic.sourceKey),
+                )
+              : false,
+          history: appdata.settings['showHistoryStatusOnTile']
+              ? HistoryManager().find(
+                  comic.id,
+                  ComicType.fromKey(comic.sourceKey),
+                )
+              : null,
+          displayMode: appdata.settings['comicDisplayMode'],
+        );
+
+    final type = tileMeta.displayMode;
 
     Widget child = type == 'detailed'
         ? _buildDetailedMode(context)
         : _buildBriefMode(context);
-
-    var isFavorite = appdata.settings['showFavoriteStatusOnTile']
-        ? LocalFavoritesManager()
-            .isExist(comic.id, ComicType.fromKey(comic.sourceKey))
-        : false;
-    var history = appdata.settings['showHistoryStatusOnTile']
-        ? HistoryManager().find(comic.id, ComicType.fromKey(comic.sourceKey))
-        : null;
-    if (history?.page == 0) {
-      history!.page = 1;
-    }
+    final isFavorite = tileMeta.isFavorite;
+    final history = tileMeta.history;
 
     if (!isFavorite && history == null) {
       return child;
@@ -819,9 +872,11 @@ class _SliverGridComicsState extends State<SliverGridComics> {
 
   @override
   Widget build(BuildContext context) {
+    final displayMode = appdata.settings['comicDisplayMode'];
     return _SliverGridComics(
       comics: comics,
       heroIDs: heroIDs,
+      displayMode: displayMode,
       selection: widget.selections,
       onLastItemBuild: widget.onLastItemBuild,
       badgeBuilder: widget.badgeBuilder,
@@ -836,6 +891,7 @@ class _SliverGridComics extends StatelessWidget {
   const _SliverGridComics({
     required this.comics,
     required this.heroIDs,
+    required this.displayMode,
     this.onLastItemBuild,
     this.badgeBuilder,
     this.menuBuilder,
@@ -847,6 +903,7 @@ class _SliverGridComics extends StatelessWidget {
   final List<Comic> comics;
 
   final List<int> heroIDs;
+  final String displayMode;
 
   final Map<Comic, bool>? selection;
 
@@ -873,6 +930,21 @@ class _SliverGridComics extends StatelessWidget {
             : selection![comics[index]] ?? false;
         var comic = ComicTile(
           comic: comics[index],
+          meta: ComicTileMeta.fromStatus(
+            isFavorite: appdata.settings['showFavoriteStatusOnTile']
+                ? LocalFavoritesManager().isExist(
+                    comics[index].id,
+                    ComicType.fromKey(comics[index].sourceKey),
+                  )
+                : false,
+            history: appdata.settings['showHistoryStatusOnTile']
+                ? HistoryManager().find(
+                    comics[index].id,
+                    ComicType.fromKey(comics[index].sourceKey),
+                  )
+                : null,
+            displayMode: displayMode,
+          ),
           badge: badge,
           menuOptions: menuBuilder?.call(comics[index]),
           onTap: onTap != null
