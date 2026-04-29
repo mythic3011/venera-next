@@ -18,6 +18,23 @@ String readerImageFilePathForTesting(String imageKey) {
   return imageKey;
 }
 
+@visibleForTesting
+String readerImageLoadContextForTesting({
+  required String imageKey,
+  String? sourceKey,
+  required String comicId,
+  required String chapterId,
+  required int page,
+}) {
+  final buffer = StringBuffer(
+    'imageKey=$imageKey comicId=$comicId chapterId=$chapterId page=$page',
+  );
+  if (sourceKey != null && sourceKey.isNotEmpty) {
+    buffer.write(' sourceKey=$sourceKey');
+  }
+  return buffer.toString();
+}
+
 class ReaderImageProvider
     extends BaseImageProvider<image_provider.ReaderImageProvider> {
   /// Image provider for normal image.
@@ -39,12 +56,19 @@ class ReaderImageProvider
   @override
   Future<Uint8List> load(chunkEvents, checkStop) async {
     Uint8List? imageBytes;
+    final diagnosticContext = readerImageLoadContextForTesting(
+      imageKey: imageKey,
+      sourceKey: sourceKey,
+      comicId: cid,
+      chapterId: eid,
+      page: page,
+    );
     if (imageKey.startsWith('file://')) {
       var file = File(readerImageFilePathForTesting(imageKey));
       if (await file.exists()) {
         imageBytes = await file.readAsBytes();
       } else {
-        throw "Error: File not found: ${file.path}";
+        throw "Error: File not found: ${file.path} ($diagnosticContext)";
       }
     } else {
       try {
@@ -61,12 +85,16 @@ class ReaderImageProvider
           }
         }
       } catch (e, s) {
-        Log.error("ReaderImageProvider", "Failed to load remote image: $imageKey\n$e", s);
+        Log.error(
+          "ReaderImageProvider",
+          "Failed to load remote image: $diagnosticContext\n$e",
+          s,
+        );
         rethrow;
       }
     }
     if (imageBytes == null) {
-      throw "Error: Empty response body.";
+      throw "Error: Empty response body. ($diagnosticContext)";
     }
     if (appdata.settings['enableCustomImageProcessing']) {
       var script = appdata.settings['customImageProcessing'].toString();
