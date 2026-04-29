@@ -1,4 +1,5 @@
 import 'package:venera/foundation/comic_type.dart';
+import 'package:venera/foundation/diagnostics/diagnostics.dart';
 import 'package:venera/foundation/reader/reader_trace_recorder.dart';
 import 'package:venera/foundation/source_ref.dart';
 
@@ -41,6 +42,22 @@ class ReaderDiagnostics {
         imageKey: imageKey,
       ),
     );
+    AppDiagnostics.trace(
+      'reader.load',
+      'call.start',
+      data: {
+        'functionName': functionName,
+        'phase': phase.name,
+        'callId': callId,
+        'loadMode': loadMode,
+        'sourceKey': sourceKey,
+        'comicId': comicId,
+        'chapterId': chapterId,
+        'chapterIndex': chapterIndex,
+        'page': page,
+        'imageKey': imageKey,
+      },
+    );
     return callId;
   }
 
@@ -56,6 +73,7 @@ class ReaderDiagnostics {
     int? page,
     String? resultSummary,
   }) {
+    final durationMs = _durationMs(callId);
     readerTraceRecorder.record(
       ReaderTraceEvent(
         event: 'call.end',
@@ -63,7 +81,7 @@ class ReaderDiagnostics {
         phase: phase,
         functionName: functionName,
         callId: callId,
-        durationMs: _durationMs(callId),
+        durationMs: durationMs,
         loadMode: loadMode,
         sourceKey: sourceKey,
         comicId: comicId,
@@ -72,6 +90,23 @@ class ReaderDiagnostics {
         page: page,
         resultSummary: resultSummary,
       ),
+    );
+    AppDiagnostics.info(
+      'reader.load',
+      'call.end',
+      data: {
+        'functionName': functionName,
+        'phase': phase.name,
+        'callId': callId,
+        'durationMs': durationMs,
+        'loadMode': loadMode,
+        'sourceKey': sourceKey,
+        'comicId': comicId,
+        'chapterId': chapterId,
+        'chapterIndex': chapterIndex,
+        'page': page,
+        'resultSummary': resultSummary,
+      },
     );
   }
 
@@ -89,6 +124,7 @@ class ReaderDiagnostics {
     int? page,
     String? imageKey,
   }) {
+    final durationMs = _durationMs(callId);
     readerTraceRecorder.record(
       ReaderTraceEvent(
         event: 'call.error',
@@ -96,7 +132,7 @@ class ReaderDiagnostics {
         phase: phase,
         functionName: functionName,
         callId: callId,
-        durationMs: _durationMs(callId),
+        durationMs: durationMs,
         loadMode: loadMode,
         sourceKey: sourceKey,
         comicId: comicId,
@@ -107,6 +143,25 @@ class ReaderDiagnostics {
         errorCode: errorCode,
         errorMessage: errorMessage,
       ),
+    );
+    AppDiagnostics.warn(
+      'reader.load',
+      'call.error',
+      data: {
+        'functionName': functionName,
+        'phase': phase.name,
+        'callId': callId,
+        'durationMs': durationMs,
+        'loadMode': loadMode,
+        'sourceKey': sourceKey,
+        'comicId': comicId,
+        'chapterId': chapterId,
+        'chapterIndex': chapterIndex,
+        'page': page,
+        'imageKey': imageKey,
+        'errorCode': errorCode,
+        'errorMessage': errorMessage,
+      },
     );
   }
 
@@ -148,6 +203,23 @@ class ReaderDiagnostics {
               params: sourceRef.params,
             ),
     );
+    AppDiagnostics.trace(
+      'reader.lifecycle',
+      lifecycle,
+      data: {
+        'loadMode': type == ComicType.local ? 'local' : 'remote',
+        'sourceKey': type.sourceKey,
+        'comicId': comicId,
+        'chapterId': chapterId,
+        'chapterIndex': chapterIndex,
+        'page': page,
+        'mode': mode,
+        'isLoading': isLoading,
+        'imageCount': imageCount,
+        'maxPage': maxPage,
+        'imagesPerPage': imagesPerPage,
+      },
+    );
   }
 
   static void recordReaderLifecycle({
@@ -170,6 +242,18 @@ class ReaderDiagnostics {
         page: page,
         phase: ReaderTracePhase.sourceResolution,
       ),
+    );
+    AppDiagnostics.info(
+      'reader.lifecycle',
+      event,
+      data: {
+        'loadMode': type == ComicType.local ? 'local' : 'remote',
+        'sourceKey': type.sourceKey,
+        'comicId': comicId,
+        'chapterId': chapterId,
+        'chapterIndex': chapterIndex,
+        'page': page,
+      },
     );
   }
 
@@ -288,6 +372,29 @@ class ReaderDiagnostics {
             : ReaderTracePhase.pageList,
       ),
     );
+    final level = errorCode == null
+        ? DiagnosticLevel.info
+        : DiagnosticLevel.warn;
+    final data = {
+      'event': event,
+      'loadMode': loadMode,
+      'sourceKey': sourceRef.sourceKey,
+      'comicId': comicId,
+      'chapterId': sourceRef.params['chapterId']?.toString(),
+      'chapterIndex': chapterIndex,
+      'page': page,
+      'errorCode': errorCode,
+      'errorMessage': errorMessage,
+    };
+    switch (level) {
+      case DiagnosticLevel.trace:
+      case DiagnosticLevel.info:
+        AppDiagnostics.info('reader.load', event, data: data);
+      case DiagnosticLevel.warn:
+        AppDiagnostics.warn('reader.load', event, data: data);
+      case DiagnosticLevel.error:
+        AppDiagnostics.error('reader.load', errorMessage ?? event, data: data);
+    }
   }
 
   static void recordImageProviderCreated({
@@ -312,6 +419,19 @@ class ReaderDiagnostics {
         phase: ReaderTracePhase.imageProvider,
       ),
     );
+    AppDiagnostics.trace(
+      'reader.image',
+      'image.provider.created',
+      data: {
+        'loadMode': type == ComicType.local ? 'local' : 'remote',
+        'sourceKey': type.sourceKey,
+        'comicId': comicId,
+        'chapterId': chapterId,
+        'chapterIndex': chapterIndex,
+        'page': page,
+        'imageKey': imageKey,
+      },
+    );
   }
 
   static void recordImageLoadError({required Object error, String? imageKey}) {
@@ -324,6 +444,7 @@ class ReaderDiagnostics {
         phase: ReaderTracePhase.decode,
       ),
     );
+    AppDiagnostics.error('reader.decode', error, data: {'imageKey': imageKey});
   }
 
   static int? _durationMs(String callId) {

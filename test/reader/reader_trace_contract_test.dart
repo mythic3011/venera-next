@@ -1,9 +1,18 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:venera/foundation/comic_type.dart';
+import 'package:venera/foundation/diagnostics/diagnostics.dart';
 import 'package:venera/foundation/reader/reader_diagnostics.dart';
 import 'package:venera/foundation/reader/reader_trace_recorder.dart';
 
 void main() {
+  setUp(() {
+    AppDiagnostics.configureSinksForTesting(const []);
+  });
+
+  tearDown(() {
+    AppDiagnostics.resetForTesting();
+  });
+
   test('required_event_name_and_phase_serialize_consistently', () {
     final recorder = ReaderTraceRecorder();
     recorder.record(
@@ -67,5 +76,24 @@ void main() {
     expect(recordedEvent['chapterId'], 'ch-3');
     expect(recordedEvent['chapterIndex'], 3);
     expect(recordedEvent['page'], 9);
+  });
+
+  test('reader lifecycle also emits structured diagnostic event', () {
+    readerTraceRecorder.clear();
+    ReaderDiagnostics.recordReaderLifecycle(
+      event: 'reader.open',
+      type: ComicType.local,
+      comicId: 'comic-7',
+      chapterId: 'ch-3',
+      chapterIndex: 3,
+      page: 9,
+    );
+
+    final event = DevDiagnosticsApi.recent(channel: 'reader.lifecycle').single;
+    expect(event.message, 'reader.open');
+    expect(event.data['sourceKey'], 'local');
+    expect(event.data['comicId'], 'comic-7');
+    expect(event.data['chapterId'], 'ch-3');
+    expect(event.data['page'], 9);
   });
 }

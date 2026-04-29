@@ -1,7 +1,16 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:venera/foundation/comic_source/runtime.dart';
+import 'package:venera/foundation/diagnostics/diagnostics.dart';
 
 void main() {
+  setUp(() {
+    AppDiagnostics.configureSinksForTesting(const []);
+  });
+
+  tearDown(() {
+    AppDiagnostics.resetForTesting();
+  });
+
   SourceRequestContext context() => SourceRequestContext(
     sourceKey: 'copymanga',
     requestId: 'req-1',
@@ -18,6 +27,21 @@ void main() {
     );
 
     expect(mapped.code, SourceRuntimeCodes.requestTimeout);
+  });
+
+  test('legacy_adapter_emits_source_runtime_diagnostic', () {
+    LegacySourceDiagnosticsAdapter.mapException(
+      error: FormatException('Parser failed: token=secret'),
+      context: context(),
+    );
+
+    final event = DevDiagnosticsApi.recent(channel: 'source.runtime').single;
+    expect(event.level, DiagnosticLevel.warn);
+    expect(event.data['sourceKey'], 'copymanga');
+    expect(event.data['requestId'], 'req-1');
+    expect(event.data['stage'], 'parser');
+    expect(event.data['errorCode'], SourceRuntimeCodes.parserInvalidContent);
+    expect(event.toJson().toString().contains('secret'), isFalse);
   });
 
   test('legacy_adapter_maps_parser_like_error_to_parser_invalid_content', () {

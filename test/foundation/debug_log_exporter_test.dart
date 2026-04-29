@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:venera/foundation/app.dart';
 import 'package:venera/foundation/debug_log_exporter.dart';
+import 'package:venera/foundation/diagnostics/diagnostics.dart';
 import 'package:venera/foundation/log.dart';
 
 void main() {
@@ -25,12 +26,24 @@ void main() {
   }
 
   setUp(() {
+    DevDiagnosticsApi.debugEnabledOverride = true;
+    AppDiagnostics.resetForTesting();
+    AppDiagnostics.configureSinksForTesting(const []);
     Log.clear();
   });
 
   tearDown(() async {
     await exporter.stop();
     await Log.closeFileSink();
+    DevDiagnosticsApi.debugEnabledOverride = null;
+    AppDiagnostics.resetForTesting();
+  });
+
+  test('disabled guard prevents diagnostics server startup', () async {
+    DevDiagnosticsApi.debugEnabledOverride = false;
+
+    expect(exporter.start, throwsA(isA<UnsupportedError>()));
+    expect(exporter.isRunning, isFalse);
   });
 
   test('start binds loopback random port and exposes token', () async {
@@ -91,6 +104,11 @@ void main() {
     Log.info('Info', 'https://example.com/path?token=abc');
     Log.error('Error', 'password=secret authorization=abc');
     Log.error('Header', 'Authorization: Bearer token-value');
+    AppDiagnostics.error(
+      'reader.load',
+      StateError('warning'),
+      data: {'token': 'abc'},
+    );
 
     await exporter.start();
 
@@ -102,6 +120,8 @@ void main() {
     expect(logsResponse.statusCode, HttpStatus.ok);
     expect(logsJson['limit'], 1000);
     expect(logsJson['count'], 2);
+    expect(logsJson['structuredLogs'], isA<List>());
+    expect(logsJson['structuredCount'], greaterThanOrEqualTo(1));
 
     final logs = (logsJson['logs'] as List).cast<Map<String, dynamic>>();
     expect(logs.every((e) => e['level'] == 'error'), isTrue);
@@ -113,6 +133,7 @@ void main() {
     expect(contentJoined.contains('authorization=abc'), isFalse);
     expect(contentJoined.contains('Bearer token-value'), isFalse);
     expect(contentJoined.contains('[redacted]'), isTrue);
+    expect(jsonEncode(logsJson).contains('"token":"abc"'), isFalse);
   });
 
   test(
@@ -172,6 +193,7 @@ void main() {
     expect(json['debugServer'], isA<Map>());
     expect(json['paths'], isA<Map>());
     expect(json['logs'], isA<Map>());
+    expect(json['structuredDiagnostics'], isA<Map>());
 
     final encoded = jsonEncode(json);
     expect(encoded.contains(exporter.token!), isFalse);

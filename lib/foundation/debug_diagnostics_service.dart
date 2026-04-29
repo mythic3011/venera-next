@@ -1,4 +1,5 @@
 import 'package:venera/foundation/app.dart';
+import 'package:venera/foundation/diagnostics/diagnostics.dart';
 import 'package:venera/foundation/log.dart';
 import 'package:venera/foundation/log_diagnostics.dart';
 import 'package:venera/foundation/reader/reader_diagnostics.dart';
@@ -29,13 +30,20 @@ class DebugDiagnosticsService {
       level: level,
       limit: limit,
     );
+    final minLevel = _diagnosticLevelFromLogFilter(level);
+    final structured = DevDiagnosticsApi.recent(
+      minLevel: minLevel,
+    ).map((event) => event.toJson()).toList(growable: false);
     return {
       'logs': snapshot.logs,
+      'structuredLogs': structured,
       'count': snapshot.logs.length,
+      'structuredCount': structured.length,
       'limit': limit,
       'sources': {
         'session': snapshot.sessionTotalCount,
         'persisted': snapshot.persistedTotalCount,
+        'structured': structured.length,
       },
     };
   }
@@ -49,10 +57,27 @@ class DebugDiagnosticsService {
       level: 'error',
       limit: 20,
     );
+    final structuredEvents = DevDiagnosticsApi.recent();
+    final newestWarningsAndErrors = DevDiagnosticsApi.recent(
+      minLevel: DiagnosticLevel.warn,
+    ).reversed.take(20).map((event) => event.toJson()).toList(growable: false);
     return {
       'platform': {'os': platform, 'isDesktop': App.isDesktop},
       'runtime': {'appVersion': App.version},
       'debugServer': {'running': serverRunning, 'baseUrl': baseUrl},
+      'structuredDiagnostics': {
+        'enabled': DevDiagnosticsApi.isEnabled,
+        'eventCount': structuredEvents.length,
+        'runtimeLevel': AppDiagnostics.runtimeLevel.name,
+        'channels': structuredEvents
+            .map((event) => event.channel)
+            .toSet()
+            .toList(growable: false),
+        'newestWarningsAndErrors': newestWarningsAndErrors,
+        'ndjsonLineCount': DevDiagnosticsApi.exportNdjson().isEmpty
+            ? 0
+            : DevDiagnosticsApi.exportNdjson().split('\n').length,
+      },
       'paths': {
         'dataPath': App.isInitialized ? App.dataPath : null,
         'cachePath': App.isInitialized ? App.cachePath : null,
@@ -67,6 +92,16 @@ class DebugDiagnosticsService {
         'newestErrors': errorSnapshot.logs,
       },
       ...ReaderDiagnostics.toDiagnosticsJson(),
+    };
+  }
+
+  DiagnosticLevel? _diagnosticLevelFromLogFilter(String level) {
+    return switch (level.toLowerCase()) {
+      'info' => DiagnosticLevel.info,
+      'warning' => DiagnosticLevel.warn,
+      'warn' => DiagnosticLevel.warn,
+      'error' => DiagnosticLevel.error,
+      _ => null,
     };
   }
 }

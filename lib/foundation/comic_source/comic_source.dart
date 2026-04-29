@@ -9,6 +9,7 @@ import 'package:flutter/widgets.dart';
 import 'package:flutter_qjs/flutter_qjs.dart';
 import 'package:venera/foundation/app.dart';
 import 'package:venera/foundation/comic_type.dart';
+import 'package:venera/foundation/diagnostics/diagnostics.dart';
 import 'package:venera/foundation/history.dart';
 import 'package:venera/foundation/res.dart';
 import 'package:venera/pages/category_comics_page.dart';
@@ -67,6 +68,13 @@ class ComicSourceManager with ChangeNotifier, Init {
           );
           _sources.add(source);
         } catch (e, s) {
+          AppDiagnostics.error(
+            'source.runtime',
+            e,
+            stackTrace: s,
+            message: 'Failed to parse comic source',
+            data: {'stage': 'parseSourceFile', 'path': entity.absolute.path},
+          );
           Log.error("ComicSource", "$e\n$s");
         }
       }
@@ -237,6 +245,15 @@ class ComicSource {
     final List accountData = data["account"];
     var res = await account!.login!(accountData[0], accountData[1]);
     if (res.error) {
+      AppDiagnostics.warn(
+        'source.runtime',
+        'Failed to re-login',
+        data: {
+          'sourceKey': key,
+          'stage': 'reLogin',
+          'errorMessage': res.errorMessage,
+        },
+      );
       Log.error("Failed to re-login", res.errorMessage ?? "Error");
     }
     return !res.error;
@@ -270,6 +287,12 @@ class ComicSource {
       }
       return null;
     } catch (e) {
+      AppDiagnostics.error(
+        'source.runtime',
+        e,
+        message: 'Failed to get dynamic settings',
+        data: {'sourceKey': key, 'stage': 'dynamicSettings'},
+      );
       Log.error("ComicSource", "Failed to get dynamic settings: $e");
       return settings;
     }

@@ -5,7 +5,6 @@ import 'package:flex_seed_scheme/flex_seed_scheme.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
-import 'package:venera/foundation/log.dart';
 import 'package:venera/pages/auth_page.dart';
 import 'package:venera/pages/main_page.dart';
 import 'package:venera/utils/io.dart';
@@ -14,6 +13,7 @@ import 'components/components.dart';
 import 'components/window_frame.dart';
 import 'foundation/app.dart';
 import 'foundation/appdata.dart';
+import 'foundation/diagnostics/diagnostics.dart';
 import 'headless.dart';
 import 'init.dart';
 
@@ -52,7 +52,12 @@ void main(List<String> args) {
         });
       }
     }, (error, stack) {
-      Log.error("Unhandled Exception", error, stack);
+      AppDiagnostics.error(
+        'app.unhandled',
+        error,
+        stackTrace: stack,
+        message: 'Unhandled Exception',
+      );
     });
   });
 }
@@ -234,8 +239,12 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
         ],
         builder: (context, widget) {
           ErrorWidget.builder = (details) {
-            Log.error("Unhandled Exception",
-                "${details.exception}\n${details.stack}");
+            AppDiagnostics.error(
+              'app.unhandled',
+              details.exception,
+              stackTrace: details.stack,
+              message: 'Unhandled Exception',
+            );
             return Material(
               child: Center(
                 child: Text(details.exception.toString()),

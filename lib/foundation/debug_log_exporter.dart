@@ -6,6 +6,7 @@ import 'dart:typed_data';
 
 import 'package:venera/foundation/app.dart';
 import 'package:venera/foundation/debug_diagnostics_service.dart';
+import 'package:venera/foundation/diagnostics/diagnostics.dart';
 
 class DebugLogExporter {
   DebugLogExporter._();
@@ -29,6 +30,9 @@ class DebugLogExporter {
   Future<void> start() async {
     if (isRunning) {
       return;
+    }
+    if (!DevDiagnosticsApi.isEnabled) {
+      throw UnsupportedError('Dev diagnostics are disabled');
     }
     if (!App.isDesktop) {
       throw UnsupportedError('Diagnostics server is only supported on desktop');
@@ -102,6 +106,12 @@ class DebugLogExporter {
       });
     }
 
+    if (!DevDiagnosticsApi.isEnabled) {
+      return _writeJson(request.response, HttpStatus.notFound, {
+        'error': 'Not Found',
+      });
+    }
+
     if (!_isTokenValid(request.uri.queryParameters['token'])) {
       return _writeJson(request.response, HttpStatus.forbidden, {
         'error': 'Forbidden',
@@ -124,7 +134,7 @@ class DebugLogExporter {
         return _writeJson(
           request.response,
           HttpStatus.ok,
-          redactForDiagnostics(
+          DiagnosticsRedactor.redact(
             await _diagnostics.logsPayload(level: level, limit: limit),
           ),
         );
@@ -132,7 +142,7 @@ class DebugLogExporter {
         return _writeJson(
           request.response,
           HttpStatus.ok,
-          redactForDiagnostics(
+          DiagnosticsRedactor.redact(
             await _diagnostics.diagnosticsPayload(
               serverRunning: isRunning,
               baseUrl: _baseUri?.toString(),
@@ -191,65 +201,10 @@ class DebugLogExporter {
     return base64UrlEncode(bytes).replaceAll('=', '');
   }
 
-  Object? redactForDiagnostics(Object? value) {
-    if (value is String) {
-      return redactLogText(value);
-    }
-    if (value is Map) {
-      return value.map((key, val) {
-        return MapEntry(key, redactForDiagnostics(val));
-      });
-    }
-    if (value is List) {
-      return value.map(redactForDiagnostics).toList();
-    }
-    return value;
-  }
+  Object? redactForDiagnostics(Object? value) =>
+      DiagnosticsRedactor.redact(value);
 
-  String redactLogText(String text) {
-    var redacted = redactUrlQuery(text);
+  String redactLogText(String text) => DiagnosticsRedactor.redactText(text);
 
-    redacted = redacted.replaceAllMapped(
-      RegExp(
-        r'^\s*(authorization)\s*:\s*.+$',
-        caseSensitive: false,
-        multiLine: true,
-      ),
-      (match) => '${match.group(1)}: [redacted]',
-    );
-    redacted = redacted.replaceAllMapped(
-      RegExp(r'^\s*(cookie)\s*:\s*.+$', caseSensitive: false, multiLine: true),
-      (match) => '${match.group(1)}: [redacted]',
-    );
-
-    final secretPattern = RegExp(
-      r'\b(token|access_token|refresh_token|password|passwd|cookie|authorization|auth|account|session)\s*=\s*[^\s&;]+',
-      caseSensitive: false,
-    );
-    redacted = redacted.replaceAllMapped(secretPattern, (match) {
-      final source = match.group(0)!;
-      final index = source.indexOf('=');
-      if (index == -1) {
-        return '[redacted]';
-      }
-      final key = source.substring(0, index);
-      return '$key=[redacted]';
-    });
-
-    return redacted;
-  }
-
-  String redactUrlQuery(String text) {
-    return text.replaceAllMapped(
-      RegExp("https?://[^\\s\\]\\)\"']+\\?[^\\s\\]\\)\"']*"),
-      (match) {
-        final raw = match.group(0)!;
-        final qIndex = raw.indexOf('?');
-        if (qIndex == -1) {
-          return raw;
-        }
-        return '${raw.substring(0, qIndex)}?[redacted]';
-      },
-    );
-  }
+  String redactUrlQuery(String text) => DiagnosticsRedactor.redactText(text);
 }

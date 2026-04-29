@@ -3,6 +3,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:venera/components/components.dart';
 import 'package:venera/foundation/app.dart';
 import 'package:venera/foundation/debug_log_exporter.dart';
+import 'package:venera/foundation/diagnostics/diagnostics.dart';
 import 'package:venera/pages/settings/settings_page.dart';
 import 'package:venera/utils/translations.dart';
 
@@ -23,9 +24,7 @@ void main() {
             builder: (context) => Center(
               child: TextButton(
                 onPressed: () {
-                  Navigator.of(
-                    context,
-                  ).push(
+                  Navigator.of(context).push(
                     MaterialPageRoute(
                       builder: (_) => const Material(child: DebugPage()),
                     ),
@@ -46,6 +45,27 @@ void main() {
 
   tearDown(() async {
     await exporter.stop();
+    DevDiagnosticsApi.debugEnabledOverride = null;
+    AppDiagnostics.resetForTesting();
+  });
+
+  testWidgets('shows diagnostics console button only when enabled', (
+    tester,
+  ) async {
+    DevDiagnosticsApi.debugEnabledOverride = true;
+    await pumpDebugRoute(tester);
+
+    expect(find.text('Open Diagnostics Console'), findsOneWidget);
+
+    await tester.pageBack();
+    await tester.pumpAndSettle();
+    DevDiagnosticsApi.debugEnabledOverride = false;
+
+    await pumpDebugRoute(tester);
+
+    expect(find.text('Open Diagnostics Console'), findsNothing);
+    expect(find.text('Start'), findsNothing);
+    expect(find.text('Disabled'), findsOneWidget);
   });
 
   testWidgets(

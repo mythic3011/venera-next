@@ -20,6 +20,9 @@ class DebugPageState extends State<DebugPage> {
   }
 
   String get _serverStatusText {
+    if (!DevDiagnosticsApi.isEnabled) {
+      return "Disabled".tl;
+    }
     if (!App.isDesktop) {
       return "Unsupported on this platform".tl;
     }
@@ -30,7 +33,7 @@ class DebugPageState extends State<DebugPage> {
   }
 
   Future<void> _toggleServer() async {
-    if (!App.isDesktop) {
+    if (!DevDiagnosticsApi.isEnabled || !App.isDesktop) {
       return;
     }
     if (exporter.isRunning) {
@@ -86,6 +89,18 @@ class DebugPageState extends State<DebugPage> {
     }
   }
 
+  void _openDiagnosticsConsole() {
+    if (!DevDiagnosticsApi.isEnabled) {
+      return;
+    }
+    context.to(
+      () => TalkerScreen(
+        talker: appTalker,
+        appBarTitle: "Diagnostics Console".tl,
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return PopScope(
@@ -131,11 +146,17 @@ class DebugPageState extends State<DebugPage> {
               ).paddingLeft(16),
               const SizedBox(height: 8),
               Text(_serverStatusText).paddingHorizontal(16),
-              const SizedBox(height: 8),
-              TextButton(
-                onPressed: _toggleServer,
-                child: Text(exporter.isRunning ? "Stop".tl : "Start".tl),
-              ).paddingHorizontal(8),
+              if (DevDiagnosticsApi.isEnabled) ...[
+                const SizedBox(height: 8),
+                TextButton(
+                  onPressed: _toggleServer,
+                  child: Text(exporter.isRunning ? "Stop".tl : "Start".tl),
+                ).paddingHorizontal(8),
+                TextButton(
+                  onPressed: _openDiagnosticsConsole,
+                  child: Text("Open Diagnostics Console".tl),
+                ).paddingHorizontal(8),
+              ],
               if (exporter.isRunning) ...[
                 Wrap(
                   spacing: 8,
