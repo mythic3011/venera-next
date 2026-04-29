@@ -31,4 +31,49 @@ void main() {
       'imageKey=https://example.com/page-3.jpg comicId=comic-9 chapterId=ep-5 page=3 sourceKey=copymanga',
     );
   });
+
+  test('empty local page list surfaces diagnostic with chapter context', () {
+    final error = resolveReaderEmptyPageListError(
+      images: const [],
+      loadMode: 'local',
+      comicId: 'comic-1',
+      chapterIndex: 2,
+      chapterId: 'ch-2',
+      sourceKey: 'local',
+    );
+
+    expect(
+      error,
+      'EMPTY_PAGE_LIST: loadMode=local comicId=comic-1 chapterIndex=2 chapterId=ch-2 sourceKey=local',
+    );
+  });
+
+  test('empty remote page list surfaces diagnostic with source key', () {
+    final error = resolveReaderEmptyPageListError(
+      images: const [],
+      loadMode: 'remote',
+      comicId: 'comic-9',
+      chapterIndex: 5,
+      chapterId: 'ep-5',
+      sourceKey: 'copymanga',
+    );
+
+    expect(
+      error,
+      'EMPTY_PAGE_LIST: loadMode=remote comicId=comic-9 chapterIndex=5 chapterId=ep-5 sourceKey=copymanga',
+    );
+  });
+
+  test('non-empty page list does not surface error', () {
+    final error = resolveReaderEmptyPageListError(
+      images: const ['p1'],
+      loadMode: 'remote',
+      comicId: 'comic-9',
+      chapterIndex: 5,
+      chapterId: 'ep-5',
+      sourceKey: 'copymanga',
+    );
+
+    expect(error, isNull);
+  });
 }

@@ -18,6 +18,49 @@ String? resolveLegacyRemoteSourceUnavailableErrorForTesting(
   return null;
 }
 
+@visibleForTesting
+String buildReaderLoadDiagnostic({
+  required String code,
+  required String loadMode,
+  required String comicId,
+  required int chapterIndex,
+  String? chapterId,
+  String? sourceKey,
+}) {
+  final buffer = StringBuffer(
+    '$code: loadMode=$loadMode comicId=$comicId chapterIndex=$chapterIndex',
+  );
+  if (chapterId != null && chapterId.isNotEmpty) {
+    buffer.write(' chapterId=$chapterId');
+  }
+  if (sourceKey != null && sourceKey.isNotEmpty) {
+    buffer.write(' sourceKey=$sourceKey');
+  }
+  return buffer.toString();
+}
+
+@visibleForTesting
+String? resolveReaderEmptyPageListError({
+  required List<String> images,
+  required String loadMode,
+  required String comicId,
+  required int chapterIndex,
+  String? chapterId,
+  String? sourceKey,
+}) {
+  if (images.isNotEmpty) {
+    return null;
+  }
+  return buildReaderLoadDiagnostic(
+    code: 'EMPTY_PAGE_LIST',
+    loadMode: loadMode,
+    comicId: comicId,
+    chapterIndex: chapterIndex,
+    chapterId: chapterId,
+    sourceKey: sourceKey,
+  );
+}
+
 ReaderImageProvider buildReaderImageProvider({
   required String imageKey,
   required String? sourceKey,
