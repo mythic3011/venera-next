@@ -2,6 +2,7 @@ import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:venera/foundation/image_provider/reader_image.dart';
+import 'package:venera/foundation/local.dart';
 
 void main() {
   test('file URI with absolute path normalizes to local path', () {
@@ -38,6 +39,20 @@ void main() {
 
     expect(normalizedPath, file.path);
     expect(File(normalizedPath).existsSync(), isTrue);
+  });
+
+  test('local produced file key roundtrips through reader image normalization', () {
+    final tempDir = Directory.systemTemp.createTempSync(
+      'venera_reader_image_path_test_',
+    );
+    addTearDown(() => tempDir.deleteSync(recursive: true));
+
+    final file = File('${tempDir.path}/頁面 with spaces.bin')
+      ..writeAsBytesSync([7, 8, 9]);
+    final imageKey = localPageKeyForTesting(file);
+
+    expect(imageKey, file.uri.toString());
+    expect(readerImageFilePathForTesting(imageKey), file.path);
   });
 
   test('remote https image key remains unchanged', () {

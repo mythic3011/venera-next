@@ -2,7 +2,7 @@ import 'dart:collection';
 import 'dart:convert';
 import 'dart:isolate';
 
-import 'package:flutter/widgets.dart' show ChangeNotifier;
+import 'package:flutter/widgets.dart' show ChangeNotifier, visibleForTesting;
 import 'package:flutter_saf/flutter_saf.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:sqlite3/sqlite3.dart';
@@ -743,7 +743,7 @@ class LocalManager with ChangeNotifier {
     files.sort((a, b) {
       return naturalCompare(a.name, b.name);
     });
-    return files.map((e) => "file://${e.path}").toList();
+    return files.map(localPageKeyForTesting).toList();
   }
 
   Future<void> reorderComicPages(
@@ -1278,6 +1278,9 @@ class LocalManager with ChangeNotifier {
     return builder.toString();
   }
 }
+
+@visibleForTesting
+String localPageKeyForTesting(File file) => file.uri.toString();
 
 enum LocalSortType {
   name("name"),
