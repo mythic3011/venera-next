@@ -121,6 +121,33 @@ class Reader extends StatefulWidget {
   State<Reader> createState() => _ReaderState();
 }
 
+@visibleForTesting
+String readerTraceLoadModeForTesting(ComicType type) {
+  return type == ComicType.local ? 'local' : 'remote';
+}
+
+@visibleForTesting
+ReaderTraceEvent buildReaderLifecycleTraceEvent({
+  required String event,
+  required ComicType type,
+  required String comicId,
+  required String? chapterId,
+  required int chapterIndex,
+  required int page,
+}) {
+  return ReaderTraceEvent(
+    event: event,
+    timestamp: DateTime.now(),
+    loadMode: readerTraceLoadModeForTesting(type),
+    sourceKey: type.sourceKey,
+    comicId: comicId,
+    chapterId: chapterId,
+    chapterIndex: chapterIndex,
+    page: page,
+    phase: ReaderTracePhase.sourceResolution,
+  );
+}
+
 class _ReaderState extends State<Reader>
     with
         TickerProviderStateMixin,
@@ -273,16 +300,13 @@ class _ReaderState extends State<Reader>
     super.didChangeDependencies();
     if (!_traceOpened) {
       readerTraceRecorder.record(
-        ReaderTraceEvent(
+        buildReaderLifecycleTraceEvent(
           event: 'reader.open',
-          timestamp: DateTime.now(),
-          loadMode: type == ComicType.local ? 'local' : 'remote',
-          sourceKey: type.sourceKey,
+          type: type,
           comicId: cid,
           chapterId: widget.chapters?.ids.elementAtOrNull(chapter - 1),
           chapterIndex: chapter,
           page: page,
-          phase: ReaderTracePhase.sourceResolution,
         ),
       );
       _traceOpened = true;
@@ -320,15 +344,13 @@ class _ReaderState extends State<Reader>
   @override
   void dispose() {
     readerTraceRecorder.record(
-      ReaderTraceEvent(
+      buildReaderLifecycleTraceEvent(
         event: 'reader.dispose',
-        timestamp: DateTime.now(),
-        sourceKey: type.sourceKey,
+        type: type,
         comicId: cid,
         chapterId: widget.chapters?.ids.elementAtOrNull(chapter - 1),
         chapterIndex: chapter,
         page: page,
-        phase: ReaderTracePhase.sourceResolution,
       ),
     );
     if (isFullscreen) {

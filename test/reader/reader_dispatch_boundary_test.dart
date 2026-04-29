@@ -1,8 +1,10 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:venera/foundation/comic_source/comic_source.dart';
 import 'package:venera/foundation/reader/page_provider.dart';
 import 'package:venera/foundation/reader/source_ref_resolver.dart';
 import 'package:venera/foundation/res.dart';
 import 'package:venera/foundation/source_ref.dart';
+import 'package:venera/pages/comic_details_page/comic_page.dart';
 
 class _SpyProvider implements ReadablePageProvider {
   int calls = 0;
@@ -136,4 +138,32 @@ void main() {
     expect(local.calls, 0);
     expect(remote.calls, 1);
   });
+
+  test(
+    'direct chapter open rewrites stale resume ref to selected chapter id',
+    () {
+      final resumeRef = SourceRef.fromLegacyRemote(
+        sourceKey: 'copymanga',
+        comicId: 'comic-2',
+        chapterId: 'ch-1',
+      );
+
+      final resolved = resolveComicDetailsReadSourceRef(
+        comicId: 'comic-2',
+        sourceKey: 'copymanga',
+        chapters: const ComicChapters({
+          'ch-1': 'Episode 1',
+          'ch-2': 'Episode 2',
+        }),
+        ep: 2,
+        group: null,
+        resumeSourceRef: resumeRef,
+      );
+
+      expect(resolved.type, SourceRefType.remote);
+      expect(resolved.sourceKey, 'copymanga');
+      expect(resolved.params['chapterId'], 'ch-2');
+      expect(resolved.id, isNot(resumeRef.id));
+    },
+  );
 }

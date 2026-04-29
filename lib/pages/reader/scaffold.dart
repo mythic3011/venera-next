@@ -192,55 +192,55 @@ class _ReaderScaffoldState extends State<_ReaderScaffold> {
         }
         return _panelAwarePopScope(
           Row(
-          children: [
-            Expanded(child: stack),
-            AnimatedBuilder(
-              animation: context.reader.panelState,
-              builder: (context, _) {
-                if (!context.reader.panelState.hasOpenPanel) {
-                  return const SizedBox.shrink();
-                }
-                return Container(
-                  width: inspectorWidth,
-                  decoration: BoxDecoration(
-                    color: context.colorScheme.surface,
-                    border: Border(
-                      left: BorderSide(
-                        color: context.colorScheme.outlineVariant,
+            children: [
+              Expanded(child: stack),
+              AnimatedBuilder(
+                animation: context.reader.panelState,
+                builder: (context, _) {
+                  if (!context.reader.panelState.hasOpenPanel) {
+                    return const SizedBox.shrink();
+                  }
+                  return Container(
+                    width: inspectorWidth,
+                    decoration: BoxDecoration(
+                      color: context.colorScheme.surface,
+                      border: Border(
+                        left: BorderSide(
+                          color: context.colorScheme.outlineVariant,
+                        ),
                       ),
                     ),
-                  ),
-                  child: Column(
-                    children: [
-                      SizedBox(
-                        height: 44,
-                        child: Row(
-                          children: [
-                            const SizedBox(width: 12),
-                            Text(
-                              _panelTitle(context.reader.panelState.panel),
-                              style: ts.s16,
-                            ),
-                            const Spacer(),
-                            IconButton(
-                              onPressed: _closePanelIfOpen,
-                              icon: const Icon(Icons.close),
-                            ),
-                          ],
+                    child: Column(
+                      children: [
+                        SizedBox(
+                          height: 44,
+                          child: Row(
+                            children: [
+                              const SizedBox(width: 12),
+                              Text(
+                                _panelTitle(context.reader.panelState.panel),
+                                style: ts.s16,
+                              ),
+                              const Spacer(),
+                              IconButton(
+                                onPressed: _closePanelIfOpen,
+                                icon: const Icon(Icons.close),
+                              ),
+                            ],
+                          ),
                         ),
-                      ),
-                      const Divider(height: 1),
-                      Expanded(
-                        child: _buildPanelContent(
-                          context.reader.panelState.panel,
+                        const Divider(height: 1),
+                        Expanded(
+                          child: _buildPanelContent(
+                            context.reader.panelState.panel,
+                          ),
                         ),
-                      ),
-                    ],
-                  ),
-                );
-              },
-            ),
-          ],
+                      ],
+                    ),
+                  );
+                },
+              ),
+            ],
           ),
         );
       },
@@ -1047,14 +1047,12 @@ class _ReaderScaffoldState extends State<_ReaderScaffold> {
       return null;
     }
     var imageKey = context.reader.images![i];
-    Uint8List data;
-    if (imageKey.startsWith("file://")) {
-      data = await File(imageKey.substring(7)).readAsBytes();
-    } else {
-      data = await (await CacheManager().findCache(
-        "$imageKey@${context.reader.type.sourceKey}@${context.reader.cid}@${context.reader.eid}",
-      ))!.readAsBytes();
-    }
+    final data = await _readReaderImageBytes(
+      imageKey: imageKey,
+      sourceKey: context.reader.type.sourceKey,
+      comicId: context.reader.cid,
+      chapterId: context.reader.eid,
+    );
     return (i, data);
   }
 

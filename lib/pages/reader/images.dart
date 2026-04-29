@@ -1,5 +1,34 @@
 part of 'reader.dart';
 
+Future<Uint8List> _readReaderImageBytes({
+  required String imageKey,
+  required String sourceKey,
+  required String comicId,
+  required String chapterId,
+}) async {
+  if (imageKey.startsWith('file://')) {
+    return File(Uri.parse(imageKey).toFilePath()).readAsBytes();
+  }
+  return (await CacheManager().findCache(
+    '$imageKey@$sourceKey@$comicId@$chapterId',
+  ))!.readAsBytes();
+}
+
+@visibleForTesting
+Future<Uint8List> readReaderImageBytesForTesting({
+  required String imageKey,
+  required String sourceKey,
+  required String comicId,
+  required String chapterId,
+}) {
+  return _readReaderImageBytes(
+    imageKey: imageKey,
+    sourceKey: sourceKey,
+    comicId: comicId,
+    chapterId: chapterId,
+  );
+}
+
 @visibleForTesting
 String? resolveLegacyRemoteSourceUnavailableErrorForTesting(
   String? sourceKey, {
@@ -124,8 +153,10 @@ class _ReaderImagesState extends State<_ReaderImages> {
   void load() async {
     if (inProgress) return;
     inProgress = true;
-    final useResolver = appdata.settings['reader_use_source_ref_resolver'] == true;
-    final loadMode = reader.type == ComicType.local ||
+    final useResolver =
+        appdata.settings['reader_use_source_ref_resolver'] == true;
+    final loadMode =
+        reader.type == ComicType.local ||
             (LocalManager().isDownloaded(
               reader.cid,
               reader.type,
@@ -141,7 +172,9 @@ class _ReaderImagesState extends State<_ReaderImages> {
         loadMode: loadMode,
         sourceKey: reader.type.sourceKey,
         comicId: reader.cid,
-        chapterId: reader.widget.chapters?.ids.elementAtOrNull(reader.chapter - 1),
+        chapterId: reader.widget.chapters?.ids.elementAtOrNull(
+          reader.chapter - 1,
+        ),
         chapterIndex: reader.chapter,
         page: reader.page,
         phase: ReaderTracePhase.pageList,
@@ -171,7 +204,9 @@ class _ReaderImagesState extends State<_ReaderImages> {
             loadMode: loadMode,
             sourceKey: reader.type.sourceKey,
             comicId: reader.cid,
-            chapterId: reader.widget.chapters?.ids.elementAtOrNull(reader.chapter - 1),
+            chapterId: reader.widget.chapters?.ids.elementAtOrNull(
+              reader.chapter - 1,
+            ),
             chapterIndex: reader.chapter,
             page: reader.page,
             phase: ReaderTracePhase.pageList,
@@ -191,7 +226,9 @@ class _ReaderImagesState extends State<_ReaderImages> {
             loadMode: loadMode,
             sourceKey: reader.type.sourceKey,
             comicId: reader.cid,
-            chapterId: reader.widget.chapters?.ids.elementAtOrNull(reader.chapter - 1),
+            chapterId: reader.widget.chapters?.ids.elementAtOrNull(
+              reader.chapter - 1,
+            ),
             chapterIndex: reader.chapter,
             page: reader.page,
             errorMessage: e.toString(),
@@ -249,17 +286,15 @@ class _ReaderImagesState extends State<_ReaderImages> {
           ),
         );
         setState(() {
-          error = "Comic source is unavailable. Please refresh/install this source and retry.";
+          error =
+              "Comic source is unavailable. Please refresh/install this source and retry.";
           reader.isLoading = false;
           inProgress = false;
         });
         context.readerScaffold.update();
         return;
       }
-      var res = await loadComicPages(
-        reader.widget.cid,
-        cp,
-      );
+      var res = await loadComicPages(reader.widget.cid, cp);
       if (!mounted) return;
       if (res.error) {
         setState(() {
@@ -308,34 +343,42 @@ class _ReaderImagesState extends State<_ReaderImages> {
     } else {
       final sourceRef = _buildSourceRef(loadMode);
       final localProvider = LocalPageProvider(
-        loadLocalPages: ({
-          required String localType,
-          required String localComicId,
-          String? chapterId,
-        }) async {
-          final type = ComicType.fromKey(localType);
-          final targetChapterId =
-              chapterId ??
-              reader.widget.chapters?.ids.elementAtOrNull(reader.chapter - 1) ??
-              reader.chapter.toString();
-          return LocalManager().getImages(localComicId, type, targetChapterId);
-        },
+        loadLocalPages:
+            ({
+              required String localType,
+              required String localComicId,
+              String? chapterId,
+            }) async {
+              final type = ComicType.fromKey(localType);
+              final targetChapterId =
+                  chapterId ??
+                  reader.widget.chapters?.ids.elementAtOrNull(
+                    reader.chapter - 1,
+                  ) ??
+                  reader.chapter.toString();
+              return LocalManager().getImages(
+                localComicId,
+                type,
+                targetChapterId,
+              );
+            },
       );
       final resolver = SourceRefResolver(
         localProvider: localProvider,
         remoteProviderFactory: (_) => RemotePageProvider(
-          loadRemotePages: ({
-            required String sourceKey,
-            required String comicId,
-            required String chapterId,
-          }) async {
-            final source = ComicSource.find(sourceKey);
-            final loadComicPages = source?.loadComicPages;
-            if (loadComicPages == null) {
-              return const Res.error('SOURCE_NOT_AVAILABLE');
-            }
-            return await loadComicPages(comicId, chapterId);
-          },
+          loadRemotePages:
+              ({
+                required String sourceKey,
+                required String comicId,
+                required String chapterId,
+              }) async {
+                final source = ComicSource.find(sourceKey);
+                final loadComicPages = source?.loadComicPages;
+                if (loadComicPages == null) {
+                  return const Res.error('SOURCE_NOT_AVAILABLE');
+                }
+                return await loadComicPages(comicId, chapterId);
+              },
         ),
         sourceExists: (sourceKey) => ComicSource.find(sourceKey) != null,
       );
@@ -375,7 +418,9 @@ class _ReaderImagesState extends State<_ReaderImages> {
           });
           readerTraceRecorder.record(
             ReaderTraceEvent(
-              event: res.data.isEmpty ? 'emptyPageList' : 'pageList.load.success',
+              event: res.data.isEmpty
+                  ? 'emptyPageList'
+                  : 'pageList.load.success',
               timestamp: DateTime.now(),
               loadMode: loadMode,
               sourceKey: sourceRef.sourceKey,
@@ -627,7 +672,10 @@ class _GalleryModeState extends State<_GalleryMode>
 
   void cache(int startPage) {
     for (int i = startPage - 1; i <= startPage + preCacheCount; i++) {
-      if (i <= 0 || i > totalPages || i == startPage || isChapterCommentsPage(i)) {
+      if (i <= 0 ||
+          i > totalPages ||
+          i == startPage ||
+          isChapterCommentsPage(i)) {
         continue;
       }
       _cachePage(i, i == startPage + 1 || i == startPage - 1);
@@ -758,7 +806,8 @@ class _GalleryModeState extends State<_GalleryMode>
         },
         onPageChanged: (i) {
           if (i == 0) {
-            if (reader.isFirstChapterOfGroup || !reader.toPrevChapter(toLastPage: true)) {
+            if (reader.isFirstChapterOfGroup ||
+                !reader.toPrevChapter(toLastPage: true)) {
               controller.jumpToPage(1);
             }
           } else if (i == totalPages + 1) {
@@ -984,13 +1033,12 @@ class _GalleryModeState extends State<_GalleryMode>
   Future<Uint8List?> getImageByOffset(Offset offset) async {
     var imageKey = getImageKeyByOffset(offset);
     if (imageKey == null) return null;
-    if (imageKey.startsWith("file://")) {
-      return await File(imageKey.substring(7)).readAsBytes();
-    } else {
-      return (await CacheManager().findCache(
-        "$imageKey@${context.reader.type.sourceKey}@${context.reader.cid}@${context.reader.eid}",
-      ))!.readAsBytes();
-    }
+    return _readReaderImageBytes(
+      imageKey: imageKey,
+      sourceKey: context.reader.type.sourceKey,
+      comicId: context.reader.cid,
+      chapterId: context.reader.eid,
+    );
   }
 
   @override
@@ -1570,13 +1618,12 @@ class _ContinuousModeState extends State<_ContinuousMode>
   Future<Uint8List?> getImageByOffset(Offset offset) async {
     var imageKey = getImageKeyByOffset(offset);
     if (imageKey == null) return null;
-    if (imageKey.startsWith("file://")) {
-      return await File(imageKey.substring(7)).readAsBytes();
-    } else {
-      return (await CacheManager().findCache(
-        "$imageKey@${context.reader.type.sourceKey}@${context.reader.cid}@${context.reader.eid}",
-      ))!.readAsBytes();
-    }
+    return _readReaderImageBytes(
+      imageKey: imageKey,
+      sourceKey: context.reader.type.sourceKey,
+      comicId: context.reader.cid,
+      chapterId: context.reader.eid,
+    );
   }
 
   @override

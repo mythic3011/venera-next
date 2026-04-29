@@ -1,5 +1,17 @@
 part of 'comic_page.dart';
 
+bool comicChapterIsVisited(
+  History? history, {
+  required String rawIndex,
+  String? groupedIndex,
+}) {
+  if (history == null) {
+    return false;
+  }
+  return history.readEpisode.contains(rawIndex) ||
+      (groupedIndex != null && history.readEpisode.contains(groupedIndex));
+}
+
 class _ComicChapters extends StatelessWidget {
   const _ComicChapters({this.history, required this.groupedMode});
 
@@ -86,9 +98,11 @@ class _NormalComicChaptersState extends State<_NormalComicChapters> {
                 trailing: Tooltip(
                   message: "Order".tl,
                   child: IconButton(
-                    icon: Icon(reverse
-                        ? Icons.vertical_align_top
-                        : Icons.vertical_align_bottom_outlined),
+                    icon: Icon(
+                      reverse
+                          ? Icons.vertical_align_top
+                          : Icons.vertical_align_bottom_outlined,
+                    ),
                     onPressed: () {
                       setState(() {
                         reverse = !reverse;
@@ -99,44 +113,47 @@ class _NormalComicChaptersState extends State<_NormalComicChapters> {
               ),
             ),
             SliverGrid(
-              delegate: SliverChildBuilderDelegate(
-                childCount: length,
-                (context, i) {
-                  if (reverse) {
-                    i = chapters.length - i - 1;
-                  }
-                  var key = chapters.ids.elementAt(i);
-                  var value = chapters[key]!;
-                  bool visited = (history?.readEpisode ?? {}).contains(i + 1);
-                  return Padding(
-                    padding: const EdgeInsets.fromLTRB(4, 4, 4, 4),
-                    child: Material(
-                      color: context.colorScheme.surfaceContainer,
+              delegate: SliverChildBuilderDelegate(childCount: length, (
+                context,
+                i,
+              ) {
+                if (reverse) {
+                  i = chapters.length - i - 1;
+                }
+                var key = chapters.ids.elementAt(i);
+                var value = chapters[key]!;
+                final visited = comicChapterIsVisited(
+                  history,
+                  rawIndex: (i + 1).toString(),
+                );
+                return Padding(
+                  padding: const EdgeInsets.fromLTRB(4, 4, 4, 4),
+                  child: Material(
+                    color: context.colorScheme.surfaceContainer,
+                    borderRadius: BorderRadius.circular(16),
+                    child: InkWell(
+                      onTap: () => state.read(i + 1),
                       borderRadius: BorderRadius.circular(16),
-                      child: InkWell(
-                        onTap: () => state.read(i + 1),
-                        borderRadius: BorderRadius.circular(16),
-                        child: Padding(
-                          padding: const EdgeInsets.symmetric(horizontal: 8),
-                          child: Center(
-                            child: Text(
-                              value,
-                              maxLines: 1,
-                              textAlign: TextAlign.center,
-                              overflow: TextOverflow.ellipsis,
-                              style: TextStyle(
-                                color: visited
-                                    ? context.colorScheme.outline
-                                    : null,
-                              ),
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 8),
+                        child: Center(
+                          child: Text(
+                            value,
+                            maxLines: 1,
+                            textAlign: TextAlign.center,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                              color: visited
+                                  ? context.colorScheme.outline
+                                  : null,
                             ),
                           ),
                         ),
                       ),
                     ),
-                  );
-                },
-              ),
+                  ),
+                );
+              }),
               gridDelegate: const SliverGridDelegateWithFixedHeight(
                 maxCrossAxisExtent: 250,
                 itemHeight: 48,
@@ -157,9 +174,7 @@ class _NormalComicChaptersState extends State<_NormalComicChapters> {
                   ).paddingTop(12),
                 ),
               ),
-            const SliverToBoxAdapter(
-              child: Divider(),
-            ),
+            const SliverToBoxAdapter(child: Divider()),
           ],
         );
       },
@@ -263,9 +278,11 @@ class _GroupedComicChaptersState extends State<_GroupedComicChapters>
                 trailing: Tooltip(
                   message: "Order".tl,
                   child: IconButton(
-                    icon: Icon(reverse
-                        ? Icons.vertical_align_top
-                        : Icons.vertical_align_bottom_outlined),
+                    icon: Icon(
+                      reverse
+                          ? Icons.vertical_align_top
+                          : Icons.vertical_align_bottom_outlined,
+                    ),
                     onPressed: () {
                       setState(() {
                         reverse = !reverse;
@@ -284,58 +301,58 @@ class _GroupedComicChaptersState extends State<_GroupedComicChapters>
             ),
             SliverPadding(padding: const EdgeInsets.only(top: 8)),
             SliverGrid(
-              delegate: SliverChildBuilderDelegate(
-                childCount: length,
-                (context, i) {
-                  if (reverse) {
-                    i = group.length - i - 1;
+              delegate: SliverChildBuilderDelegate(childCount: length, (
+                context,
+                i,
+              ) {
+                if (reverse) {
+                  i = group.length - i - 1;
+                }
+                var key = group.keys.elementAt(i);
+                var value = group[key]!;
+                var chapterIndex = 0;
+                for (var j = 0; j < chapters.groupCount; j++) {
+                  if (j == index) {
+                    chapterIndex += i;
+                    break;
                   }
-                  var key = group.keys.elementAt(i);
-                  var value = group[key]!;
-                  var chapterIndex = 0;
-                  for (var j = 0; j < chapters.groupCount; j++) {
-                    if (j == index) {
-                      chapterIndex += i;
-                      break;
-                    }
-                    chapterIndex += chapters.getGroupByIndex(j).length;
-                  }
-                  String rawIndex = (chapterIndex + 1).toString();
-                  String groupedIndex = "${index + 1}-${i + 1}";
-                  bool visited = false;
-                  if (history != null) {
-                    visited = history!.readEpisode.contains(groupedIndex) ||
-                        history!.readEpisode.contains(rawIndex);
-                  }
-                  return Padding(
-                    padding: const EdgeInsets.fromLTRB(4, 4, 4, 4),
-                    child: Material(
-                      color: context.colorScheme.surfaceContainerLow,
+                  chapterIndex += chapters.getGroupByIndex(j).length;
+                }
+                String rawIndex = (chapterIndex + 1).toString();
+                String groupedIndex = "${index + 1}-${i + 1}";
+                final visited = comicChapterIsVisited(
+                  history,
+                  rawIndex: rawIndex,
+                  groupedIndex: groupedIndex,
+                );
+                return Padding(
+                  padding: const EdgeInsets.fromLTRB(4, 4, 4, 4),
+                  child: Material(
+                    color: context.colorScheme.surfaceContainerLow,
+                    borderRadius: BorderRadius.circular(12),
+                    child: InkWell(
+                      onTap: () => state.read(chapterIndex + 1),
                       borderRadius: BorderRadius.circular(12),
-                      child: InkWell(
-                        onTap: () => state.read(chapterIndex + 1),
-                        borderRadius: BorderRadius.circular(12),
-                        child: Padding(
-                          padding: const EdgeInsets.symmetric(horizontal: 8),
-                          child: Center(
-                            child: Text(
-                              value,
-                              maxLines: 1,
-                              textAlign: TextAlign.center,
-                              overflow: TextOverflow.ellipsis,
-                              style: TextStyle(
-                                color: visited
-                                    ? context.colorScheme.outline
-                                    : null,
-                              ),
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 8),
+                        child: Center(
+                          child: Text(
+                            value,
+                            maxLines: 1,
+                            textAlign: TextAlign.center,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                              color: visited
+                                  ? context.colorScheme.outline
+                                  : null,
                             ),
                           ),
                         ),
                       ),
                     ),
-                  );
-                },
-              ),
+                  ),
+                );
+              }),
               gridDelegate: const SliverGridDelegateWithFixedHeight(
                 maxCrossAxisExtent: 250,
                 itemHeight: 48,
@@ -356,9 +373,7 @@ class _GroupedComicChaptersState extends State<_GroupedComicChapters>
                   ).paddingTop(12),
                 ),
               ),
-            const SliverToBoxAdapter(
-              child: Divider(),
-            ),
+            const SliverToBoxAdapter(child: Divider()),
           ],
         );
       },
