@@ -163,21 +163,7 @@ class _ReaderImagesState extends State<_ReaderImages> {
             ))
         ? 'local'
         : 'remote';
-    readerTraceRecorder.record(
-      ReaderTraceEvent(
-        event: 'pageList.load.start',
-        timestamp: DateTime.now(),
-        loadMode: loadMode,
-        sourceKey: reader.type.sourceKey,
-        comicId: reader.cid,
-        chapterId: reader.widget.chapters?.ids.elementAtOrNull(
-          reader.chapter - 1,
-        ),
-        chapterIndex: reader.chapter,
-        page: reader.page,
-        phase: ReaderTracePhase.pageList,
-      ),
-    );
+    final callId = reader.beginPageListDiagnostics(loadMode);
     final sourceRef = _buildSourceRef(loadMode);
     Future<Res<List<String>>> legacyLoadPages() async {
       if (loadMode == 'local') {
@@ -260,36 +246,21 @@ class _ReaderImagesState extends State<_ReaderImages> {
         inProgress = false;
       });
       if (sourceUnavailable) {
-        readerTraceRecorder.record(
-          ReaderTraceEvent(
-            event: 'source.unavailable',
-            timestamp: DateTime.now(),
-            loadMode: loadMode,
-            sourceKey: sourceRef.sourceKey,
-            comicId: reader.cid,
-            chapterId: sourceRef.params['chapterId']?.toString(),
-            chapterIndex: reader.chapter,
-            page: reader.page,
-            errorCode: 'SOURCE_NOT_AVAILABLE',
-            errorMessage: 'SOURCE_NOT_AVAILABLE:${sourceRef.sourceKey}',
-            phase: ReaderTracePhase.sourceResolution,
-          ),
+        reader.failPageListDiagnostics(
+          callId: callId,
+          loadMode: loadMode,
+          sourceRef: sourceRef,
+          errorMessage: 'SOURCE_NOT_AVAILABLE:${sourceRef.sourceKey}',
+          errorCode: 'SOURCE_NOT_AVAILABLE',
+        );
+      } else {
+        reader.failPageListDiagnostics(
+          callId: callId,
+          loadMode: loadMode,
+          sourceRef: sourceRef,
+          errorMessage: res.errorMessage ?? 'Unknown page list error',
         );
       }
-      readerTraceRecorder.record(
-        ReaderTraceEvent(
-          event: 'pageList.load.error',
-          timestamp: DateTime.now(),
-          loadMode: loadMode,
-          sourceKey: sourceRef.sourceKey,
-          comicId: reader.cid,
-          chapterId: sourceRef.params['chapterId']?.toString(),
-          chapterIndex: reader.chapter,
-          page: reader.page,
-          errorMessage: res.errorMessage,
-          phase: ReaderTracePhase.pageList,
-        ),
-      );
     } else {
       setState(() {
         reader.images = res.data;
@@ -300,18 +271,11 @@ class _ReaderImagesState extends State<_ReaderImages> {
           reader.updateHistory();
         });
       });
-      readerTraceRecorder.record(
-        ReaderTraceEvent(
-          event: res.data.isEmpty ? 'emptyPageList' : 'pageList.load.success',
-          timestamp: DateTime.now(),
-          loadMode: loadMode,
-          sourceKey: sourceRef.sourceKey,
-          comicId: reader.cid,
-          chapterId: sourceRef.params['chapterId']?.toString(),
-          chapterIndex: reader.chapter,
-          page: reader.page,
-          phase: ReaderTracePhase.pageList,
-        ),
+      reader.endPageListDiagnostics(
+        callId: callId,
+        loadMode: loadMode,
+        sourceRef: sourceRef,
+        pageCount: res.data.length,
       );
     }
     if (!mounted) return;
@@ -1485,20 +1449,7 @@ ImageProvider _createImageProviderFromKey(
   int page,
 ) {
   var reader = context.reader;
-  readerTraceRecorder.record(
-    ReaderTraceEvent(
-      event: 'image.provider.created',
-      timestamp: DateTime.now(),
-      loadMode: reader.type == ComicType.local ? 'local' : 'remote',
-      sourceKey: reader.type.sourceKey,
-      comicId: reader.cid,
-      chapterId: reader.eid,
-      chapterIndex: reader.chapter,
-      page: page,
-      imageKey: imageKey,
-      phase: ReaderTracePhase.imageProvider,
-    ),
-  );
+  reader.recordImageProviderDiagnostics(imageKey: imageKey, imagePage: page);
   return buildReaderImageProvider(
     imageKey: imageKey,
     sourceKey: reader.type.comicSource?.key,

@@ -30,6 +30,7 @@ void main() {
 
   tearDown(() async {
     await exporter.stop();
+    await Log.closeFileSink();
   });
 
   test('start binds loopback random port and exposes token', () async {
@@ -113,6 +114,50 @@ void main() {
     expect(contentJoined.contains('Bearer token-value'), isFalse);
     expect(contentJoined.contains('[redacted]'), isTrue);
   });
+
+  test(
+    '/logs includes persisted entries after session logs are cleared',
+    () async {
+      final oldInitialized = App.isInitialized;
+      final oldDataPath = oldInitialized ? App.dataPath : null;
+      final oldExternal = App.externalStoragePath;
+
+      final dir = await Directory.systemTemp.createTemp(
+        'venera_debug_exporter_persisted_test_',
+      );
+      App.dataPath = dir.path;
+      App.externalStoragePath = dir.path;
+      App.isInitialized = true;
+
+      final persistedFile = File(Log.logFilePath!);
+      await persistedFile.parent.create(recursive: true);
+      await persistedFile.writeAsString(
+        'error Image Loading 2026-04-30 01:47:32.082278 \n'
+        'Bad state: Cannot load relative thumbnail URL without a valid absolute source URL.\n\n',
+      );
+      Log.clear();
+      await exporter.start();
+
+      final logsResponse = await getUri(exporter.logsUri(level: 'error')!);
+      final logsJson = await responseJson(logsResponse);
+      final logs = (logsJson['logs'] as List).cast<Map<String, dynamic>>();
+
+      expect(logsResponse.statusCode, HttpStatus.ok);
+      expect(logs.length, 1);
+      expect(logs.first['source'], 'persisted');
+      expect(logs.first['title'], 'Image Loading');
+      expect(logs.first['content'], contains('relative thumbnail URL'));
+      expect((logsJson['sources'] as Map)['persisted'], 1);
+
+      await exporter.stop();
+      await dir.delete(recursive: true);
+      if (oldInitialized && oldDataPath != null) {
+        App.dataPath = oldDataPath;
+      }
+      App.externalStoragePath = oldExternal;
+      App.isInitialized = oldInitialized;
+    },
+  );
 
   test('/diagnostics includes expected shape and excludes token', () async {
     Log.error('Err', 'session=abc');

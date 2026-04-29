@@ -4,7 +4,7 @@ import 'dart:math';
 import 'dart:typed_data';
 
 import 'package:venera/foundation/app.dart';
-import 'package:venera/foundation/log.dart';
+import 'package:venera/foundation/debug_diagnostics_service.dart';
 
 class DebugLogExporter {
   DebugLogExporter._();
@@ -16,6 +16,7 @@ class DebugLogExporter {
   HttpServer? _server;
   Uri? _baseUri;
   String? _token;
+  final DebugDiagnosticsService _diagnostics = const DebugDiagnosticsService();
 
   bool get isRunning => _server != null;
 
@@ -94,63 +95,35 @@ class DebugLogExporter {
 
     switch (request.uri.path) {
       case '/health':
-        return _writeJson(request.response, HttpStatus.ok, {
-          'ok': true,
-          'platform': _platformName(),
-          'logCount': Log.logs.length,
-        });
-      case '/logs':
-        final level = request.uri.queryParameters['level'] ?? 'all';
-        final limit = _parseLimit(request.uri.queryParameters['limit']);
-        final logs = Log.newest(level: level, limit: limit)
-            .map((item) => Log.serialize(item))
-            .map(
-              (item) => {
-                'level': item['level'],
-                'title': redactLogText((item['title'] ?? '').toString()),
-                'content': redactLogText((item['content'] ?? '').toString()),
-                'time': item['time'],
-              },
-            )
-            .toList();
-        return _writeJson(request.response, HttpStatus.ok, {
-          'logs': logs,
-          'count': logs.length,
-          'limit': limit,
-        });
-      case '/diagnostics':
-        final newestErrors = Log.newest(level: 'error', limit: 20)
-            .map((item) => Log.serialize(item))
-            .map(
-              (item) => {
-                'level': item['level'],
-                'title': redactLogText((item['title'] ?? '').toString()),
-                'content': redactLogText((item['content'] ?? '').toString()),
-                'time': item['time'],
-              },
-            )
-            .toList();
-        final diagnostics = {
-          'platform': {'os': _platformName(), 'isDesktop': App.isDesktop},
-          'runtime': {'appVersion': App.version},
-          'debugServer': {
-            'running': isRunning,
-            'baseUrl': _baseUri?.toString(),
-          },
-          'paths': {
-            'dataPath': App.isInitialized ? App.dataPath : null,
-            'cachePath': App.isInitialized ? App.cachePath : null,
-          },
-          'logs': {
-            'totalCount': Log.logs.length,
-            'recentErrorCount': Log.newest(level: 'error', limit: 200).length,
-            'newestErrors': newestErrors,
-          },
-        };
         return _writeJson(
           request.response,
           HttpStatus.ok,
-          redactForDiagnostics(diagnostics),
+          await _diagnostics.healthPayload(
+            serverRunning: isRunning,
+            platform: _platformName(),
+          ),
+        );
+      case '/logs':
+        final level = request.uri.queryParameters['level'] ?? 'all';
+        final limit = _parseLimit(request.uri.queryParameters['limit']);
+        return _writeJson(
+          request.response,
+          HttpStatus.ok,
+          redactForDiagnostics(
+            await _diagnostics.logsPayload(level: level, limit: limit),
+          ),
+        );
+      case '/diagnostics':
+        return _writeJson(
+          request.response,
+          HttpStatus.ok,
+          redactForDiagnostics(
+            await _diagnostics.diagnosticsPayload(
+              serverRunning: isRunning,
+              baseUrl: _baseUri?.toString(),
+              platform: _platformName(),
+            ),
+          ),
         );
       default:
         return _writeJson(request.response, HttpStatus.notFound, {

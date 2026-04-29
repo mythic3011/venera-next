@@ -32,7 +32,7 @@ import 'package:venera/foundation/image_provider/reader_image.dart';
 import 'package:venera/foundation/local.dart';
 import 'package:venera/foundation/log.dart';
 import 'package:venera/foundation/res.dart';
-import 'package:venera/foundation/reader/reader_trace_recorder.dart';
+import 'package:venera/foundation/reader/reader_diagnostics.dart';
 import 'package:venera/foundation/reader/reader_page_loader.dart';
 import 'package:venera/foundation/source_ref.dart';
 import 'package:venera/network/images.dart';
@@ -65,6 +65,8 @@ part 'chapters.dart';
 part 'chapter_comments.dart';
 
 part 'adaptive.dart';
+
+part 'diagnostics.dart';
 
 extension _ReaderContext on BuildContext {
   _ReaderState get reader => findAncestorStateOfType<_ReaderState>()!;
@@ -121,28 +123,6 @@ class Reader extends StatefulWidget {
 @visibleForTesting
 String readerTraceLoadModeForTesting(ComicType type) {
   return type == ComicType.local ? 'local' : 'remote';
-}
-
-@visibleForTesting
-ReaderTraceEvent buildReaderLifecycleTraceEvent({
-  required String event,
-  required ComicType type,
-  required String comicId,
-  required String? chapterId,
-  required int chapterIndex,
-  required int page,
-}) {
-  return ReaderTraceEvent(
-    event: event,
-    timestamp: DateTime.now(),
-    loadMode: readerTraceLoadModeForTesting(type),
-    sourceKey: type.sourceKey,
-    comicId: comicId,
-    chapterId: chapterId,
-    chapterIndex: chapterIndex,
-    page: page,
-    phase: ReaderTracePhase.sourceResolution,
-  );
 }
 
 class _ReaderState extends State<Reader>
@@ -296,16 +276,7 @@ class _ReaderState extends State<Reader>
   void didChangeDependencies() {
     super.didChangeDependencies();
     if (!_traceOpened) {
-      readerTraceRecorder.record(
-        buildReaderLifecycleTraceEvent(
-          event: 'reader.open',
-          type: type,
-          comicId: cid,
-          chapterId: widget.chapters?.ids.elementAtOrNull(chapter - 1),
-          chapterIndex: chapter,
-          page: page,
-        ),
-      );
+      recordReaderOpenDiagnostics();
       _traceOpened = true;
     }
     if (!_isInitialized) {
@@ -340,16 +311,7 @@ class _ReaderState extends State<Reader>
 
   @override
   void dispose() {
-    readerTraceRecorder.record(
-      buildReaderLifecycleTraceEvent(
-        event: 'reader.dispose',
-        type: type,
-        comicId: cid,
-        chapterId: widget.chapters?.ids.elementAtOrNull(chapter - 1),
-        chapterIndex: chapter,
-        page: page,
-      ),
-    );
+    recordReaderDisposeDiagnostics();
     if (isFullscreen) {
       fullscreen();
     }
@@ -508,7 +470,7 @@ abstract mixin class _ImagePerPageHandler {
   late int _lastImagesPerPage;
 
   late bool _lastOrientation;
-  
+
   /// Track if we were on the chapter comments page before orientation change
   bool _wasOnCommentsPage = false;
 
@@ -523,13 +485,13 @@ abstract mixin class _ImagePerPageHandler {
   String get cid;
 
   ComicType get type;
-  
+
   /// Whether the current page is the chapter comments page
   bool get isOnChapterCommentsPage;
-  
+
   /// Get the max page (excluding comments page)
   int get maxPage;
-  
+
   /// Get images list for calculating maxPage
   List<String>? get images;
 
@@ -571,7 +533,7 @@ abstract mixin class _ImagePerPageHandler {
           1;
     }
   }
-  
+
   /// Calculate maxPage with a specific imagesPerPage value
   int _calcMaxPage(int imagesPerPageValue) {
     if (images == null) return 1;
@@ -591,7 +553,7 @@ abstract mixin class _ImagePerPageHandler {
       // if we were on the comments page before the orientation change
       int oldMaxPage = _calcMaxPage(_lastImagesPerPage);
       _wasOnCommentsPage = page > oldMaxPage;
-      
+
       _adjustPageForImagesPerPageChange(
         _lastImagesPerPage,
         currentImagesPerPage,
@@ -630,7 +592,7 @@ abstract mixin class _ImagePerPageHandler {
 
     // Clamp to valid range (1 to maxPage)
     newPage = newPage.clamp(1, maxPage);
-    
+
     // If we were on the comments page, stay on the comments page
     if (_wasOnCommentsPage) {
       page = maxPage + 1;

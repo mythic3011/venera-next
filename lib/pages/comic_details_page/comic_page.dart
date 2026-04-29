@@ -87,7 +87,7 @@ class _ComicPageState extends LoadingState<ComicPage, ComicDetails>
     return ComicDetails.fromJson({
       "title": localComic.title,
       "subtitle": localComic.subtitle,
-      "cover": "file://${localComic.coverFile.path}",
+      "cover": localComic.coverFile.uri.toString(),
       "description": "",
       "tags": tags,
       "chapters": localComic.chapters?.toJson(),
@@ -186,6 +186,20 @@ class _ComicPageState extends LoadingState<ComicPage, ComicDetails>
 
   @override
   ComicDetails get comic => data!;
+
+  ImageProvider _comicPageCoverImageProvider() {
+    if (_isLocalSource) {
+      final localComic = LocalManager().find(widget.id, ComicType.local);
+      if (localComic != null) {
+        return FileImage(localComic.coverFile);
+      }
+    }
+    return CachedImageProvider(
+      widget.cover ?? comic.cover,
+      sourceKey: comic.sourceKey,
+      cid: comic.id,
+    );
+  }
 
   void onScroll() {
     var offset =
@@ -346,11 +360,7 @@ class _ComicPageState extends LoadingState<ComicPage, ComicDetails>
                 width: 144 * 0.72,
                 clipBehavior: Clip.antiAlias,
                 child: AnimatedImage(
-                  image: CachedImageProvider(
-                    widget.cover ?? comic.cover,
-                    sourceKey: comic.sourceKey,
-                    cid: comic.id,
-                  ),
+                  image: _comicPageCoverImageProvider(),
                   width: double.infinity,
                   height: double.infinity,
                 ),
@@ -372,7 +382,7 @@ class _ComicPageState extends LoadingState<ComicPage, ComicDetails>
                   comic.sourceKey == 'local'
                       ? "Local".tl
                       : (ComicSource.find(comic.sourceKey)?.name ??
-                          comic.sourceKey),
+                            comic.sourceKey),
                   style: ts.s12,
                 ),
               ],
@@ -409,12 +419,12 @@ class _ComicPageState extends LoadingState<ComicPage, ComicDetails>
                 ),
               if (!isMobile && !isDownloaded)
                 if (!_isLocalSource)
-                _ActionButton(
-                  icon: const Icon(Icons.download),
-                  text: 'Download'.tl,
-                  onPressed: download,
-                  iconColor: context.useTextColor(Colors.cyan),
-                ),
+                  _ActionButton(
+                    icon: const Icon(Icons.download),
+                    text: 'Download'.tl,
+                    onPressed: download,
+                    iconColor: context.useTextColor(Colors.cyan),
+                  ),
               if (data!.isLiked != null)
                 _ActionButton(
                   icon: const Icon(Icons.favorite_border),
@@ -771,17 +781,7 @@ class _ComicPageState extends LoadingState<ComicPage, ComicDetails>
   }
 
   ImageProvider _coverImageProvider() {
-    if (_isLocalSource) {
-      final localComic = LocalManager().find(widget.id, ComicType.local);
-      if (localComic != null) {
-        return FileImage(localComic.coverFile);
-      }
-    }
-    return CachedImageProvider(
-      widget.cover ?? comic.cover,
-      sourceKey: comic.sourceKey,
-      cid: comic.id,
-    );
+    return _comicPageCoverImageProvider();
   }
 
   void _viewCover(BuildContext context) {
@@ -1077,10 +1077,11 @@ class _ComicPageLoadingPlaceHolder extends StatelessWidget {
   }
 
   Widget buildImage(BuildContext context) {
+    final provider = _imageProvider();
     Widget child;
-    if (cover != null) {
+    if (provider != null) {
       child = AnimatedImage(
-        image: CachedImageProvider(cover!, sourceKey: sourceKey, cid: cid),
+        image: provider,
         width: double.infinity,
         height: double.infinity,
         fit: BoxFit.cover,
@@ -1109,5 +1110,19 @@ class _ComicPageLoadingPlaceHolder extends StatelessWidget {
         child: child,
       ),
     );
+  }
+
+  ImageProvider? _imageProvider() {
+    if (sourceKey == 'local') {
+      final localComic = LocalManager().find(cid, ComicType.local);
+      if (localComic != null) {
+        return FileImage(localComic.coverFile);
+      }
+      return null;
+    }
+    if (cover == null) {
+      return null;
+    }
+    return CachedImageProvider(cover!, sourceKey: sourceKey, cid: cid);
   }
 }

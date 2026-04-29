@@ -1,7 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:venera/foundation/comic_type.dart';
+import 'package:venera/foundation/reader/reader_diagnostics.dart';
 import 'package:venera/foundation/reader/reader_trace_recorder.dart';
-import 'package:venera/pages/reader/reader.dart';
 
 void main() {
   test('required_event_name_and_phase_serialize_consistently', () {
@@ -44,7 +44,8 @@ void main() {
   });
 
   test('reader dispose trace keeps expected diagnostic fields', () {
-    final event = buildReaderLifecycleTraceEvent(
+    readerTraceRecorder.clear();
+    ReaderDiagnostics.recordReaderLifecycle(
       event: 'reader.dispose',
       type: ComicType.local,
       comicId: 'comic-7',
@@ -53,9 +54,7 @@ void main() {
       page: 9,
     );
 
-    final recorder = ReaderTraceRecorder();
-    recorder.record(event);
-    final json = recorder.toDiagnosticsJson();
+    final json = ReaderDiagnostics.toDiagnosticsJson();
     final recordedEvent =
         (json['readerTrace'] as Map<String, dynamic>)['events'][0]
             as Map<String, dynamic>;

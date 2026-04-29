@@ -143,6 +143,10 @@ class Log {
     }
   }
 
+  static Future<void> flushFileSink() async {
+    await _file?.flush();
+  }
+
   static Future<File?> exportToFile({String? outputPath}) async {
     if (!App.isInitialized) {
       return null;
@@ -214,6 +218,7 @@ class Log {
       "title": item.title,
       "content": item.content,
       "time": item.time.toIso8601String(),
+      "source": "session",
     };
   }
 

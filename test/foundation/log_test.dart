@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:venera/foundation/app.dart';
 import 'package:venera/foundation/log.dart';
+import 'package:venera/foundation/log_diagnostics.dart';
 
 void main() {
   setUp(() {
@@ -123,6 +124,47 @@ void main() {
       expect(exportText.contains('memory-title'), isTrue);
       expect(exportText.contains('persisted-line-1'), isTrue);
       expect(exportText.contains('persisted-line-2'), isTrue);
+
+      await dir.delete(recursive: true);
+      if (oldInitialized && oldDataPath != null) {
+        App.dataPath = oldDataPath;
+      }
+      App.externalStoragePath = oldExternal;
+      App.isInitialized = oldInitialized;
+    },
+  );
+
+  test(
+    'LogDiagnostics parses log file entries after memory is cleared',
+    () async {
+      final oldInitialized = App.isInitialized;
+      final oldDataPath = oldInitialized ? App.dataPath : null;
+      final oldExternal = App.externalStoragePath;
+
+      final dir = await Directory.systemTemp.createTemp(
+        'venera_persisted_log_parse_test_',
+      );
+      App.dataPath = dir.path;
+      App.externalStoragePath = dir.path;
+      App.isInitialized = true;
+
+      final persistedFile = File(Log.logFilePath!);
+      await persistedFile.parent.create(recursive: true);
+      await persistedFile.writeAsString(
+        'error Image Loading 2026-04-30 01:47:32.082278 \n'
+        'Bad state: Cannot load relative thumbnail URL without a valid absolute source URL.\n\n'
+        'info Reader 2026-04-30 01:48:00.000000 \n'
+        'pageList.load.start\n\n',
+      );
+
+      Log.clear();
+      final logs = await LogDiagnostics.persistedLogs();
+
+      expect(logs.length, 2);
+      expect(logs.first.level, LogLevel.error);
+      expect(logs.first.title, 'Image Loading');
+      expect(logs.first.source, 'persisted');
+      expect(logs.first.content.contains('relative thumbnail URL'), isTrue);
 
       await dir.delete(recursive: true);
       if (oldInitialized && oldDataPath != null) {
