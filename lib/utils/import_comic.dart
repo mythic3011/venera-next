@@ -20,6 +20,52 @@ import 'io.dart';
 
 enum _BundleImportMode { oneComicWithChapters, separateComics }
 
+const Set<String> _supportedImageExtensions = {
+  'jpg',
+  'jpeg',
+  'png',
+  'webp',
+  'gif',
+  'jpe',
+};
+
+@visibleForTesting
+bool isSupportedImageExtension(String extension) {
+  return _supportedImageExtensions.contains(extension.toLowerCase());
+}
+
+@visibleForTesting
+String? selectCoverPathForImport({
+  required List<String> rootFiles,
+  required Map<String, List<String>> chapterFiles,
+}) {
+  final sortedRootFiles = [...rootFiles]
+    ..removeWhere((name) => !isSupportedImageExtension(File(name).extension))
+    ..sort(naturalCompare);
+  final rootCover = sortedRootFiles.firstWhereOrNull(
+    (name) => name.toLowerCase().startsWith('cover'),
+  );
+  if (rootCover != null) {
+    return rootCover;
+  }
+  if (sortedRootFiles.isNotEmpty) {
+    return sortedRootFiles.first;
+  }
+  if (chapterFiles.isEmpty) {
+    return null;
+  }
+  final sortedChapterNames = chapterFiles.keys.toList()..sort(naturalCompare);
+  for (final chapter in sortedChapterNames) {
+    final images = [...(chapterFiles[chapter] ?? const <String>[])]
+      ..removeWhere((name) => !isSupportedImageExtension(File(name).extension))
+      ..sort(naturalCompare);
+    if (images.isNotEmpty) {
+      return '$chapter/${images.first}';
+    }
+  }
+  return null;
+}
+
 class _ImportBatchResult {
   final Map<String?, List<LocalComic>> imported;
   int failed = 0;
@@ -414,7 +460,6 @@ class ImportComic {
   }
 
   Future<List<File>> _collectImagesRecursively(Directory root) async {
-    const imageExtensions = {'jpg', 'jpeg', 'png', 'webp', 'gif', 'jpe'};
     final files = <File>[];
     await for (final entity in root.list(recursive: true, followLinks: false)) {
       if (entity is! File) {
@@ -423,7 +468,7 @@ class ImportComic {
       if (isHiddenOrMacMetadataPath(entity.path)) {
         continue;
       }
-      if (imageExtensions.contains(entity.extension.toLowerCase())) {
+      if (isSupportedImageExtension(entity.extension)) {
         files.add(entity);
       }
     }
@@ -774,13 +819,14 @@ class ImportComic {
       return null;
     }
     bool hasChapters = false;
-    var chapters = <String>[];
-    var coverPath = ''; // relative path to the cover image
-    var fileList = <String>[];
+    final chapters = <String>[];
+    final rootImageFiles = <String>[];
+    final chapterImageFiles = <String, List<String>>{};
     await for (var entry in directory.list()) {
       if (entry is Directory) {
         hasChapters = true;
         chapters.add(entry.name);
+        chapterImageFiles[entry.name] = <String>[];
         await for (var file in entry.list()) {
           if (file is Directory) {
             Log.info(
@@ -789,36 +835,30 @@ class ImportComic {
             );
             return null;
           }
+          if (file is File && isSupportedImageExtension(file.extension)) {
+            chapterImageFiles[entry.name]!.add(file.name);
+          }
         }
       } else if (entry is File) {
-        const imageExtensions = ['jpg', 'jpeg', 'png', 'webp', 'gif', 'jpe'];
-        if (imageExtensions.contains(entry.extension)) {
-          fileList.add(entry.name);
+        if (isSupportedImageExtension(entry.extension)) {
+          rootImageFiles.add(entry.name);
         }
       }
     }
 
-    if (fileList.isEmpty) {
+    final hasAnyChapterImages = chapterImageFiles.values.any(
+      (images) => images.isNotEmpty,
+    );
+    if (rootImageFiles.isEmpty && !hasAnyChapterImages) {
       return null;
     }
 
-    naturalSortStrings(fileList);
-    coverPath =
-        fileList.firstWhereOrNull((l) => l.startsWith('cover')) ??
-        fileList.first;
-
     naturalSortStrings(chapters);
-    if (hasChapters && coverPath == '') {
-      // use the first image in the first chapter as the cover
-      var firstChapter = Directory('${directory.path}/${chapters.first}');
-      await for (var entry in firstChapter.list()) {
-        if (entry is File) {
-          coverPath = entry.name;
-          break;
-        }
-      }
-    }
-    if (coverPath == '') {
+    final coverPath = selectCoverPathForImport(
+      rootFiles: rootImageFiles,
+      chapterFiles: chapterImageFiles,
+    );
+    if (coverPath == null || coverPath.isEmpty) {
       Log.info("Import Comic", "Invalid Comic: $name\nNo cover image found.");
       return null;
     }
