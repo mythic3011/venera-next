@@ -20,6 +20,8 @@ import 'package:venera/utils/io.dart';
 import 'app.dart';
 import 'history.dart';
 
+String localPageImageKey(File file) => file.uri.toString();
+
 class LocalComic with HistoryMixin implements Comic {
   @override
   final String id;
@@ -743,7 +745,7 @@ class LocalManager with ChangeNotifier {
     files.sort((a, b) {
       return naturalCompare(a.name, b.name);
     });
-    return files.map((e) => "file://${e.path}").toList();
+    return files.map(localPageImageKey).toList();
   }
 
   Future<void> reorderComicPages(

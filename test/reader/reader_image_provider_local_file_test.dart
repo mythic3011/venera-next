@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:venera/foundation/local.dart';
 import 'package:venera/foundation/image_provider/reader_image.dart';
 
 void main() {
@@ -25,5 +26,19 @@ void main() {
     expect(readerImageFilePathForTesting(httpsUrl), httpsUrl);
     expect(readerImageFilePathForTesting(httpUrl), httpUrl);
     expect(readerImageFilePathForTesting(relativePath), relativePath);
+  });
+
+  test('local produced key roundtrips through reader file path parsing', () {
+    final tempDir = Directory.systemTemp.createTempSync(
+      'venera_local_page_uri_key_test_',
+    );
+    addTearDown(() => tempDir.deleteSync(recursive: true));
+
+    final file = File('${tempDir.path}/中文 page 1.bin')
+      ..writeAsBytesSync([7, 8, 9]);
+    final imageKey = localPageImageKey(file);
+
+    expect(imageKey, file.uri.toString());
+    expect(readerImageFilePathForTesting(imageKey), file.path);
   });
 }
