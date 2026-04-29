@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:math';
@@ -14,6 +15,7 @@ class DebugLogExporter {
   factory DebugLogExporter() => _instance;
 
   HttpServer? _server;
+  StreamSubscription<HttpRequest>? _serverSubscription;
   Uri? _baseUri;
   String? _token;
   final DebugDiagnosticsService _diagnostics = const DebugDiagnosticsService();
@@ -37,17 +39,30 @@ class DebugLogExporter {
     _token = _generateToken();
     _baseUri = Uri.parse('http://127.0.0.1:${server.port}');
     _server = server;
-    server.listen(_handleRequest);
+    _serverSubscription = server.listen(
+      _handleRequest,
+      onDone: () {
+        if (identical(_server, server)) {
+          _server = null;
+          _baseUri = null;
+          _token = null;
+          _serverSubscription = null;
+        }
+      },
+    );
   }
 
   Future<void> stop() async {
     final server = _server;
+    final subscription = _serverSubscription;
     _server = null;
+    _serverSubscription = null;
     _baseUri = null;
     _token = null;
     if (server != null) {
       await server.close(force: true);
     }
+    await subscription?.cancel();
   }
 
   Uri? logsUri({String level = 'all', int limit = 200}) {

@@ -93,7 +93,7 @@ class DebugPageState extends State<DebugPage> {
         if (!didPop) {
           return;
         }
-        if (exporter.isRunning && exporter.baseUri != null) {
+        if (exporter.isRunning && exporter.healthUri() != null) {
           App.rootContext.showMessage(
             message: "Diagnostics API is still running".tl,
           );
