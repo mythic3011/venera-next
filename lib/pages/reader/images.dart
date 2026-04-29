@@ -1,5 +1,23 @@
 part of 'reader.dart';
 
+ReaderImageProvider buildReaderImageProvider({
+  required String imageKey,
+  required String? sourceKey,
+  required String comicId,
+  required String chapterId,
+  required int page,
+  required bool enableResize,
+}) {
+  return ReaderImageProvider(
+    imageKey,
+    sourceKey,
+    comicId,
+    chapterId,
+    page,
+    enableResize: enableResize,
+  );
+}
+
 class _ReaderImages extends StatefulWidget {
   const _ReaderImages({super.key});
 
@@ -1329,13 +1347,13 @@ ImageProvider _createImageProviderFromKey(
   int page,
 ) {
   var reader = context.reader;
-  return ReaderImageProvider(
-    imageKey,
-    reader.type.comicSource?.key,
-    reader.cid,
-    reader.eid,
-    reader.page,
-    enableResize: reader.mode.isContinuous, // For continuous mode, we need to resize the image to improve performance
+  return buildReaderImageProvider(
+    imageKey: imageKey,
+    sourceKey: reader.type.comicSource?.key,
+    comicId: reader.cid,
+    chapterId: reader.eid,
+    page: page,
+    enableResize: reader.mode.isContinuous,
   );
 }
 
