@@ -182,6 +182,20 @@ class _ComicImageState extends State<ComicImage> with WidgetsBindingObserver {
         _handleImageFrame,
         onChunk: _handleImageChunk,
         onError: (Object error, StackTrace? stackTrace) {
+          final imageProvider = widget.image;
+          String? imageKey;
+          if (imageProvider is ReaderImageProvider) {
+            imageKey = imageProvider.imageKey;
+          }
+          readerTraceRecorder.record(
+            ReaderTraceEvent(
+              event: 'image.load.error',
+              timestamp: DateTime.now(),
+              imageKey: imageKey,
+              errorMessage: error.toString(),
+              phase: ReaderTracePhase.decode,
+            ),
+          );
           setState(() {
             _lastException = error;
           });

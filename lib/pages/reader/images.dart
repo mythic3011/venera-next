@@ -73,6 +73,19 @@ class _ReaderImagesState extends State<_ReaderImages> {
             ))
         ? 'local'
         : 'remote';
+    readerTraceRecorder.record(
+      ReaderTraceEvent(
+        event: 'pageList.load.start',
+        timestamp: DateTime.now(),
+        loadMode: loadMode,
+        sourceKey: reader.type.sourceKey,
+        comicId: reader.cid,
+        chapterId: reader.widget.chapters?.ids.elementAtOrNull(reader.chapter - 1),
+        chapterIndex: reader.chapter,
+        page: reader.page,
+        phase: ReaderTracePhase.pageList,
+      ),
+    );
     if (!useResolver && loadMode == 'local') {
       try {
         var images = await LocalManager().getImages(
@@ -90,6 +103,19 @@ class _ReaderImagesState extends State<_ReaderImages> {
             reader.updateHistory();
           });
         });
+        readerTraceRecorder.record(
+          ReaderTraceEvent(
+            event: images.isEmpty ? 'emptyPageList' : 'pageList.load.success',
+            timestamp: DateTime.now(),
+            loadMode: loadMode,
+            sourceKey: reader.type.sourceKey,
+            comicId: reader.cid,
+            chapterId: reader.widget.chapters?.ids.elementAtOrNull(reader.chapter - 1),
+            chapterIndex: reader.chapter,
+            page: reader.page,
+            phase: ReaderTracePhase.pageList,
+          ),
+        );
       } catch (e) {
         if (!mounted) return;
         setState(() {
@@ -97,6 +123,20 @@ class _ReaderImagesState extends State<_ReaderImages> {
           reader.isLoading = false;
           inProgress = false;
         });
+        readerTraceRecorder.record(
+          ReaderTraceEvent(
+            event: 'pageList.load.error',
+            timestamp: DateTime.now(),
+            loadMode: loadMode,
+            sourceKey: reader.type.sourceKey,
+            comicId: reader.cid,
+            chapterId: reader.widget.chapters?.ids.elementAtOrNull(reader.chapter - 1),
+            chapterIndex: reader.chapter,
+            page: reader.page,
+            errorMessage: e.toString(),
+            phase: ReaderTracePhase.pageList,
+          ),
+        );
       }
     } else if (!useResolver) {
       var cp = reader.widget.chapters?.ids.elementAtOrNull(reader.chapter - 1);
@@ -105,6 +145,21 @@ class _ReaderImagesState extends State<_ReaderImages> {
             reader.type.sourceKey,
           );
       if (sourceUnavailableError != null) {
+        readerTraceRecorder.record(
+          ReaderTraceEvent(
+            event: 'source.unavailable',
+            timestamp: DateTime.now(),
+            loadMode: loadMode,
+            sourceKey: reader.type.sourceKey,
+            comicId: reader.cid,
+            chapterId: cp,
+            chapterIndex: reader.chapter,
+            page: reader.page,
+            errorCode: 'SOURCE_NOT_AVAILABLE',
+            errorMessage: sourceUnavailableError,
+            phase: ReaderTracePhase.sourceResolution,
+          ),
+        );
         setState(() {
           error =
               '$sourceUnavailableError Comic source is unavailable. Please refresh/install this source and retry.';
@@ -117,6 +172,21 @@ class _ReaderImagesState extends State<_ReaderImages> {
       final source = reader.type.comicSource;
       final loadComicPages = source?.loadComicPages;
       if (loadComicPages == null) {
+        readerTraceRecorder.record(
+          ReaderTraceEvent(
+            event: 'source.unavailable',
+            timestamp: DateTime.now(),
+            loadMode: loadMode,
+            sourceKey: reader.type.sourceKey,
+            comicId: reader.cid,
+            chapterId: cp,
+            chapterIndex: reader.chapter,
+            page: reader.page,
+            errorCode: 'SOURCE_NOT_AVAILABLE',
+            errorMessage: 'Comic source is unavailable',
+            phase: ReaderTracePhase.sourceResolution,
+          ),
+        );
         setState(() {
           error = "Comic source is unavailable. Please refresh/install this source and retry.";
           reader.isLoading = false;
@@ -136,6 +206,20 @@ class _ReaderImagesState extends State<_ReaderImages> {
           reader.isLoading = false;
           inProgress = false;
         });
+        readerTraceRecorder.record(
+          ReaderTraceEvent(
+            event: 'pageList.load.error',
+            timestamp: DateTime.now(),
+            loadMode: loadMode,
+            sourceKey: reader.type.sourceKey,
+            comicId: reader.cid,
+            chapterId: cp,
+            chapterIndex: reader.chapter,
+            page: reader.page,
+            errorMessage: res.errorMessage,
+            phase: ReaderTracePhase.pageList,
+          ),
+        );
       } else {
         setState(() {
           reader.images = res.data;
@@ -146,6 +230,19 @@ class _ReaderImagesState extends State<_ReaderImages> {
             reader.updateHistory();
           });
         });
+        readerTraceRecorder.record(
+          ReaderTraceEvent(
+            event: res.data.isEmpty ? 'emptyPageList' : 'pageList.load.success',
+            timestamp: DateTime.now(),
+            loadMode: loadMode,
+            sourceKey: reader.type.sourceKey,
+            comicId: reader.cid,
+            chapterId: cp,
+            chapterIndex: reader.chapter,
+            page: reader.page,
+            phase: ReaderTracePhase.pageList,
+          ),
+        );
       }
     } else {
       final sourceRef = _buildSourceRef(loadMode);
@@ -191,6 +288,20 @@ class _ReaderImagesState extends State<_ReaderImages> {
             reader.isLoading = false;
             inProgress = false;
           });
+          readerTraceRecorder.record(
+            ReaderTraceEvent(
+              event: 'pageList.load.error',
+              timestamp: DateTime.now(),
+              loadMode: loadMode,
+              sourceKey: sourceRef.sourceKey,
+              comicId: reader.cid,
+              chapterId: sourceRef.params['chapterId']?.toString(),
+              chapterIndex: reader.chapter,
+              page: reader.page,
+              errorMessage: res.errorMessage,
+              phase: ReaderTracePhase.pageList,
+            ),
+          );
         } else {
           setState(() {
             reader.images = res.data;
@@ -201,6 +312,19 @@ class _ReaderImagesState extends State<_ReaderImages> {
               reader.updateHistory();
             });
           });
+          readerTraceRecorder.record(
+            ReaderTraceEvent(
+              event: res.data.isEmpty ? 'emptyPageList' : 'pageList.load.success',
+              timestamp: DateTime.now(),
+              loadMode: loadMode,
+              sourceKey: sourceRef.sourceKey,
+              comicId: reader.cid,
+              chapterId: sourceRef.params['chapterId']?.toString(),
+              chapterIndex: reader.chapter,
+              page: reader.page,
+              phase: ReaderTracePhase.pageList,
+            ),
+          );
         }
       } on SourceRefDiagnostic catch (e) {
         if (!mounted) return;
@@ -209,6 +333,38 @@ class _ReaderImagesState extends State<_ReaderImages> {
           reader.isLoading = false;
           inProgress = false;
         });
+        if (e.code == SourceRefDiagnosticCode.sourceNotAvailable) {
+          readerTraceRecorder.record(
+            ReaderTraceEvent(
+              event: 'source.unavailable',
+              timestamp: DateTime.now(),
+              loadMode: loadMode,
+              sourceKey: sourceRef.sourceKey,
+              comicId: reader.cid,
+              chapterId: sourceRef.params['chapterId']?.toString(),
+              chapterIndex: reader.chapter,
+              page: reader.page,
+              errorCode: e.code.name,
+              errorMessage: e.message,
+              phase: ReaderTracePhase.sourceResolution,
+            ),
+          );
+        }
+        readerTraceRecorder.record(
+          ReaderTraceEvent(
+            event: 'pageList.load.error',
+            timestamp: DateTime.now(),
+            loadMode: loadMode,
+            sourceKey: sourceRef.sourceKey,
+            comicId: reader.cid,
+            chapterId: sourceRef.params['chapterId']?.toString(),
+            chapterIndex: reader.chapter,
+            page: reader.page,
+            errorCode: e.code.name,
+            errorMessage: e.message,
+            phase: ReaderTracePhase.pageList,
+          ),
+        );
       }
     }
     if (!mounted) return;
@@ -1380,6 +1536,20 @@ ImageProvider _createImageProviderFromKey(
   int page,
 ) {
   var reader = context.reader;
+  readerTraceRecorder.record(
+    ReaderTraceEvent(
+      event: 'image.provider.created',
+      timestamp: DateTime.now(),
+      loadMode: reader.type == ComicType.local ? 'local' : 'remote',
+      sourceKey: reader.type.sourceKey,
+      comicId: reader.cid,
+      chapterId: reader.eid,
+      chapterIndex: reader.chapter,
+      page: page,
+      imageKey: imageKey,
+      phase: ReaderTracePhase.imageProvider,
+    ),
+  );
   return ReaderImageProvider(
     imageKey,
     reader.type.comicSource?.key,

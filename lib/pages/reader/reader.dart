@@ -33,6 +33,7 @@ import 'package:venera/foundation/log.dart';
 import 'package:venera/foundation/res.dart';
 import 'package:venera/foundation/reader/local_page_provider.dart';
 import 'package:venera/foundation/reader/diagnostic_mapping.dart';
+import 'package:venera/foundation/reader/reader_trace_recorder.dart';
 import 'package:venera/foundation/reader/remote_page_provider.dart';
 import 'package:venera/foundation/reader/source_ref_resolver.dart';
 import 'package:venera/foundation/reader/source_ref_diagnostics.dart';
@@ -265,10 +266,27 @@ class _ReaderState extends State<Reader>
   }
 
   bool _isInitialized = false;
+  bool _traceOpened = false;
 
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
+    if (!_traceOpened) {
+      readerTraceRecorder.record(
+        ReaderTraceEvent(
+          event: 'reader.open',
+          timestamp: DateTime.now(),
+          loadMode: type == ComicType.local ? 'local' : 'remote',
+          sourceKey: type.sourceKey,
+          comicId: cid,
+          chapterId: widget.chapters?.ids.elementAtOrNull(chapter - 1),
+          chapterIndex: chapter,
+          page: page,
+          phase: ReaderTracePhase.sourceResolution,
+        ),
+      );
+      _traceOpened = true;
+    }
     if (!_isInitialized) {
       initImagesPerPage(widget.initialPage ?? 1);
       _isInitialized = true;
@@ -301,6 +319,19 @@ class _ReaderState extends State<Reader>
 
   @override
   void dispose() {
+    readerTraceRecorder.record(
+      ReaderTraceEvent(
+        event: 'reader.dispose',
+        timestamp: DateTime.now(),
+        loadMode: type == ComicType.local ? 'local' : 'remote',
+        sourceKey: type.sourceKey,
+        comicId: cid,
+        chapterId: widget.chapters?.ids.elementAtOrNull(chapter - 1),
+        chapterIndex: chapter,
+        page: page,
+        phase: ReaderTracePhase.sourceResolution,
+      ),
+    );
     if (isFullscreen) {
       fullscreen();
     }
