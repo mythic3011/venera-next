@@ -5,10 +5,22 @@ https://github.com/EhTagTranslation/Database/tree/master/database
 繁体中文由 @NeKoOuO (https://github.com/NeKoOuO) 提供
 */
 import 'dart:convert';
+import 'dart:io';
 import 'dart:isolate';
+import 'dart:ui';
+
 import 'package:flutter/services.dart';
 import 'package:venera/foundation/app.dart';
+import 'package:venera/foundation/log.dart';
 import 'package:venera/utils/ext.dart';
+import 'package:venera/utils/opencc.dart';
+
+const _latestTagsDatabaseUrl =
+    "https://github.com/EhTagTranslation/Database/releases/latest/download/db.text.json";
+const _tagsDatabaseVersion = 7;
+const _tagsCachePrefix = "ehtag_translation";
+
+enum _TagLocale { simplified, traditional }
 
 Map<String, Map<String, String>> _decodeTagData(List<int> bytes) {
   final decoded = jsonDecode(utf8.decode(bytes)) as Map<String, dynamic>;
@@ -18,39 +30,279 @@ Map<String, Map<String, String>> _decodeTagData(List<int> bytes) {
   };
 }
 
+Map<String, Map<String, String>> _decodeLatestTagData(String text) {
+  final decoded = jsonDecode(text) as Map<String, dynamic>;
+  final version = decoded["version"];
+  if (version != _tagsDatabaseVersion) {
+    throw FormatException("Unsupported tag database version: $version");
+  }
+  final result = <String, Map<String, String>>{};
+  final data = decoded["data"];
+  if (data is! List) {
+    throw const FormatException("Tag database data must be a list");
+  }
+  for (final namespaceData in data) {
+    if (namespaceData is! Map) {
+      continue;
+    }
+    final namespace = namespaceData["namespace"];
+    final tags = namespaceData["data"];
+    if (namespace is! String || tags is! Map) {
+      continue;
+    }
+    result[namespace] = {
+      for (final entry in tags.entries)
+        if (entry.key is String &&
+            entry.value is Map &&
+            (entry.value as Map)["name"] is String)
+          entry.key as String: (entry.value as Map)["name"] as String,
+    };
+  }
+  if (result.isEmpty) {
+    throw const FormatException("Tag database is empty");
+  }
+  return result;
+}
+
+String? _latestTagSourceKey(String text) {
+  final decoded = jsonDecode(text) as Map<String, dynamic>;
+  final head = decoded["head"];
+  if (head is! Map) {
+    return null;
+  }
+  final sha = head["sha"];
+  return sha is String && sha.isNotEmpty ? sha : null;
+}
+
+Map<String, Map<String, String>> _convertTagData(
+  Map<String, Map<String, String>> source,
+  _TagLocale locale,
+) {
+  if (locale == _TagLocale.simplified) {
+    return source;
+  }
+  return {
+    for (final namespace in source.entries)
+      namespace.key: {
+        for (final tag in namespace.value.entries)
+          tag.key: OpenCC.simplifiedToTraditional(tag.value),
+      },
+  };
+}
+
 extension TagsTranslation on String {
   static final Map<String, Map<String, String>> _data = {};
-  static String? _loadedFile;
+  static String? _loadedKey;
 
   static Future<void> readData() async {
     final locale = App.locale;
-    final useTraditional =
-        locale.languageCode == 'zh' &&
-        (locale.countryCode == 'TW' || locale.countryCode == 'HK');
-    final fileName = useTraditional
-        ? "assets/tags/zh_TW.json"
-        : "assets/tags/zh_CN.json";
-    if (_loadedFile == fileName && _data.isNotEmpty) {
+    final tagLocale = _tagLocaleFrom(locale);
+    final cacheKey = _cacheKeyFrom(locale, tagLocale);
+    if (_loadedKey == cacheKey && _data.isNotEmpty) {
       return;
     }
+
+    final latest = await _downloadAndCacheLatestTagData(tagLocale, cacheKey);
+    if (latest != null) {
+      _data
+        ..clear()
+        ..addAll(latest);
+      _loadedKey = cacheKey;
+      return;
+    }
+
+    final cached = await _loadCachedTagData(cacheKey);
+    if (cached != null) {
+      _data
+        ..clear()
+        ..addAll(cached);
+      _loadedKey = cacheKey;
+      return;
+    }
+
+    final parsed = await _loadBundledTagData(tagLocale);
+    _data
+      ..clear()
+      ..addAll(parsed);
+    _loadedKey = cacheKey;
+  }
+
+  static _TagLocale _tagLocaleFrom(Locale locale) {
+    if (locale.languageCode == 'zh' &&
+        (locale.countryCode == 'TW' || locale.countryCode == 'HK')) {
+      return _TagLocale.traditional;
+    }
+    return _TagLocale.simplified;
+  }
+
+  static String _cacheKeyFrom(Locale locale, _TagLocale tagLocale) {
+    if (tagLocale == _TagLocale.traditional && locale.countryCode == 'HK') {
+      return "zh_HK";
+    }
+    if (tagLocale == _TagLocale.traditional) {
+      return "zh_TW";
+    }
+    return "zh_CN";
+  }
+
+  static File? _cacheFile(String cacheKey) {
+    if (!App.isInitialized) {
+      return null;
+    }
+    return File("${App.dataPath}/${_tagsCachePrefix}_$cacheKey.json");
+  }
+
+  static File? _cacheMetaFile(String cacheKey) {
+    if (!App.isInitialized) {
+      return null;
+    }
+    return File("${App.dataPath}/${_tagsCachePrefix}_$cacheKey.meta.json");
+  }
+
+  static Future<Map<String, Map<String, String>>?>
+  _downloadAndCacheLatestTagData(_TagLocale tagLocale, String cacheKey) async {
+    try {
+      final text = await _downloadLatestTagData();
+      final sourceKey = await Isolate.run(() => _latestTagSourceKey(text));
+      if (sourceKey != null && await _cacheSourceKey(cacheKey) == sourceKey) {
+        final cached = await _loadCachedTagData(cacheKey);
+        if (cached != null) {
+          return cached;
+        }
+      }
+      final source = await Isolate.run(() => _decodeLatestTagData(text));
+      final translated = _convertTagData(source, tagLocale);
+      final cacheFile = _cacheFile(cacheKey);
+      if (cacheFile != null) {
+        await cacheFile.writeAsString(jsonEncode(translated), flush: true);
+      }
+      await _writeCacheSourceKey(cacheKey, sourceKey);
+      return translated;
+    } catch (e) {
+      Log.warning("Tags Translation", "Failed to update latest tag data: $e");
+      return null;
+    }
+  }
+
+  static Future<String?> _cacheSourceKey(String cacheKey) async {
+    final metaFile = _cacheMetaFile(cacheKey);
+    final cacheFile = _cacheFile(cacheKey);
+    if (metaFile == null ||
+        cacheFile == null ||
+        !await metaFile.exists() ||
+        !await cacheFile.exists()) {
+      return null;
+    }
+    try {
+      final decoded =
+          jsonDecode(await metaFile.readAsString()) as Map<String, dynamic>;
+      final sourceKey = decoded["sourceKey"];
+      return sourceKey is String && sourceKey.isNotEmpty ? sourceKey : null;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  static Future<void> _writeCacheSourceKey(
+    String cacheKey,
+    String? sourceKey,
+  ) async {
+    if (sourceKey == null) {
+      return;
+    }
+    final metaFile = _cacheMetaFile(cacheKey);
+    if (metaFile == null) {
+      return;
+    }
+    await metaFile.writeAsString(
+      jsonEncode({
+        "sourceUrl": _latestTagsDatabaseUrl,
+        "sourceKey": sourceKey,
+        "version": _tagsDatabaseVersion,
+        "updatedAt": DateTime.now().toUtc().toIso8601String(),
+      }),
+      flush: true,
+    );
+  }
+
+  static Future<Map<String, Map<String, String>>?> _loadCachedTagData(
+    String cacheKey,
+  ) async {
+    final cacheFile = _cacheFile(cacheKey);
+    if (cacheFile == null || !await cacheFile.exists()) {
+      return null;
+    }
+    try {
+      final bytes = await cacheFile.readAsBytes();
+      return await Isolate.run(() => _decodeTagData(bytes));
+    } catch (e) {
+      Log.warning("Tags Translation", "Failed to read cached tag data: $e");
+      return null;
+    }
+  }
+
+  static Future<Map<String, Map<String, String>>> _loadBundledTagData(
+    _TagLocale tagLocale,
+  ) async {
+    if (tagLocale == _TagLocale.traditional) {
+      try {
+        final traditional = await _loadBundledTagDataFile(
+          "assets/tags/zh_TW.json",
+          "assets/tags_tw.json",
+        );
+        return traditional;
+      } catch (_) {
+        final simplified = await _loadBundledTagDataFile(
+          "assets/tags/zh_CN.json",
+          "assets/tags.json",
+        );
+        return _convertTagData(simplified, tagLocale);
+      }
+    }
+    return _loadBundledTagDataFile(
+      "assets/tags/zh_CN.json",
+      "assets/tags.json",
+    );
+  }
+
+  static Future<Map<String, Map<String, String>>> _loadBundledTagDataFile(
+    String fileName,
+    String legacyFileName,
+  ) async {
     ByteData data;
     try {
       data = await rootBundle.load(fileName);
     } catch (_) {
       // Backward compatibility for older assets layout.
-      data = await rootBundle.load(
-        useTraditional ? "assets/tags_tw.json" : "assets/tags.json",
-      );
+      data = await rootBundle.load(legacyFileName);
     }
-    List<int> bytes = data.buffer.asUint8List(
+    final bytes = data.buffer.asUint8List(
       data.offsetInBytes,
       data.lengthInBytes,
     );
-    final parsed = await Isolate.run(() => _decodeTagData(bytes));
-    _data
-      ..clear()
-      ..addAll(parsed);
-    _loadedFile = fileName;
+    return Isolate.run(() => _decodeTagData(bytes));
+  }
+
+  static Future<String> _downloadLatestTagData() async {
+    final uri = Uri.parse(_latestTagsDatabaseUrl);
+    final client = HttpClient()..connectionTimeout = const Duration(seconds: 8);
+    try {
+      final request = await client
+          .getUrl(uri)
+          .timeout(const Duration(seconds: 8));
+      final response = await request.close().timeout(
+        const Duration(seconds: 20),
+      );
+      if (response.statusCode != HttpStatus.ok) {
+        throw HttpException(
+          "Unexpected status ${response.statusCode}",
+          uri: uri,
+        );
+      }
+      return await utf8.decoder.bind(response).join();
+    } finally {
+      client.close(force: true);
+    }
   }
 
   static bool _haveNamespace(String key) {
