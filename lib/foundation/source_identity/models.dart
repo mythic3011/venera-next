@@ -1,24 +1,9 @@
-const String sourceIdentitySchemaVersion = 'source_identity/v1';
+import 'constants.dart';
+import 'source_platform_resolver.dart';
 
-const String localSourceKey = 'local';
-const String remoteSourceRefTypeKey = 'remote';
-const String localSourceRefTypeKey = 'local';
-const String unknownSourceKeyPrefix = 'Unknown:';
-
-const String localSourceKind = 'local';
-const String remoteSourceKind = 'remote';
-const String unknownSourceKind = 'unknown';
-const String webdavSourceKind = 'webdav';
-const String otherSourceKind = 'other';
-
-const Map<int, String> legacySourceTypeSourceKeys = <int, String>{
-  0: 'picacg',
-  1: 'ehentai',
-  2: 'jm',
-  3: 'hitomi',
-  4: 'wnacg',
-  5: 'nhentai',
-  6: 'nhentai',
+final Map<int, String> legacySourceTypeSourceKeys = <int, String>{
+  ...sourcePlatformResolver.legacyTypeMappingsFor(SourceLookupContext.favorite),
+  ...sourcePlatformResolver.legacyTypeMappingsFor(SourceLookupContext.history),
 };
 
 class SourceIdentityAudit {
@@ -86,15 +71,22 @@ class SourceIdentity {
     String? version,
     SourceIdentityAudit? audit,
   }) {
-    final resolvedKind = kind ?? sourceKindFromKey(key);
-    final resolvedId = id ?? key;
+    final resolved = resolveSourcePlatformKey(key);
+    final resolvedKind = kind ?? resolved.kind;
+    final resolvedId = id ?? resolved.canonicalKey;
     return SourceIdentity(
       schema: sourceIdentitySchemaVersion,
       id: resolvedId,
       kind: resolvedKind,
       key: key,
-      aliases: _dedupeStrings(aliases),
-      names: _dedupeStrings(names),
+      aliases: _dedupeStrings(<String>[
+        ...aliases,
+        if (resolved.canonicalKey != key) resolved.canonicalKey,
+      ]),
+      names: _dedupeStrings(<String>[
+        ...names,
+        if (resolved.isKnown) resolved.displayName,
+      ]),
       version: version,
       audit: audit,
     );
@@ -104,11 +96,13 @@ class SourceIdentity {
     final aliases = json['aliases'];
     final names = json['names'];
     final audit = json['audit'];
+    final key = json['key'] as String;
+    final resolved = resolveSourcePlatformKey(key);
     return SourceIdentity(
       schema: (json['schema'] as String?) ?? sourceIdentitySchemaVersion,
-      id: json['id'] as String,
-      kind: (json['kind'] as String?) ?? remoteSourceKind,
-      key: json['key'] as String,
+      id: (json['id'] as String?) ?? resolved.canonicalKey,
+      kind: (json['kind'] as String?) ?? resolved.kind,
+      key: key,
       aliases: aliases is List
           ? _dedupeStrings(aliases.whereType<String>())
           : const <String>[],
@@ -124,14 +118,20 @@ class SourceIdentity {
 
   int get typeValue => sourceTypeValueFromStableId(id, kind: kind);
 
-  List<String> get knownKeys => _dedupeStrings(<String>[
-    key,
-    id,
-    ...aliases,
-  ].map(normalizeLegacyImportedSourceKey));
+  List<String> get knownKeys => _dedupeStrings(
+    <String>[key, id, ...aliases].map(
+      (value) => normalizeLegacyImportedSourceKey(
+        value,
+        context: SourceLookupContext.global,
+      ),
+    ),
+  );
 
   bool matchesKey(String candidate) {
-    final normalized = normalizeLegacyImportedSourceKey(candidate);
+    final normalized = normalizeLegacyImportedSourceKey(
+      candidate,
+      context: SourceLookupContext.global,
+    );
     return knownKeys.contains(normalized);
   }
 
@@ -163,13 +163,7 @@ List<String> _dedupeStrings(Iterable<String> values) {
 }
 
 String sourceKindFromKey(String key) {
-  if (isLocalSourceKey(key)) {
-    return localSourceKind;
-  }
-  if (isUnknownSourceKey(key)) {
-    return unknownSourceKind;
-  }
-  return remoteSourceKind;
+  return resolveSourcePlatformKey(key).kind;
 }
 
 int stableSourceKeyId(String key) {
@@ -184,7 +178,10 @@ int stableSourceKeyId(String key) {
   return hash;
 }
 
-int sourceTypeValueFromStableId(String stableId, {String kind = remoteSourceKind}) {
+int sourceTypeValueFromStableId(
+  String stableId, {
+  String kind = remoteSourceKind,
+}) {
   if (kind == localSourceKind || isLocalSourceKey(stableId)) {
     return 0;
   }
@@ -196,7 +193,11 @@ int sourceTypeValueFromStableId(String stableId, {String kind = remoteSourceKind
 }
 
 int sourceTypeValueFromKey(String key) {
-  return sourceTypeValueFromStableId(key, kind: sourceKindFromKey(key));
+  final resolved = resolveSourcePlatformKey(key);
+  return sourceTypeValueFromStableId(
+    resolved.canonicalKey,
+    kind: resolved.kind,
+  );
 }
 
 String sourceKeyFromTypeValue(int typeValue) {
@@ -222,7 +223,15 @@ SourceIdentity sourceIdentityFromKey(
   );
 }
 
-bool isLocalSourceKey(String key) => key == localSourceKey;
+SourcePlatformRef resolveSourcePlatformKey(
+  String key, {
+  SourceLookupContext context = SourceLookupContext.global,
+}) {
+  return sourcePlatformResolver.resolveKey(key, context: context);
+}
+
+bool isLocalSourceKey(String key) =>
+    resolveSourcePlatformKey(key).canonicalKey == localSourceKey;
 
 bool isUnknownSourceKey(String key) => key.startsWith(unknownSourceKeyPrefix);
 
@@ -240,34 +249,51 @@ int normalizeFavoriteJsonTypeValue({
   if (typeValue == 0 && !coverPath.startsWith('http')) {
     return 0;
   }
-  final sourceKey = legacySourceTypeSourceKeys[typeValue];
-  if (sourceKey == null) {
+  final resolved = sourcePlatformResolver.resolveLegacyType(
+    typeValue,
+    context: SourceLookupContext.favorite,
+  );
+  if (resolved == null) {
     return typeValue;
   }
-  return sourceTypeValueFromKey(sourceKey);
+  return sourceTypeValueFromKey(resolved.canonicalKey);
 }
 
 int normalizeLegacyHistoryTypeValue(int typeValue) {
-  final sourceKey = legacySourceTypeSourceKeys[typeValue];
-  if (sourceKey == null) {
+  final resolved = sourcePlatformResolver.resolveLegacyType(
+    typeValue,
+    context: SourceLookupContext.history,
+  );
+  if (resolved == null) {
     return typeValue;
   }
-  return sourceTypeValueFromKey(sourceKey);
+  return sourceTypeValueFromKey(resolved.canonicalKey);
 }
 
-String normalizeLegacyImportedSourceKey(String sourceKey) {
-  if (sourceKey.toLowerCase() == 'htmanga') {
-    return 'wnacg';
-  }
-  return sourceKey;
+String normalizeLegacyImportedSourceKey(
+  String sourceKey, {
+  SourceLookupContext context = SourceLookupContext.imported,
+}) {
+  return resolveSourcePlatformKey(sourceKey, context: context).canonicalKey;
 }
 
 bool matchesSourceTypeValue({
   required String sourceKey,
   required int typeValue,
 }) {
-  return sourceTypeValueFromKey(sourceKey) == typeValue ||
-      sourceKey.hashCode == typeValue;
+  final resolved = resolveSourcePlatformKey(sourceKey);
+  final candidates = <String>{
+    sourceKey,
+    resolved.canonicalKey,
+    if (resolved.matchedAlias.isNotEmpty) resolved.matchedAlias,
+  };
+  for (final candidate in candidates) {
+    if (sourceTypeValueFromKey(candidate) == typeValue ||
+        candidate.hashCode == typeValue) {
+      return true;
+    }
+  }
+  return false;
 }
 
 bool matchesSourceIdentityTypeValue({
@@ -278,7 +304,7 @@ bool matchesSourceIdentityTypeValue({
     return true;
   }
   for (final key in identity.knownKeys) {
-    if (key.hashCode == typeValue) {
+    if (matchesSourceTypeValue(sourceKey: key, typeValue: typeValue)) {
       return true;
     }
   }

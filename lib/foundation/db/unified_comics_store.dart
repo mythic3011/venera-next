@@ -1,0 +1,687 @@
+import 'dart:io';
+
+import 'package:drift/drift.dart';
+import 'package:drift/native.dart';
+import 'package:path/path.dart' as p;
+import 'package:sqlite3/common.dart' as sqlite_common;
+import 'package:venera/foundation/source_identity/source_identity.dart';
+
+const String sourceContextGlobal = 'global';
+const String canonicalDomainDatabaseDirectoryName = 'data';
+const String canonicalDomainDatabaseFileName = 'venera.db';
+
+String canonicalDomainDatabasePath(String rootPath) {
+  return p.join(
+    rootPath,
+    canonicalDomainDatabaseDirectoryName,
+    canonicalDomainDatabaseFileName,
+  );
+}
+
+class SourcePlatformRecord {
+  const SourcePlatformRecord({
+    required this.id,
+    required this.canonicalKey,
+    required this.displayName,
+    required this.kind,
+    this.isEnabled = true,
+    this.createdAt,
+    this.updatedAt,
+  });
+
+  final String id;
+  final String canonicalKey;
+  final String displayName;
+  final String kind;
+  final bool isEnabled;
+  final String? createdAt;
+  final String? updatedAt;
+}
+
+class SourcePlatformAliasRecord {
+  const SourcePlatformAliasRecord({
+    this.id,
+    required this.platformId,
+    required this.aliasKey,
+    required this.aliasType,
+    this.legacyIntType,
+    this.sourceContext = sourceContextGlobal,
+    this.createdAt,
+  });
+
+  final int? id;
+  final String platformId;
+  final String aliasKey;
+  final String aliasType;
+  final int? legacyIntType;
+  final String sourceContext;
+  final String? createdAt;
+}
+
+class ComicRecord {
+  const ComicRecord({
+    required this.id,
+    required this.title,
+    required this.normalizedTitle,
+    this.coverLocalPath,
+    this.createdAt,
+    this.updatedAt,
+  });
+
+  final String id;
+  final String title;
+  final String normalizedTitle;
+  final String? coverLocalPath;
+  final String? createdAt;
+  final String? updatedAt;
+}
+
+class ComicTitleRecord {
+  const ComicTitleRecord({
+    this.id,
+    required this.comicId,
+    required this.title,
+    required this.normalizedTitle,
+    required this.titleType,
+    this.sourcePlatformId,
+    this.createdAt,
+  });
+
+  final int? id;
+  final String comicId;
+  final String title;
+  final String normalizedTitle;
+  final String titleType;
+  final String? sourcePlatformId;
+  final String? createdAt;
+}
+
+class LocalLibraryItemRecord {
+  const LocalLibraryItemRecord({
+    required this.id,
+    required this.comicId,
+    required this.storageType,
+    required this.localRootPath,
+    this.importedFromPath,
+    this.fileCount = 0,
+    this.totalBytes = 0,
+    this.contentFingerprint,
+    this.importedAt,
+    this.updatedAt,
+  });
+
+  final String id;
+  final String comicId;
+  final String storageType;
+  final String localRootPath;
+  final String? importedFromPath;
+  final int fileCount;
+  final int totalBytes;
+  final String? contentFingerprint;
+  final String? importedAt;
+  final String? updatedAt;
+}
+
+class ResolvedSourcePlatform {
+  const ResolvedSourcePlatform({
+    required this.platformId,
+    required this.canonicalKey,
+    required this.displayName,
+    required this.kind,
+    required this.matchedAlias,
+    required this.matchedAliasType,
+    required this.sourceContext,
+    this.legacyIntType,
+  });
+
+  final String platformId;
+  final String canonicalKey;
+  final String displayName;
+  final String kind;
+  final String matchedAlias;
+  final String matchedAliasType;
+  final String sourceContext;
+  final int? legacyIntType;
+}
+
+class UnifiedComicSnapshot {
+  const UnifiedComicSnapshot({
+    required this.comic,
+    required this.titles,
+    required this.localLibraryItems,
+  });
+
+  final ComicRecord comic;
+  final List<ComicTitleRecord> titles;
+  final List<LocalLibraryItemRecord> localLibraryItems;
+}
+
+class UnifiedComicsStore extends GeneratedDatabase {
+  UnifiedComicsStore(this.dbPath)
+    : super(
+        NativeDatabase.createInBackground(
+          _prepareDatabaseFile(dbPath),
+          setup: _configureDatabase,
+        ),
+      );
+
+  final String dbPath;
+
+  UnifiedComicsStore.atCanonicalPath(String rootPath)
+    : this(canonicalDomainDatabasePath(rootPath));
+
+  static File _prepareDatabaseFile(String dbPath) {
+    final file = File(dbPath);
+    file.parent.createSync(recursive: true);
+    return file;
+  }
+
+  static void _configureDatabase(sqlite_common.CommonDatabase database) {
+    database.execute('PRAGMA foreign_keys = ON;');
+    database.execute('PRAGMA journal_mode = WAL;');
+  }
+
+  @override
+  Iterable<TableInfo<Table, Object?>> get allTables => const [];
+
+  @override
+  int get schemaVersion => 1;
+
+  Future<void> init() async {
+    await customStatement('''
+      CREATE TABLE IF NOT EXISTS source_platforms (
+        id TEXT PRIMARY KEY,
+        canonical_key TEXT NOT NULL UNIQUE,
+        display_name TEXT NOT NULL,
+        kind TEXT NOT NULL CHECK (kind IN ('local', 'remote', 'virtual')),
+        is_enabled INTEGER NOT NULL DEFAULT 1,
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+      );
+    ''');
+    await customStatement('''
+      CREATE TABLE IF NOT EXISTS source_platform_aliases (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        platform_id TEXT NOT NULL,
+        alias_key TEXT NOT NULL,
+        alias_type TEXT NOT NULL CHECK (
+          alias_type IN (
+            'canonical',
+            'legacy_key',
+            'legacy_type',
+            'plugin_key',
+            'display_name',
+            'migration'
+          )
+        ),
+        legacy_int_type INTEGER,
+        source_context TEXT NOT NULL CHECK (
+          source_context IN (
+            'global',
+            'favorite',
+            'history',
+            'reader',
+            'plugin',
+            'download',
+            'import'
+          )
+        ) DEFAULT 'global',
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (platform_id)
+          REFERENCES source_platforms(id)
+          ON DELETE CASCADE,
+        UNIQUE(alias_key, alias_type, source_context),
+        UNIQUE(legacy_int_type, source_context)
+      );
+    ''');
+    await customStatement('''
+      CREATE TABLE IF NOT EXISTS comics (
+        id TEXT PRIMARY KEY,
+        title TEXT NOT NULL,
+        normalized_title TEXT NOT NULL,
+        cover_local_path TEXT,
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+      );
+    ''');
+    await customStatement('''
+      CREATE INDEX IF NOT EXISTS idx_comics_normalized_title
+      ON comics(normalized_title);
+    ''');
+    await customStatement('''
+      CREATE TABLE IF NOT EXISTS comic_titles (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        comic_id TEXT NOT NULL,
+        title TEXT NOT NULL,
+        normalized_title TEXT NOT NULL,
+        title_type TEXT NOT NULL CHECK (
+          title_type IN (
+            'primary',
+            'alias',
+            'original',
+            'translated',
+            'romaji',
+            'imported_filename',
+            'source_title'
+          )
+        ),
+        source_platform_id TEXT,
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (comic_id)
+          REFERENCES comics(id)
+          ON DELETE CASCADE,
+        FOREIGN KEY (source_platform_id)
+          REFERENCES source_platforms(id)
+          ON DELETE SET NULL,
+        UNIQUE(comic_id, normalized_title, title_type, source_platform_id)
+      );
+    ''');
+    await customStatement('''
+      CREATE TABLE IF NOT EXISTS local_library_items (
+        id TEXT PRIMARY KEY,
+        comic_id TEXT NOT NULL,
+        storage_type TEXT NOT NULL CHECK (
+          storage_type IN (
+            'downloaded',
+            'user_imported',
+            'cache'
+          )
+        ),
+        local_root_path TEXT NOT NULL,
+        imported_from_path TEXT,
+        file_count INTEGER NOT NULL DEFAULT 0,
+        total_bytes INTEGER NOT NULL DEFAULT 0,
+        content_fingerprint TEXT,
+        imported_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (comic_id)
+          REFERENCES comics(id)
+          ON DELETE CASCADE,
+        UNIQUE(local_root_path)
+      );
+    ''');
+    await customStatement('''
+      CREATE INDEX IF NOT EXISTS idx_local_library_items_storage_updated
+      ON local_library_items(storage_type, updated_at DESC);
+    ''');
+  }
+
+  Future<List<String>> listTables() async {
+    final rows = await customSelect(
+      "SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name;",
+    ).get();
+    return rows.map((row) => row.read<String>('name')).toList();
+  }
+
+  Future<String> currentJournalMode() async {
+    final rows = await customSelect('PRAGMA journal_mode;').get();
+    return rows.single.data.values.single.toString().toLowerCase();
+  }
+
+  Future<int> foreignKeysEnabled() async {
+    final rows = await customSelect('PRAGMA foreign_keys;').get();
+    return int.parse(rows.single.data.values.single.toString());
+  }
+
+  Future<void> seedDefaultSourcePlatforms() async {
+    final platforms = sourcePlatformResolver.platforms
+        .map(
+          (platform) => SourcePlatformRecord(
+            id: platform.platformId,
+            canonicalKey: platform.canonicalKey,
+            displayName: platform.displayName,
+            kind: platform.kind,
+          ),
+        )
+        .toList(growable: false);
+    final aliases = sourcePlatformResolver.platforms
+        .expand(_aliasesForDefinition)
+        .toList(growable: false);
+    await transaction(() async {
+      for (final platform in platforms) {
+        await upsertSourcePlatform(platform);
+      }
+      for (final alias in aliases) {
+        await upsertSourcePlatformAlias(alias);
+      }
+    });
+  }
+
+  Future<void> upsertSourcePlatform(SourcePlatformRecord record) {
+    return customStatement(
+      '''
+      INSERT INTO source_platforms (
+        id,
+        canonical_key,
+        display_name,
+        kind,
+        is_enabled,
+        created_at,
+        updated_at
+      )
+      VALUES (?, ?, ?, ?, ?, COALESCE(?, CURRENT_TIMESTAMP), COALESCE(?, CURRENT_TIMESTAMP))
+      ON CONFLICT(id) DO UPDATE SET
+        canonical_key = excluded.canonical_key,
+        display_name = excluded.display_name,
+        kind = excluded.kind,
+        is_enabled = excluded.is_enabled,
+        updated_at = COALESCE(excluded.updated_at, CURRENT_TIMESTAMP);
+      ''',
+      [
+        record.id,
+        record.canonicalKey,
+        record.displayName,
+        record.kind,
+        record.isEnabled ? 1 : 0,
+        record.createdAt,
+        record.updatedAt,
+      ],
+    );
+  }
+
+  Future<void> upsertSourcePlatformAlias(SourcePlatformAliasRecord record) {
+    return customStatement(
+      '''
+      INSERT INTO source_platform_aliases (
+        platform_id,
+        alias_key,
+        alias_type,
+        legacy_int_type,
+        source_context,
+        created_at
+      )
+      VALUES (?, ?, ?, ?, ?, COALESCE(?, CURRENT_TIMESTAMP))
+      ON CONFLICT(alias_key, alias_type, source_context) DO UPDATE SET
+        platform_id = excluded.platform_id,
+        legacy_int_type = excluded.legacy_int_type;
+      ''',
+      [
+        record.platformId,
+        record.aliasKey,
+        record.aliasType,
+        record.legacyIntType,
+        record.sourceContext,
+        record.createdAt,
+      ],
+    );
+  }
+
+  Future<ResolvedSourcePlatform?> resolveSourcePlatform({
+    String? sourceKey,
+    int? legacyType,
+    String sourceContext = sourceContextGlobal,
+  }) async {
+    if (sourceKey != null && sourceKey.isNotEmpty) {
+      final byAlias = await customSelect(
+        '''
+        SELECT
+          sp.id,
+          sp.canonical_key,
+          sp.display_name,
+          sp.kind,
+          spa.alias_key,
+          spa.alias_type,
+          spa.source_context,
+          spa.legacy_int_type
+        FROM source_platform_aliases spa
+        JOIN source_platforms sp ON sp.id = spa.platform_id
+        WHERE spa.alias_key = ?
+          AND spa.source_context IN (?, ?)
+        ORDER BY
+          CASE WHEN spa.source_context = ? THEN 0 ELSE 1 END,
+          CASE spa.alias_type
+            WHEN 'canonical' THEN 0
+            WHEN 'legacy_key' THEN 1
+            WHEN 'migration' THEN 2
+            WHEN 'plugin_key' THEN 3
+            WHEN 'display_name' THEN 4
+            WHEN 'legacy_type' THEN 5
+            ELSE 99
+          END
+        LIMIT 1;
+        ''',
+        variables: [
+          Variable<String>(sourceKey),
+          Variable<String>(sourceContext),
+          const Variable<String>(sourceContextGlobal),
+          Variable<String>(sourceContext),
+        ],
+      ).getSingleOrNull();
+      if (byAlias != null) {
+        return _resolvedPlatformFromRow(byAlias);
+      }
+    }
+
+    if (legacyType != null) {
+      final byLegacyType = await customSelect(
+        '''
+        SELECT
+          sp.id,
+          sp.canonical_key,
+          sp.display_name,
+          sp.kind,
+          spa.alias_key,
+          spa.alias_type,
+          spa.source_context,
+          spa.legacy_int_type
+        FROM source_platform_aliases spa
+        JOIN source_platforms sp ON sp.id = spa.platform_id
+        WHERE spa.legacy_int_type = ?
+          AND spa.source_context IN (?, ?)
+        ORDER BY CASE WHEN spa.source_context = ? THEN 0 ELSE 1 END
+        LIMIT 1;
+        ''',
+        variables: [
+          Variable<int>(legacyType),
+          Variable<String>(sourceContext),
+          const Variable<String>(sourceContextGlobal),
+          Variable<String>(sourceContext),
+        ],
+      ).getSingleOrNull();
+      if (byLegacyType != null) {
+        return _resolvedPlatformFromRow(byLegacyType);
+      }
+    }
+
+    return null;
+  }
+
+  Future<void> upsertComic(ComicRecord record) {
+    return customStatement(
+      '''
+      INSERT INTO comics (
+        id,
+        title,
+        normalized_title,
+        cover_local_path,
+        created_at,
+        updated_at
+      )
+      VALUES (?, ?, ?, ?, COALESCE(?, CURRENT_TIMESTAMP), COALESCE(?, CURRENT_TIMESTAMP))
+      ON CONFLICT(id) DO UPDATE SET
+        title = excluded.title,
+        normalized_title = excluded.normalized_title,
+        cover_local_path = excluded.cover_local_path,
+        updated_at = COALESCE(excluded.updated_at, CURRENT_TIMESTAMP);
+      ''',
+      [
+        record.id,
+        record.title,
+        record.normalizedTitle,
+        record.coverLocalPath,
+        record.createdAt,
+        record.updatedAt,
+      ],
+    );
+  }
+
+  Future<void> insertComicTitle(ComicTitleRecord record) {
+    return customStatement(
+      '''
+      INSERT INTO comic_titles (
+        comic_id,
+        title,
+        normalized_title,
+        title_type,
+        source_platform_id,
+        created_at
+      )
+      VALUES (?, ?, ?, ?, ?, COALESCE(?, CURRENT_TIMESTAMP));
+      ''',
+      [
+        record.comicId,
+        record.title,
+        record.normalizedTitle,
+        record.titleType,
+        record.sourcePlatformId,
+        record.createdAt,
+      ],
+    );
+  }
+
+  Future<void> upsertLocalLibraryItem(LocalLibraryItemRecord record) {
+    return customStatement(
+      '''
+      INSERT INTO local_library_items (
+        id,
+        comic_id,
+        storage_type,
+        local_root_path,
+        imported_from_path,
+        file_count,
+        total_bytes,
+        content_fingerprint,
+        imported_at,
+        updated_at
+      )
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, COALESCE(?, CURRENT_TIMESTAMP), COALESCE(?, CURRENT_TIMESTAMP))
+      ON CONFLICT(id) DO UPDATE SET
+        comic_id = excluded.comic_id,
+        storage_type = excluded.storage_type,
+        local_root_path = excluded.local_root_path,
+        imported_from_path = excluded.imported_from_path,
+        file_count = excluded.file_count,
+        total_bytes = excluded.total_bytes,
+        content_fingerprint = excluded.content_fingerprint,
+        imported_at = COALESCE(excluded.imported_at, local_library_items.imported_at),
+        updated_at = COALESCE(excluded.updated_at, CURRENT_TIMESTAMP);
+      ''',
+      [
+        record.id,
+        record.comicId,
+        record.storageType,
+        record.localRootPath,
+        record.importedFromPath,
+        record.fileCount,
+        record.totalBytes,
+        record.contentFingerprint,
+        record.importedAt,
+        record.updatedAt,
+      ],
+    );
+  }
+
+  Future<UnifiedComicSnapshot?> loadComicSnapshot(String comicId) async {
+    final comicRow = await customSelect(
+      'SELECT * FROM comics WHERE id = ? LIMIT 1;',
+      variables: [Variable<String>(comicId)],
+    ).getSingleOrNull();
+    if (comicRow == null) {
+      return null;
+    }
+    final titleRows = await customSelect(
+      '''
+      SELECT * FROM comic_titles
+      WHERE comic_id = ?
+      ORDER BY id ASC;
+      ''',
+      variables: [Variable<String>(comicId)],
+    ).get();
+    final localRows = await customSelect(
+      '''
+      SELECT * FROM local_library_items
+      WHERE comic_id = ?
+      ORDER BY imported_at ASC, id ASC;
+      ''',
+      variables: [Variable<String>(comicId)],
+    ).get();
+    return UnifiedComicSnapshot(
+      comic: _comicRecordFromRow(comicRow),
+      titles: titleRows.map(_comicTitleRecordFromRow).toList(),
+      localLibraryItems: localRows.map(_localLibraryItemRecordFromRow).toList(),
+    );
+  }
+
+  ComicRecord _comicRecordFromRow(QueryRow row) {
+    return ComicRecord(
+      id: row.read<String>('id'),
+      title: row.read<String>('title'),
+      normalizedTitle: row.read<String>('normalized_title'),
+      coverLocalPath: row.read<String?>('cover_local_path'),
+      createdAt: row.read<String>('created_at'),
+      updatedAt: row.read<String>('updated_at'),
+    );
+  }
+
+  ComicTitleRecord _comicTitleRecordFromRow(QueryRow row) {
+    return ComicTitleRecord(
+      id: row.read<int>('id'),
+      comicId: row.read<String>('comic_id'),
+      title: row.read<String>('title'),
+      normalizedTitle: row.read<String>('normalized_title'),
+      titleType: row.read<String>('title_type'),
+      sourcePlatformId: row.read<String?>('source_platform_id'),
+      createdAt: row.read<String>('created_at'),
+    );
+  }
+
+  LocalLibraryItemRecord _localLibraryItemRecordFromRow(QueryRow row) {
+    return LocalLibraryItemRecord(
+      id: row.read<String>('id'),
+      comicId: row.read<String>('comic_id'),
+      storageType: row.read<String>('storage_type'),
+      localRootPath: row.read<String>('local_root_path'),
+      importedFromPath: row.read<String?>('imported_from_path'),
+      fileCount: row.read<int>('file_count'),
+      totalBytes: row.read<int>('total_bytes'),
+      contentFingerprint: row.read<String?>('content_fingerprint'),
+      importedAt: row.read<String>('imported_at'),
+      updatedAt: row.read<String>('updated_at'),
+    );
+  }
+
+  ResolvedSourcePlatform _resolvedPlatformFromRow(QueryRow row) {
+    return ResolvedSourcePlatform(
+      platformId: row.read<String>('id'),
+      canonicalKey: row.read<String>('canonical_key'),
+      displayName: row.read<String>('display_name'),
+      kind: row.read<String>('kind'),
+      matchedAlias: row.read<String>('alias_key'),
+      matchedAliasType: row.read<String>('alias_type'),
+      sourceContext: row.read<String>('source_context'),
+      legacyIntType: row.read<int?>('legacy_int_type'),
+    );
+  }
+}
+
+Iterable<SourcePlatformAliasRecord> _aliasesForDefinition(
+  SourcePlatformDefinition platform,
+) sync* {
+  yield SourcePlatformAliasRecord(
+    platformId: platform.platformId,
+    aliasKey: platform.canonicalKey,
+    aliasType: SourceAliasType.canonical.key,
+    sourceContext: sourceContextGlobal,
+  );
+  for (final alias in platform.aliases) {
+    for (final context in alias.contexts) {
+      yield SourcePlatformAliasRecord(
+        platformId: platform.platformId,
+        aliasKey: alias.aliasKey,
+        aliasType: alias.aliasType.key,
+        legacyIntType: alias.legacyIntType,
+        sourceContext: context.key,
+      );
+    }
+  }
+}

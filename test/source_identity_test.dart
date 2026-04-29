@@ -79,6 +79,12 @@ void main() {
     expect(normalizeLegacyImportedSourceKey('copymanga'), 'copymanga');
   });
 
+  test('global source type normalization uses resolver canonical keys', () {
+    expect(sourceTypeValueFromKey('pica'), sourceTypeValueFromKey('picacg'));
+    expect(sourceTypeValueFromKey('nh'), sourceTypeValueFromKey('nhentai'));
+    expect(sourceTypeValueFromKey('htmanga'), stableSourceKeyId('htmanga'));
+  });
+
   test('compatibility matcher accepts stable id and legacy hash code', () {
     final stable = ComicType.fromKey('copymanga').value;
 
@@ -129,24 +135,41 @@ void main() {
     expect(decoded.audit?.loadedFrom, '/tmp/source.js');
   });
 
-  test('source identity type value remains stable when runtime key is renamed', () {
-    final source = _fakeSource(
-      'copymanga_v2',
-      identity: SourceIdentity.legacy(
-        key: 'copymanga_v2',
-        id: 'copymanga',
-        aliases: const ['copymanga_old'],
-        version: '2.0.0',
-      ),
-    );
-    final manager = ComicSourceManager();
-    manager.add(source);
-    addTearDown(() => manager.remove(source.key));
+  test(
+    'source identity adopts resolver canonical id for known legacy keys',
+    () {
+      final identity = sourceIdentityFromKey('pica');
 
-    expect(source.intKey, ComicType.fromKey('copymanga').value);
-    expect(ComicSource.fromIntKey(ComicType.fromKey('copymanga').value)?.key, 'copymanga_v2');
-    expect(ComicSource.find('copymanga_old')?.key, 'copymanga_v2');
-  });
+      expect(identity.id, 'picacg');
+      expect(identity.kind, remoteSourceKind);
+      expect(identity.knownKeys, contains('picacg'));
+    },
+  );
+
+  test(
+    'source identity type value remains stable when runtime key is renamed',
+    () {
+      final source = _fakeSource(
+        'copymanga_v2',
+        identity: SourceIdentity.legacy(
+          key: 'copymanga_v2',
+          id: 'copymanga',
+          aliases: const ['copymanga_old'],
+          version: '2.0.0',
+        ),
+      );
+      final manager = ComicSourceManager();
+      manager.add(source);
+      addTearDown(() => manager.remove(source.key));
+
+      expect(source.intKey, ComicType.fromKey('copymanga').value);
+      expect(
+        ComicSource.fromIntKey(ComicType.fromKey('copymanga').value)?.key,
+        'copymanga_v2',
+      );
+      expect(ComicSource.find('copymanga_old')?.key, 'copymanga_v2');
+    },
+  );
 
   test('favorite item legacy json type uses stable source identity value', () {
     final favorite = FavoriteItem.fromJson({

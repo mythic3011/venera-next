@@ -133,16 +133,74 @@ Library state examples:
 - `downloaded`
 - `unavailable`
 
-## Database Direction
+## Storage Direction
+
+The current layout is a fragmented filesystem monolith:
+
+- `appdata.json`
+- `history.db`
+- `local_favorite.db`
+- `local.db`
+- `cache.db`
+- `cookie.db`
+- `comic_source/`
+- `local/`
+- `logs*.txt`
+- `implicitData.json`
+
+This is not the target design. It splits domain truth across multiple DBs and
+JSON files, which makes local/remote merge, migration, smoke validation,
+backup/restore, and transaction safety much harder than they need to be.
+
+The target design is one canonical relational database plus filesystem blobs:
+
+```text
+venera/
+  data/
+    venera.db
+    venera.db-wal
+    venera.db-shm
+  blobs/
+    covers/
+    pages/
+    imports/
+    cache/
+  plugins/
+    comic_source/
+  logs/
+    app.log
+    exports/
+  config/
+    appdata.json
+    window_placement.json
+  cookies/
+    cookies.db
+```
+
+Rules:
+
+- `data/venera.db` is the canonical domain database.
+- Filesystem blobs are not domain truth; they are referenced assets.
+- `cookies/cookies.db` may remain separate because auth/session lifecycle is
+  different from comic domain state.
+- cache may remain separate or be represented as blob storage because it is
+  wipeable and not domain truth.
+- `appdata.json` must contain app preferences only, not hidden domain state.
+- `history.db`, `local_favorite.db`, `local.db`, and `implicitData.json` are
+  migration inputs, not long-term authorities.
 
 Use SQLite as the local complex-data authority. Existing Venera already uses
-`sqlite3` and Drift-backed stores, so the new schema should stay SQLite-first.
+`sqlite3` and Drift-backed stores, so the new schema should stay SQLite-first,
+but the end state is a single canonical DB, not a family of peer DB files.
 
 Mandatory DB rules:
 
 - Enable `PRAGMA foreign_keys = ON`
+- Enable `PRAGMA journal_mode = WAL`
 - Use `UNIQUE` and partial unique indexes where ownership rules require it
 - Keep source citation, user tags, and page-order overlays in separate tables
+- Do not depend on WAL to paper over broken domain boundaries; WAL improves
+  concurrency, it does not replace transactional domain design
 
 Foundation tables:
 
@@ -168,6 +226,18 @@ Foundation tables:
 - `reader_sessions`
 - `reader_tabs`
 - `remote_match_candidates`
+
+Canonical DB also owns:
+
+- `history_events`
+- `favorites`
+
+Canonical DB does not keep:
+
+- separate `history.db` as domain truth
+- separate `local_favorite.db` as favorite truth
+- separate `local.db` as local comic truth
+- JSON files for hidden domain state
 
 ## Source Platform Resolver
 
@@ -258,6 +328,21 @@ Widgets must not directly implement:
 - create default page order
 - no confirmed source unless metadata exists
 
+## DB Open Configuration
+
+Canonical DB open must enable foreign keys and WAL explicitly:
+
+```dart
+Future<void> onConfigure(Database db) async {
+  await db.execute('PRAGMA foreign_keys = ON');
+  await db.execute('PRAGMA journal_mode = WAL');
+}
+```
+
+This is required because foreign key clauses and cascade behavior are not
+reliable if the connection does not enable them, and WAL should be an explicit
+storage choice rather than an accidental default.
+
 ### Link Local Import -> Remote
 
 - search candidates
@@ -298,66 +383,77 @@ Minimum target fields:
 
 ## Migration Slices
 
-### PR1: Database Foundation
+### PR1: Create `data/venera.db` foundation + DB open config
 
+- create canonical `venera.db` schema foundation
+- add DB open config with foreign keys and WAL
 - add source platform tables
 - add unified comic tables
-- enable foreign keys
 - add resolver tests for canonical and legacy mapping
 
-### PR2: Unified Comic Detail Repository
+### PR2: Migrate `local.db`
 
-- add repository and VM only
-- no broad UI rewrite yet
+- migrate local comic truth into `comics`, `local_library_items`, `chapters`,
+  `pages`, and source-default `page_orders`
 
-### PR3: Local Import Chapter/Page Generation
+### PR3: Migrate `history.db`
 
-- generate chapters/pages
-- create source-default page order
+- migrate history into `history_events`
+- project last-read state into reader/tab-facing read models
 
-### PR4: Source Citation + Source Tags
+### PR4: Migrate `local_favorite.db`
 
-- add source citation chain tables
-- show original source on downloaded local comics
+- migrate favorite truth into canonical favorite tables or flags owned by
+  `venera.db`
 
-### PR5: User Tags + Local Management
+### PR5: Migrate source/plugin mapping
 
-- add user tag model
-- keep source tags read-only
+- project source/plugin mapping into `source_platforms`,
+  `source_platform_aliases`, and `comic_sources`
 
-### PR6: Page Order Overlay
+### PR6: Keep old DBs read-only for one release
 
-- implement custom order without mutating source page index
+- old DBs remain read-only fallback only
+- no writes back to legacy DBs
 
-### PR7: Reader Sessions/Tabs
+### PR7: Export migration report + smoke debug snapshot
 
-- unify local and remote tab/session behavior
+- emit migration report
+- print active DB path and resolved comic/source/session state in debug snapshot
 
-### PR8: Unified Comic Detail UI
+### PR8: Archive legacy DB files after verification
 
-- route both local and remote to `ComicDetailPage(comicId)`
+- move old DB files under `legacy_backup/` only after verified stable
 
-### PR9: Remote Match Flow
+## Acceptance
 
-- pending/accepted/rejected candidate lifecycle
-
-### PR10: Debug Snapshot + Smoke
-
-- prove source resolution, page order, and controller lifecycle
+- Local comic and remote comic open through `ComicDetailPage(comicId)`
+- Local imported comic has chapters/pages generated in `venera.db`
+- Local favorite is not stored in `local_favorite.db` anymore
+- History/last-read is not stored in `history.db` anymore
+- Source citation is queryable from `venera.db`
+- Tags work for both local and remote comics
+- Reader tabs work for both local and remote comics
+- Page reorder uses `page_orders` / `page_order_items`
+- Migration is idempotent
+- Old DB files are never written after migration
+- Debug snapshot prints active DB path, `comicId`, `localLibraryItemId`,
+  `comicSourceId`, `readerTabId`, `pageOrderId`, and `loadMode`
 
 ## Immediate Executable Slice
 
 The first repo-grounded implementation slice should be:
 
-1. Add `source_platforms` and `source_platform_aliases`
-2. Add a `SourcePlatformResolver`
-3. Move favorite/history/source-key compatibility into that resolver
-4. Add unified `comics`, `comic_titles`, and `local_library_items`
-5. Expose a read-only `ComicDetailRepository.getComicDetail(comicId)` before
+1. Create canonical `data/venera.db` foundation store with open config
+2. Add `source_platforms` and `source_platform_aliases`
+3. Add a `SourcePlatformResolver`
+4. Move favorite/history/source-key compatibility into that resolver
+5. Add unified `comics`, `comic_titles`, and `local_library_items`
+6. Expose a read-only `ComicDetailRepository.getComicDetail(comicId)` before
    changing the UI
 
-This keeps the first patch narrow, testable, and aligned with the current
-SQLite/Drift mix already present in Venera.
+This keeps the first patch narrow, testable, and aligned with the corrected
+single-DB authority model instead of reinforcing the current fragmented layout.
 
 ## Non-goals
 
