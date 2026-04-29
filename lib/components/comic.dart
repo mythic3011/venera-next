@@ -1,17 +1,17 @@
 part of 'components.dart';
 
-ImageProvider? _findImageProvider(Comic comic) {
+ImageProvider? _findImageProvider(Comic comic, {ComicTileMeta? meta}) {
   ImageProvider image;
   if (comic is LocalComic) {
     image = LocalComicImageProvider(comic);
   } else if (comic is History) {
     image = HistoryImageProvider(comic);
   } else if (comic.sourceKey == 'local') {
-    var localComic = LocalManager().find(comic.id, ComicType.local);
-    if (localComic == null) {
+    final localCoverFile = meta?.localCoverFile;
+    if (localCoverFile == null) {
       return null;
     }
-    image = FileImage(localComic.coverFile);
+    image = FileImage(localCoverFile);
   } else {
     image = CachedImageProvider(
       comic.cover,
@@ -28,21 +28,33 @@ class ComicTileMeta {
     required this.displayMode,
     required this.isFavorite,
     required this.history,
+    this.localCoverFile,
   });
 
   final String displayMode;
   final bool isFavorite;
   final History? history;
+  final File? localCoverFile;
+
+  factory ComicTileMeta.defaults() {
+    return const ComicTileMeta(
+      displayMode: 'brief',
+      isFavorite: false,
+      history: null,
+    );
+  }
 
   factory ComicTileMeta.fromStatus({
     required bool isFavorite,
     required History? history,
     required String displayMode,
+    File? localCoverFile,
   }) {
     return ComicTileMeta(
       displayMode: displayMode,
       isFavorite: isFavorite,
       history: _normalizedHistory(history),
+      localCoverFile: localCoverFile,
     );
   }
 
@@ -176,23 +188,7 @@ class ComicTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final tileMeta =
-        meta ??
-        ComicTileMeta.fromStatus(
-          isFavorite: appdata.settings['showFavoriteStatusOnTile']
-              ? LocalFavoritesManager().isExist(
-                  comic.id,
-                  ComicType.fromKey(comic.sourceKey),
-                )
-              : false,
-          history: appdata.settings['showHistoryStatusOnTile']
-              ? HistoryManager().find(
-                  comic.id,
-                  ComicType.fromKey(comic.sourceKey),
-                )
-              : null,
-          displayMode: appdata.settings['comicDisplayMode'],
-        );
+    final tileMeta = meta ?? ComicTileMeta.defaults();
 
     final type = tileMeta.displayMode;
 
@@ -253,7 +249,7 @@ class ComicTile extends StatelessWidget {
   }
 
   Widget buildImage(BuildContext context) {
-    var image = _findImageProvider(comic);
+    var image = _findImageProvider(comic, meta: meta);
     if (image == null) {
       return const SizedBox();
     }
@@ -944,6 +940,9 @@ class _SliverGridComics extends StatelessWidget {
                   )
                 : null,
             displayMode: displayMode,
+            localCoverFile: comics[index] is LocalComic
+                ? (comics[index] as LocalComic).coverFile
+                : null,
           ),
           badge: badge,
           menuOptions: menuBuilder?.call(comics[index]),
