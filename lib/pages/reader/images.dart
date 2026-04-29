@@ -153,8 +153,6 @@ class _ReaderImagesState extends State<_ReaderImages> {
   void load() async {
     if (inProgress) return;
     inProgress = true;
-    final useResolver =
-        appdata.settings['reader_use_source_ref_resolver'] == true;
     final loadMode =
         reader.type == ComicType.local ||
             (LocalManager().isDownloaded(
@@ -180,285 +178,58 @@ class _ReaderImagesState extends State<_ReaderImages> {
         phase: ReaderTracePhase.pageList,
       ),
     );
-    if (!useResolver && loadMode == 'local') {
-      try {
-        var images = await LocalManager().getImages(
-          reader.cid,
-          reader.type,
-          reader.chapter,
-        );
-        if (!mounted) return;
-        setState(() {
-          reader.images = images;
-          reader.isLoading = false;
-          inProgress = false;
-          _handleJumpToLastPage();
-          Future.microtask(() {
-            reader.updateHistory();
-          });
-        });
-        readerTraceRecorder.record(
-          ReaderTraceEvent(
-            event: images.isEmpty ? 'emptyPageList' : 'pageList.load.success',
-            timestamp: DateTime.now(),
-            loadMode: loadMode,
-            sourceKey: reader.type.sourceKey,
-            comicId: reader.cid,
-            chapterId: reader.widget.chapters?.ids.elementAtOrNull(
-              reader.chapter - 1,
-            ),
-            chapterIndex: reader.chapter,
-            page: reader.page,
-            phase: ReaderTracePhase.pageList,
-          ),
-        );
-      } catch (e) {
-        if (!mounted) return;
-        setState(() {
-          error = e.toString();
-          reader.isLoading = false;
-          inProgress = false;
-        });
-        readerTraceRecorder.record(
-          ReaderTraceEvent(
-            event: 'pageList.load.error',
-            timestamp: DateTime.now(),
-            loadMode: loadMode,
-            sourceKey: reader.type.sourceKey,
-            comicId: reader.cid,
-            chapterId: reader.widget.chapters?.ids.elementAtOrNull(
-              reader.chapter - 1,
-            ),
-            chapterIndex: reader.chapter,
-            page: reader.page,
-            errorMessage: e.toString(),
-            phase: ReaderTracePhase.pageList,
-          ),
-        );
-      }
-    } else if (!useResolver) {
-      var cp = reader.widget.chapters?.ids.elementAtOrNull(reader.chapter - 1);
-      final sourceUnavailableError =
-          resolveLegacyRemoteSourceUnavailableErrorForTesting(
-            reader.type.sourceKey,
-          );
-      if (sourceUnavailableError != null) {
+    final sourceRef = _buildSourceRef(loadMode);
+    final loader = ReaderPageLoader(
+      loadLocalPages:
+          ({
+            required String localType,
+            required String localComicId,
+            String? chapterId,
+          }) async {
+            final type = ComicType.fromKey(localType);
+            final targetChapterId =
+                chapterId ??
+                reader.widget.chapters?.ids.elementAtOrNull(
+                  reader.chapter - 1,
+                ) ??
+                reader.chapter.toString();
+            return LocalManager().getImages(
+              localComicId,
+              type,
+              targetChapterId,
+            );
+          },
+      loadRemotePages:
+          ({
+            required String sourceKey,
+            required String comicId,
+            required String chapterId,
+          }) async {
+            final source = ComicSource.find(sourceKey);
+            final loadComicPages = source?.loadComicPages;
+            if (loadComicPages == null) {
+              return const Res.error('SOURCE_NOT_AVAILABLE');
+            }
+            return await loadComicPages(comicId, chapterId);
+          },
+      sourceExists: (sourceKey) => ComicSource.find(sourceKey) != null,
+    );
+    final result = await loader.load(sourceRef);
+    if (!mounted) return;
+    final res = result.res;
+    if (res.error) {
+      final sourceUnavailable = res.errorMessage == 'SOURCE_NOT_AVAILABLE';
+      setState(() {
+        error = sourceUnavailable
+            ? "Comic source is unavailable. Please refresh/install this source and retry."
+            : res.errorMessage;
+        reader.isLoading = false;
+        inProgress = false;
+      });
+      if (sourceUnavailable) {
         readerTraceRecorder.record(
           ReaderTraceEvent(
             event: 'source.unavailable',
-            timestamp: DateTime.now(),
-            loadMode: loadMode,
-            sourceKey: reader.type.sourceKey,
-            comicId: reader.cid,
-            chapterId: cp,
-            chapterIndex: reader.chapter,
-            page: reader.page,
-            errorCode: 'SOURCE_NOT_AVAILABLE',
-            errorMessage: sourceUnavailableError,
-            phase: ReaderTracePhase.sourceResolution,
-          ),
-        );
-        setState(() {
-          error =
-              '$sourceUnavailableError Comic source is unavailable. Please refresh/install this source and retry.';
-          reader.isLoading = false;
-          inProgress = false;
-        });
-        context.readerScaffold.update();
-        return;
-      }
-      final source = reader.type.comicSource;
-      final loadComicPages = source?.loadComicPages;
-      if (loadComicPages == null) {
-        readerTraceRecorder.record(
-          ReaderTraceEvent(
-            event: 'source.unavailable',
-            timestamp: DateTime.now(),
-            loadMode: loadMode,
-            sourceKey: reader.type.sourceKey,
-            comicId: reader.cid,
-            chapterId: cp,
-            chapterIndex: reader.chapter,
-            page: reader.page,
-            errorCode: 'SOURCE_NOT_AVAILABLE',
-            errorMessage: 'Comic source is unavailable',
-            phase: ReaderTracePhase.sourceResolution,
-          ),
-        );
-        setState(() {
-          error =
-              "Comic source is unavailable. Please refresh/install this source and retry.";
-          reader.isLoading = false;
-          inProgress = false;
-        });
-        context.readerScaffold.update();
-        return;
-      }
-      var res = await loadComicPages(reader.widget.cid, cp);
-      if (!mounted) return;
-      if (res.error) {
-        setState(() {
-          error = res.errorMessage;
-          reader.isLoading = false;
-          inProgress = false;
-        });
-        readerTraceRecorder.record(
-          ReaderTraceEvent(
-            event: 'pageList.load.error',
-            timestamp: DateTime.now(),
-            loadMode: loadMode,
-            sourceKey: reader.type.sourceKey,
-            comicId: reader.cid,
-            chapterId: cp,
-            chapterIndex: reader.chapter,
-            page: reader.page,
-            errorMessage: res.errorMessage,
-            phase: ReaderTracePhase.pageList,
-          ),
-        );
-      } else {
-        setState(() {
-          reader.images = res.data;
-          reader.isLoading = false;
-          inProgress = false;
-          _handleJumpToLastPage();
-          Future.microtask(() {
-            reader.updateHistory();
-          });
-        });
-        readerTraceRecorder.record(
-          ReaderTraceEvent(
-            event: res.data.isEmpty ? 'emptyPageList' : 'pageList.load.success',
-            timestamp: DateTime.now(),
-            loadMode: loadMode,
-            sourceKey: reader.type.sourceKey,
-            comicId: reader.cid,
-            chapterId: cp,
-            chapterIndex: reader.chapter,
-            page: reader.page,
-            phase: ReaderTracePhase.pageList,
-          ),
-        );
-      }
-    } else {
-      final sourceRef = _buildSourceRef(loadMode);
-      final localProvider = LocalPageProvider(
-        loadLocalPages:
-            ({
-              required String localType,
-              required String localComicId,
-              String? chapterId,
-            }) async {
-              final type = ComicType.fromKey(localType);
-              final targetChapterId =
-                  chapterId ??
-                  reader.widget.chapters?.ids.elementAtOrNull(
-                    reader.chapter - 1,
-                  ) ??
-                  reader.chapter.toString();
-              return LocalManager().getImages(
-                localComicId,
-                type,
-                targetChapterId,
-              );
-            },
-      );
-      final resolver = SourceRefResolver(
-        localProvider: localProvider,
-        remoteProviderFactory: (_) => RemotePageProvider(
-          loadRemotePages:
-              ({
-                required String sourceKey,
-                required String comicId,
-                required String chapterId,
-              }) async {
-                final source = ComicSource.find(sourceKey);
-                final loadComicPages = source?.loadComicPages;
-                if (loadComicPages == null) {
-                  return const Res.error('SOURCE_NOT_AVAILABLE');
-                }
-                return await loadComicPages(comicId, chapterId);
-              },
-        ),
-        sourceExists: (sourceKey) => ComicSource.find(sourceKey) != null,
-      );
-      try {
-        final provider = resolver.resolve(sourceRef);
-        final res = await provider.loadPages(sourceRef);
-        if (!mounted) return;
-        if (res.error) {
-          setState(() {
-            error = res.errorMessage;
-            reader.isLoading = false;
-            inProgress = false;
-          });
-          readerTraceRecorder.record(
-            ReaderTraceEvent(
-              event: 'pageList.load.error',
-              timestamp: DateTime.now(),
-              loadMode: loadMode,
-              sourceKey: sourceRef.sourceKey,
-              comicId: reader.cid,
-              chapterId: sourceRef.params['chapterId']?.toString(),
-              chapterIndex: reader.chapter,
-              page: reader.page,
-              errorMessage: res.errorMessage,
-              phase: ReaderTracePhase.pageList,
-            ),
-          );
-        } else {
-          setState(() {
-            reader.images = res.data;
-            reader.isLoading = false;
-            inProgress = false;
-            _handleJumpToLastPage();
-            Future.microtask(() {
-              reader.updateHistory();
-            });
-          });
-          readerTraceRecorder.record(
-            ReaderTraceEvent(
-              event: res.data.isEmpty
-                  ? 'emptyPageList'
-                  : 'pageList.load.success',
-              timestamp: DateTime.now(),
-              loadMode: loadMode,
-              sourceKey: sourceRef.sourceKey,
-              comicId: reader.cid,
-              chapterId: sourceRef.params['chapterId']?.toString(),
-              chapterIndex: reader.chapter,
-              page: reader.page,
-              phase: ReaderTracePhase.pageList,
-            ),
-          );
-        }
-      } on SourceRefDiagnostic catch (e) {
-        if (!mounted) return;
-        setState(() {
-          error = mapSourceRefDiagnosticToMessage(e);
-          reader.isLoading = false;
-          inProgress = false;
-        });
-        if (e.code == SourceRefDiagnosticCode.sourceNotAvailable) {
-          readerTraceRecorder.record(
-            ReaderTraceEvent(
-              event: 'source.unavailable',
-              timestamp: DateTime.now(),
-              loadMode: loadMode,
-              sourceKey: sourceRef.sourceKey,
-              comicId: reader.cid,
-              chapterId: sourceRef.params['chapterId']?.toString(),
-              chapterIndex: reader.chapter,
-              page: reader.page,
-              errorCode: e.code.name,
-              errorMessage: e.message,
-              phase: ReaderTracePhase.sourceResolution,
-            ),
-          );
-        }
-        readerTraceRecorder.record(
-          ReaderTraceEvent(
-            event: 'pageList.load.error',
             timestamp: DateTime.now(),
             loadMode: loadMode,
             sourceKey: sourceRef.sourceKey,
@@ -466,12 +237,49 @@ class _ReaderImagesState extends State<_ReaderImages> {
             chapterId: sourceRef.params['chapterId']?.toString(),
             chapterIndex: reader.chapter,
             page: reader.page,
-            errorCode: e.code.name,
-            errorMessage: e.message,
-            phase: ReaderTracePhase.pageList,
+            errorCode: 'SOURCE_NOT_AVAILABLE',
+            errorMessage: 'SOURCE_NOT_AVAILABLE:${sourceRef.sourceKey}',
+            phase: ReaderTracePhase.sourceResolution,
           ),
         );
       }
+      readerTraceRecorder.record(
+        ReaderTraceEvent(
+          event: 'pageList.load.error',
+          timestamp: DateTime.now(),
+          loadMode: loadMode,
+          sourceKey: sourceRef.sourceKey,
+          comicId: reader.cid,
+          chapterId: sourceRef.params['chapterId']?.toString(),
+          chapterIndex: reader.chapter,
+          page: reader.page,
+          errorMessage: res.errorMessage,
+          phase: ReaderTracePhase.pageList,
+        ),
+      );
+    } else {
+      setState(() {
+        reader.images = res.data;
+        reader.isLoading = false;
+        inProgress = false;
+        _handleJumpToLastPage();
+        Future.microtask(() {
+          reader.updateHistory();
+        });
+      });
+      readerTraceRecorder.record(
+        ReaderTraceEvent(
+          event: res.data.isEmpty ? 'emptyPageList' : 'pageList.load.success',
+          timestamp: DateTime.now(),
+          loadMode: loadMode,
+          sourceKey: sourceRef.sourceKey,
+          comicId: reader.cid,
+          chapterId: sourceRef.params['chapterId']?.toString(),
+          chapterIndex: reader.chapter,
+          page: reader.page,
+          phase: ReaderTracePhase.pageList,
+        ),
+      );
     }
     if (!mounted) return;
     context.readerScaffold.update();
