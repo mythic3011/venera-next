@@ -11,9 +11,8 @@ import 'package:venera/foundation/appdata.dart';
 
 @visibleForTesting
 String readerImageFilePathForTesting(String imageKey) {
-  const fileScheme = 'file://';
-  if (imageKey.startsWith(fileScheme)) {
-    return imageKey.substring(fileScheme.length);
+  if (imageKey.startsWith('file://')) {
+    return Uri.parse(imageKey).toFilePath();
   }
   return imageKey;
 }
