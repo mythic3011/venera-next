@@ -15,7 +15,6 @@ class DebugPageState extends State<DebugPage> {
 
   @override
   void dispose() {
-    exporter.stop();
     controller.dispose();
     super.dispose();
   }
