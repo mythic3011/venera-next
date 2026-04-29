@@ -30,6 +30,12 @@ class _ChaptersViewState extends State<_ChaptersView> {
   }
 
   @override
+  void dispose() {
+    _scrollController.dispose();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
     var chapters = widget.reader.widget.chapters!;
     var current = widget.reader.chapter - 1;
@@ -130,6 +136,13 @@ class _GroupedChaptersViewState extends State<_GroupedChaptersView>
     if (local != null) {
       downloaded = local.downloadedChapters;
     }
+  }
+
+  @override
+  void dispose() {
+    _scrollController.dispose();
+    tabController.dispose();
+    super.dispose();
   }
 
   @override
