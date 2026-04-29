@@ -186,10 +186,25 @@ class _ComicImageState extends State<ComicImage> with WidgetsBindingObserver {
         onError: (Object error, StackTrace? stackTrace) {
           final imageProvider = widget.image;
           String? imageKey;
+          String? sourceKey;
+          String? comicId;
+          String? chapterId;
+          int? page;
           if (imageProvider is ReaderImageProvider) {
             imageKey = imageProvider.imageKey;
+            sourceKey = imageProvider.sourceKey;
+            comicId = imageProvider.cid;
+            chapterId = imageProvider.eid;
+            page = imageProvider.page;
           }
-          _recordImageLoadErrorDiagnostics(error: error, imageKey: imageKey);
+          _recordImageLoadErrorDiagnostics(
+            error: error,
+            imageKey: imageKey,
+            sourceKey: sourceKey,
+            comicId: comicId,
+            chapterId: chapterId,
+            page: page,
+          );
           setState(() {
             _lastException = error;
           });

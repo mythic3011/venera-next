@@ -3,8 +3,67 @@ part of 'reader.dart';
 void _recordImageLoadErrorDiagnostics({
   required Object error,
   String? imageKey,
+  String? sourceKey,
+  String? comicId,
+  String? chapterId,
+  int? page,
 }) {
-  ReaderDiagnostics.recordImageLoadError(error: error, imageKey: imageKey);
+  ReaderDiagnostics.recordImageLoadError(
+    error: error,
+    imageKey: imageKey,
+    sourceKey: sourceKey,
+    comicId: comicId,
+    chapterId: chapterId,
+    page: page,
+  );
+}
+
+@visibleForTesting
+class ReaderPaginationDiagnostics {
+  const ReaderPaginationDiagnostics({
+    required this.imageCount,
+    required this.maxPage,
+    required this.imagesPerPage,
+  });
+
+  final int? imageCount;
+  final int? maxPage;
+  final int? imagesPerPage;
+}
+
+ReaderPaginationDiagnostics _buildReaderPaginationDiagnostics({
+  required bool includePagination,
+  required int? imageCount,
+  required int? Function() maxPage,
+  required int? Function() imagesPerPage,
+}) {
+  if (!includePagination || imageCount == null) {
+    return ReaderPaginationDiagnostics(
+      imageCount: imageCount,
+      maxPage: null,
+      imagesPerPage: null,
+    );
+  }
+  return ReaderPaginationDiagnostics(
+    imageCount: imageCount,
+    maxPage: maxPage(),
+    imagesPerPage: imagesPerPage(),
+  );
+}
+
+@visibleForTesting
+ReaderPaginationDiagnostics buildReaderPaginationDiagnosticsForTesting({
+  required bool includePagination,
+  required int? imageCount,
+  required int? Function() maxPage,
+  required int? Function() imagesPerPage,
+}) {
+  return _buildReaderPaginationDiagnostics(
+    includePagination: includePagination,
+    imageCount: imageCount,
+    maxPage: maxPage,
+    imagesPerPage: imagesPerPage,
+  );
 }
 
 extension _ReaderDiagnosticsState on _ReaderState {
@@ -21,15 +80,16 @@ extension _ReaderDiagnosticsState on _ReaderState {
   }
 
   void recordReaderDisposeDiagnostics() {
+    final chapterId = widget.chapters?.ids.elementAtOrNull(chapter - 1);
     ReaderDiagnostics.recordReaderLifecycle(
       event: 'reader.dispose',
       type: type,
       comicId: cid,
-      chapterId: widget.chapters?.ids.elementAtOrNull(chapter - 1),
+      chapterId: chapterId,
       chapterIndex: chapter,
       page: page,
     );
-    updateReaderDiagnostics('dispose');
+    updateReaderDiagnostics('dispose', includePagination: false);
   }
 
   String beginPageListDiagnostics(String loadMode) {
@@ -94,7 +154,16 @@ extension _ReaderDiagnosticsState on _ReaderState {
     );
   }
 
-  void updateReaderDiagnostics(String lifecycle) {
+  void updateReaderDiagnostics(
+    String lifecycle, {
+    bool includePagination = true,
+  }) {
+    final pagination = _buildReaderPaginationDiagnostics(
+      includePagination: includePagination,
+      imageCount: images?.length,
+      maxPage: () => maxPage,
+      imagesPerPage: () => imagesPerPage,
+    );
     ReaderDiagnostics.updateReaderState(
       lifecycle: lifecycle,
       type: type,
@@ -104,9 +173,9 @@ extension _ReaderDiagnosticsState on _ReaderState {
       page: page,
       mode: mode.key,
       isLoading: isLoading,
-      imageCount: images?.length,
-      maxPage: images == null ? null : maxPage,
-      imagesPerPage: imagesPerPage,
+      imageCount: pagination.imageCount,
+      maxPage: pagination.maxPage,
+      imagesPerPage: pagination.imagesPerPage,
       sourceRef: widget.sourceRef,
     );
   }

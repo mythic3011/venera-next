@@ -3,6 +3,7 @@ import 'package:venera/foundation/comic_type.dart';
 import 'package:venera/foundation/diagnostics/diagnostics.dart';
 import 'package:venera/foundation/reader/reader_diagnostics.dart';
 import 'package:venera/foundation/reader/reader_trace_recorder.dart';
+import 'package:venera/pages/reader/reader.dart';
 
 void main() {
   setUp(() {
@@ -108,4 +109,77 @@ void main() {
     expect(snapshot.maxPage, isNull);
     expect(snapshot.imagesPerPage, isNull);
   });
+
+  test(
+    'reader image load calls keep source comic chapter and page context',
+    () {
+      readerTraceRecorder.clear();
+      final callId = ReaderDiagnostics.beginImageLoad(
+        loadMode: 'local',
+        sourceKey: 'local',
+        comicId: 'comic-7',
+        chapterId: 'ch-3',
+        page: 4,
+        imageKey: 'file:///tmp/page-4.jpg',
+      );
+      ReaderDiagnostics.endImageLoad(
+        callId: callId,
+        loadMode: 'local',
+        sourceKey: 'local',
+        comicId: 'comic-7',
+        chapterId: 'ch-3',
+        page: 4,
+        imageKey: 'file:///tmp/page-4.jpg',
+        byteLength: 1234,
+      );
+
+      final json = ReaderDiagnostics.toDiagnosticsJson();
+      final events =
+          (json['readerTrace'] as Map<String, dynamic>)['events']
+              as List<dynamic>;
+      final start = events.first as Map<String, dynamic>;
+      final end = events.last as Map<String, dynamic>;
+
+      expect(start['functionName'], 'ReaderImageProvider.load');
+      expect(start['phase'], 'imageProvider');
+      expect(start['sourceKey'], 'local');
+      expect(start['comicId'], 'comic-7');
+      expect(start['chapterId'], 'ch-3');
+      expect(start['page'], 4);
+      expect(end['resultSummary'], 'bytes=1234');
+    },
+  );
+
+  test(
+    'reader image decode errors keep source comic chapter and page context',
+    () {
+      readerTraceRecorder.clear();
+      ReaderDiagnostics.recordImageLoadError(
+        error: 'decode failed',
+        imageKey: 'https://example.com/page-4.jpg',
+        sourceKey: 'copymanga',
+        comicId: 'comic-7',
+        chapterId: 'ch-3',
+        page: 4,
+      );
+
+      final json = ReaderDiagnostics.toDiagnosticsJson();
+      final recordedEvent =
+          (json['readerTrace'] as Map<String, dynamic>)['events'][0]
+              as Map<String, dynamic>;
+      final diagnosticEvent = DevDiagnosticsApi.recent(
+        channel: 'reader.decode',
+      ).single;
+
+      expect(recordedEvent['sourceKey'], 'copymanga');
+      expect(recordedEvent['comicId'], 'comic-7');
+      expect(recordedEvent['chapterId'], 'ch-3');
+      expect(recordedEvent['page'], 4);
+      expect(recordedEvent['imageKey'], 'https://example.com/page-4.jpg');
+      expect(diagnosticEvent.data['sourceKey'], 'copymanga');
+      expect(diagnosticEvent.data['comicId'], 'comic-7');
+      expect(diagnosticEvent.data['chapterId'], 'ch-3');
+      expect(diagnosticEvent.data['page'], 4);
+    },
+  );
 }

@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_qjs/flutter_qjs.dart';
 import 'package:venera/foundation/log.dart';
 import 'package:venera/foundation/js_engine.dart';
+import 'package:venera/foundation/reader/reader_diagnostics.dart';
 import 'package:venera/network/images.dart';
 import 'package:venera/utils/io.dart';
 import 'base_image_provider.dart';
@@ -38,7 +39,14 @@ String readerImageLoadContextForTesting({
 class ReaderImageProvider
     extends BaseImageProvider<image_provider.ReaderImageProvider> {
   /// Image provider for normal image.
-  const ReaderImageProvider(this.imageKey, this.sourceKey, this.cid, this.eid, this.page, {this.enableResize = false});
+  const ReaderImageProvider(
+    this.imageKey,
+    this.sourceKey,
+    this.cid,
+    this.eid,
+    this.page, {
+    this.enableResize = false,
+  });
 
   final String imageKey;
 
@@ -56,6 +64,7 @@ class ReaderImageProvider
   @override
   Future<Uint8List> load(chunkEvents, checkStop) async {
     Uint8List? imageBytes;
+    final loadMode = imageKey.startsWith('file://') ? 'local' : 'remote';
     final diagnosticContext = readerImageLoadContextForTesting(
       imageKey: imageKey,
       sourceKey: sourceKey,
@@ -63,99 +72,146 @@ class ReaderImageProvider
       chapterId: eid,
       page: page,
     );
-    if (imageKey.startsWith('file://')) {
-      var file = File(readerImageFilePathForTesting(imageKey));
-      if (await file.exists()) {
-        imageBytes = await file.readAsBytes();
+    final callId = ReaderDiagnostics.beginImageLoad(
+      loadMode: loadMode,
+      sourceKey: sourceKey,
+      comicId: cid,
+      chapterId: eid,
+      page: page,
+      imageKey: imageKey,
+    );
+    try {
+      if (imageKey.startsWith('file://')) {
+        var file = File(readerImageFilePathForTesting(imageKey));
+        if (await file.exists()) {
+          imageBytes = await file.readAsBytes();
+        } else {
+          throw "Error: File not found: ${file.path} ($diagnosticContext)";
+        }
       } else {
-        throw "Error: File not found: ${file.path} ($diagnosticContext)";
-      }
-    } else {
-      try {
-        await for (var event
-            in ImageDownloader.loadComicImage(imageKey, sourceKey, cid, eid)) {
+        await for (var event in ImageDownloader.loadComicImage(
+          imageKey,
+          sourceKey,
+          cid,
+          eid,
+        )) {
           checkStop();
-          chunkEvents.add(ImageChunkEvent(
-            cumulativeBytesLoaded: event.currentBytes,
-            expectedTotalBytes: event.totalBytes,
-          ));
+          chunkEvents.add(
+            ImageChunkEvent(
+              cumulativeBytesLoaded: event.currentBytes,
+              expectedTotalBytes: event.totalBytes,
+            ),
+          );
           if (event.imageBytes != null) {
             imageBytes = event.imageBytes;
             break;
           }
         }
-      } catch (e, s) {
-        Log.error(
-          "ReaderImageProvider",
-          "Failed to load remote image: $diagnosticContext\n$e",
-          s,
-        );
-        rethrow;
       }
-    }
-    if (imageBytes == null) {
-      throw "Error: Empty response body. ($diagnosticContext)";
-    }
-    if (appdata.settings['enableCustomImageProcessing']) {
-      var script = appdata.settings['customImageProcessing'].toString();
-      if (!script.contains('function processImage')) {
-        return imageBytes;
+      if (imageBytes == null) {
+        throw "Error: Empty response body. ($diagnosticContext)";
       }
-      var func = JsEngine().runCode('''
+      if (appdata.settings['enableCustomImageProcessing']) {
+        var script = appdata.settings['customImageProcessing'].toString();
+        if (!script.contains('function processImage')) {
+          ReaderDiagnostics.endImageLoad(
+            callId: callId,
+            loadMode: loadMode,
+            sourceKey: sourceKey,
+            comicId: cid,
+            chapterId: eid,
+            page: page,
+            imageKey: imageKey,
+            byteLength: imageBytes.length,
+          );
+          return imageBytes;
+        }
+        var func = JsEngine().runCode('''
         (() => {
           $script
           return processImage;
         })()
       ''');
-      if (func is JSInvokable) {
-        var autoFreeFunc = JSAutoFreeFunction(func);
-        var result = autoFreeFunc([imageBytes, cid, eid, page, sourceKey]);
-        if (result is Uint8List) {
-          imageBytes = result;
-        } else if (result is Future) {
-          var futureResult = await result;
-          if (futureResult is Uint8List) {
-            imageBytes = futureResult;
-          }
-        } else if (result is Map) {
-          var image = result['image'];
-          if (image is Uint8List) {
-            imageBytes = image;
-          } else if (image is Future) {
-            JSAutoFreeFunction? onCancel;
-            if (result['onCancel'] is JSInvokable) {
-              onCancel = JSAutoFreeFunction(result['onCancel']);
+        if (func is JSInvokable) {
+          var autoFreeFunc = JSAutoFreeFunction(func);
+          var result = autoFreeFunc([imageBytes, cid, eid, page, sourceKey]);
+          if (result is Uint8List) {
+            imageBytes = result;
+          } else if (result is Future) {
+            var futureResult = await result;
+            if (futureResult is Uint8List) {
+              imageBytes = futureResult;
             }
-            if (onCancel == null) {
-              var futureImage = await image;
-              if (futureImage is Uint8List) {
-                imageBytes = futureImage;
+          } else if (result is Map) {
+            var image = result['image'];
+            if (image is Uint8List) {
+              imageBytes = image;
+            } else if (image is Future) {
+              JSAutoFreeFunction? onCancel;
+              if (result['onCancel'] is JSInvokable) {
+                onCancel = JSAutoFreeFunction(result['onCancel']);
               }
-            } else {
-              dynamic futureImage;
-              image.then((value) {
-                futureImage = value;
-                futureImage ??= Uint8List(0);
-              });
-              while (futureImage == null) {
-                try {
-                  checkStop();
+              if (onCancel == null) {
+                var futureImage = await image;
+                if (futureImage is Uint8List) {
+                  imageBytes = futureImage;
                 }
-                catch(e) {
-                  onCancel([]);
-                  rethrow;
+              } else {
+                dynamic futureImage;
+                image.then((value) {
+                  futureImage = value;
+                  futureImage ??= Uint8List(0);
+                });
+                while (futureImage == null) {
+                  try {
+                    checkStop();
+                  } catch (e) {
+                    onCancel([]);
+                    rethrow;
+                  }
+                  await Future.delayed(Duration(milliseconds: 50));
                 }
-                await Future.delayed(Duration(milliseconds: 50));
-              }
-              if (futureImage is Uint8List) {
-                imageBytes = futureImage;
+                if (futureImage is Uint8List) {
+                  imageBytes = futureImage;
+                }
               }
             }
           }
         }
       }
+      final loadedBytes = imageBytes;
+      if (loadedBytes == null) {
+        throw "Error: Empty processed image body. ($diagnosticContext)";
+      }
+      ReaderDiagnostics.endImageLoad(
+        callId: callId,
+        loadMode: loadMode,
+        sourceKey: sourceKey,
+        comicId: cid,
+        chapterId: eid,
+        page: page,
+        imageKey: imageKey,
+        byteLength: loadedBytes.length,
+      );
+      return loadedBytes;
+    } catch (e, s) {
+      ReaderDiagnostics.failImageLoad(
+        callId: callId,
+        loadMode: loadMode,
+        sourceKey: sourceKey,
+        comicId: cid,
+        chapterId: eid,
+        page: page,
+        imageKey: imageKey,
+        error: e,
+      );
+      Log.error(
+        "ReaderImageProvider",
+        "Failed to load reader image: $diagnosticContext\n$e",
+        s,
+      );
+      rethrow;
     }
-    return imageBytes!;
   }
 
   @override

@@ -434,17 +434,105 @@ class ReaderDiagnostics {
     );
   }
 
-  static void recordImageLoadError({required Object error, String? imageKey}) {
+  static String beginImageLoad({
+    required String loadMode,
+    required String? sourceKey,
+    required String comicId,
+    required String chapterId,
+    required int page,
+    required String imageKey,
+  }) {
+    return beginCall(
+      functionName: 'ReaderImageProvider.load',
+      phase: ReaderTracePhase.imageProvider,
+      loadMode: loadMode,
+      sourceKey: sourceKey,
+      comicId: comicId,
+      chapterId: chapterId,
+      page: page,
+      imageKey: imageKey,
+    );
+  }
+
+  static void endImageLoad({
+    required String callId,
+    required String loadMode,
+    required String? sourceKey,
+    required String comicId,
+    required String chapterId,
+    required int page,
+    required String imageKey,
+    required int byteLength,
+  }) {
+    endCall(
+      callId: callId,
+      functionName: 'ReaderImageProvider.load',
+      phase: ReaderTracePhase.imageProvider,
+      loadMode: loadMode,
+      sourceKey: sourceKey,
+      comicId: comicId,
+      chapterId: chapterId,
+      page: page,
+      resultSummary: 'bytes=$byteLength',
+    );
+  }
+
+  static void failImageLoad({
+    required String callId,
+    required String loadMode,
+    required String? sourceKey,
+    required String comicId,
+    required String chapterId,
+    required int page,
+    required String imageKey,
+    required Object error,
+  }) {
+    failCall(
+      callId: callId,
+      functionName: 'ReaderImageProvider.load',
+      phase: ReaderTracePhase.imageProvider,
+      errorMessage: error.toString(),
+      loadMode: loadMode,
+      sourceKey: sourceKey,
+      comicId: comicId,
+      chapterId: chapterId,
+      page: page,
+      imageKey: imageKey,
+    );
+  }
+
+  static void recordImageLoadError({
+    required Object error,
+    String? imageKey,
+    String? sourceKey,
+    String? comicId,
+    String? chapterId,
+    int? page,
+  }) {
     readerTraceRecorder.record(
       ReaderTraceEvent(
         event: 'image.load.error',
         timestamp: DateTime.now(),
         imageKey: imageKey,
+        sourceKey: sourceKey,
+        comicId: comicId,
+        chapterId: chapterId,
+        page: page,
         errorMessage: error.toString(),
         phase: ReaderTracePhase.decode,
       ),
     );
-    AppDiagnostics.error('reader.decode', error, data: {'imageKey': imageKey});
+    AppDiagnostics.error(
+      'reader.decode',
+      error,
+      data: {
+        'sourceKey': sourceKey,
+        'comicId': comicId,
+        'chapterId': chapterId,
+        'page': page,
+        'imageKey': imageKey,
+      },
+    );
   }
 
   static int? _durationMs(String callId) {

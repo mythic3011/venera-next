@@ -47,6 +47,23 @@ String? resolveLegacyRemoteSourceUnavailableErrorForTesting(
   return null;
 }
 
+bool _isReaderSourceUnavailableError(String? errorMessage) {
+  if (errorMessage == null) {
+    return false;
+  }
+  final message = errorMessage.toLowerCase();
+  return errorMessage == 'SOURCE_NOT_AVAILABLE' ||
+      errorMessage.startsWith('SOURCE_NOT_AVAILABLE:') ||
+      message.contains('comic source is unavailable') ||
+      message.contains('comic source not found') ||
+      message.contains('relative image url without a valid comic source');
+}
+
+@visibleForTesting
+bool isReaderSourceUnavailableErrorForTesting(String? errorMessage) {
+  return _isReaderSourceUnavailableError(errorMessage);
+}
+
 @visibleForTesting
 String buildReaderLoadDiagnostic({
   required String code,
@@ -118,12 +135,7 @@ class _ReaderImages extends StatefulWidget {
 class _ReaderImagesState extends State<_ReaderImages> {
   String? error;
 
-  bool get _isSourceUnavailableError {
-    final message = error?.toLowerCase() ?? '';
-    return message.contains('comic source is unavailable') ||
-        message.contains('comic source not found') ||
-        message.contains('relative image url without a valid comic source');
-  }
+  bool get _isSourceUnavailableError => _isReaderSourceUnavailableError(error);
 
   bool inProgress = false;
 
@@ -237,7 +249,9 @@ class _ReaderImagesState extends State<_ReaderImages> {
     if (!mounted) return;
     final res = result.res;
     if (res.error) {
-      final sourceUnavailable = res.errorMessage == 'SOURCE_NOT_AVAILABLE';
+      final sourceUnavailable = _isReaderSourceUnavailableError(
+        res.errorMessage,
+      );
       setState(() {
         error = sourceUnavailable
             ? "Comic source is unavailable. Please refresh/install this source and retry."
