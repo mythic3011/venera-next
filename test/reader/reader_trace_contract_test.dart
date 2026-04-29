@@ -96,4 +96,16 @@ void main() {
     expect(event.data['chapterId'], 'ch-3');
     expect(event.data['page'], 9);
   });
+
+  test('dispose diagnostics can skip layout dependent pagination reads', () {
+    final snapshot = buildReaderPaginationDiagnosticsForTesting(
+      includePagination: false,
+      imageCount: 3,
+      maxPage: () => throw StateError('maxPage should not be read'),
+      imagesPerPage: () => throw StateError('imagesPerPage should not be read'),
+    );
+
+    expect(snapshot.maxPage, isNull);
+    expect(snapshot.imagesPerPage, isNull);
+  });
 }

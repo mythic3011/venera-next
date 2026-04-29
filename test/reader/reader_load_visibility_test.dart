@@ -76,4 +76,15 @@ void main() {
 
     expect(error, isNull);
   });
+
+  test('source unavailable errors include suffixed source diagnostics', () {
+    expect(isReaderSourceUnavailableErrorForTesting('SOURCE_NOT_AVAILABLE'), isTrue);
+    expect(
+      isReaderSourceUnavailableErrorForTesting(
+        'SOURCE_NOT_AVAILABLE:Unknown:122396838',
+      ),
+      isTrue,
+    );
+    expect(isReaderSourceUnavailableErrorForTesting('LOCAL_ASSET_MISSING'), isFalse);
+  });
 }
