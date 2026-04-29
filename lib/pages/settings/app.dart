@@ -410,7 +410,7 @@ class _LogsPageState extends State<LogsPage> {
   }
 
   void saveLog(String log) async {
-    saveFile(data: utf8.encode(log), filename: 'log.txt');
+    saveFile(data: utf8.encode(log), filename: Log.buildExportFileName());
   }
 }
 
