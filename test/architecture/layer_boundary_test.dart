@@ -7,8 +7,6 @@ void main() {
     const quarantinedFiles = <String>{
       // Temporary quarantine for existing mixed files. Follow-up slices should
       // move these files out of lib/utils and then remove them from this set.
-      'app_links.dart',
-      'handle_text_share.dart',
       'data_sync.dart',
       'data.dart',
       'import_comic.dart',
