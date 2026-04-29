@@ -51,12 +51,13 @@ class _ChapterCommentsPageState extends State<ChapterCommentsPage> {
       1,
       widget.replyComment?.id,
     );
+    if (!mounted) return;
     if (res.error) {
       setState(() {
         _error = res.errorMessage;
         _loading = false;
       });
-    } else if (mounted) {
+    } else {
       var filteredComments = res.data.where((c) => !_shouldBlockComment(c)).toList();
       setState(() {
         _comments = filteredComments;
@@ -73,6 +74,7 @@ class _ChapterCommentsPageState extends State<ChapterCommentsPage> {
       _page + 1,
       widget.replyComment?.id,
     );
+    if (!mounted) return;
     if (res.error) {
       context.showMessage(message: res.errorMessage ?? "Unknown Error");
     } else {
@@ -255,6 +257,7 @@ class _ChapterCommentsPageState extends State<ChapterCommentsPage> {
                     controller.text,
                     widget.replyComment?.id,
                   );
+                  if (!mounted) return;
                   if (!b.error) {
                     controller.text = "";
                     setState(() {
@@ -449,6 +452,7 @@ class _ChapterCommentTileState extends State<_ChapterCommentTile> {
             widget.comment.id!,
             !isLiked,
           );
+          if (!mounted) return;
           if (res.success) {
             isLiked = !isLiked;
             likes += isLiked ? 1 : -1;
@@ -505,6 +509,7 @@ class _ChapterCommentTileState extends State<_ChapterCommentTile> {
       isUp,
       isCancel,
     );
+    if (!mounted) return;
     if (res.success) {
       if (isCancel) {
         voteStatus = 0;
@@ -630,14 +635,13 @@ class _EmbeddedChapterCommentsPageState
       1,
       null,
     );
+    if (!mounted) return;
     if (res.error) {
-      if (mounted) {
-        setState(() {
-          _error = res.errorMessage;
-          _loading = false;
-        });
-      }
-    } else if (mounted) {
+      setState(() {
+        _error = res.errorMessage;
+        _loading = false;
+      });
+    } else {
       var filteredComments =
           res.data.where((c) => !_shouldBlockComment(c)).toList();
       setState(() {
@@ -655,11 +659,10 @@ class _EmbeddedChapterCommentsPageState
       _page + 1,
       null,
     );
+    if (!mounted) return;
     if (res.error) {
-      if (mounted) {
-        context.showMessage(message: res.errorMessage ?? "Unknown Error");
-      }
-    } else if (mounted) {
+      context.showMessage(message: res.errorMessage ?? "Unknown Error");
+    } else {
       var filteredComments =
           res.data.where((c) => !_shouldBlockComment(c)).toList();
       setState(() {
@@ -846,6 +849,7 @@ class _EmbeddedChapterCommentsPageState
                     textController.text,
                     null,
                   );
+                  if (!mounted) return;
                   if (!b.error) {
                     textController.text = "";
                     setState(() {
@@ -856,9 +860,7 @@ class _EmbeddedChapterCommentsPageState
                       maxPage = null;
                     });
                   } else {
-                    if (mounted) {
-                      context.showMessage(message: b.errorMessage ?? "Error");
-                    }
+                    context.showMessage(message: b.errorMessage ?? "Error");
                     setState(() {
                       sending = false;
                     });
