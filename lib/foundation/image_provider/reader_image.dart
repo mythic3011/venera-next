@@ -3,6 +3,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_qjs/flutter_qjs.dart';
 import 'package:venera/foundation/js_engine.dart';
+import 'package:venera/foundation/log.dart';
 import 'package:venera/network/images.dart';
 import 'package:venera/utils/io.dart';
 import 'base_image_provider.dart';
@@ -11,9 +12,8 @@ import 'package:venera/foundation/appdata.dart';
 
 @visibleForTesting
 String readerImageFilePathForTesting(String imageKey) {
-  const fileScheme = 'file://';
-  if (imageKey.startsWith(fileScheme)) {
-    return imageKey.substring(fileScheme.length);
+  if (imageKey.startsWith('file://')) {
+    return Uri.parse(imageKey).toFilePath();
   }
   return imageKey;
 }
@@ -44,20 +44,25 @@ class ReaderImageProvider
       if (await file.exists()) {
         imageBytes = await file.readAsBytes();
       } else {
-        throw "Error: File not found.";
+        throw "Error: File not found: ${file.path}";
       }
     } else {
-      await for (var event
-        in ImageDownloader.loadComicImage(imageKey, sourceKey, cid, eid)) {
-        checkStop();
-        chunkEvents.add(ImageChunkEvent(
-          cumulativeBytesLoaded: event.currentBytes,
-          expectedTotalBytes: event.totalBytes,
-        ));
-        if (event.imageBytes != null) {
-          imageBytes = event.imageBytes;
-          break;
+      try {
+        await for (var event
+          in ImageDownloader.loadComicImage(imageKey, sourceKey, cid, eid)) {
+          checkStop();
+          chunkEvents.add(ImageChunkEvent(
+            cumulativeBytesLoaded: event.currentBytes,
+            expectedTotalBytes: event.totalBytes,
+          ));
+          if (event.imageBytes != null) {
+            imageBytes = event.imageBytes;
+            break;
+          }
         }
+      } catch (e, s) {
+        Log.error("ReaderImageProvider", "Failed to load remote image: $imageKey\n$e", s);
+        rethrow;
       }
     }
     if (imageBytes == null) {

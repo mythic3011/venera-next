@@ -9,8 +9,83 @@ class DebugPage extends StatefulWidget {
 
 class DebugPageState extends State<DebugPage> {
   final controller = TextEditingController();
+  final exporter = DebugLogExporter();
 
   var result = "";
+
+  @override
+  void dispose() {
+    exporter.stop();
+    controller.dispose();
+    super.dispose();
+  }
+
+  String get _serverStatusText {
+    if (!App.isDesktop) {
+      return "Unsupported on this platform".tl;
+    }
+    if (!exporter.isRunning || exporter.baseUri == null) {
+      return "Stopped".tl;
+    }
+    return "Running on ${exporter.baseUri}";
+  }
+
+  Future<void> _toggleServer() async {
+    if (!App.isDesktop) {
+      return;
+    }
+    if (exporter.isRunning) {
+      await exporter.stop();
+      if (mounted) {
+        setState(() {});
+      }
+      return;
+    }
+    try {
+      await exporter.start();
+    } catch (e) {
+      if (mounted) {
+        context.showMessage(message: e.toString());
+      }
+      return;
+    }
+    if (mounted) {
+      setState(() {});
+    }
+  }
+
+  Future<void> _copyUrl(Uri? uri) async {
+    if (uri == null) {
+      return;
+    }
+    await Clipboard.setData(ClipboardData(text: uri.toString()));
+    if (mounted) {
+      context.showMessage(message: "Copied".tl);
+    }
+  }
+
+  Future<void> _exportLogsSnapshot() async {
+    final file = await Log.exportToFile();
+    if (!mounted) {
+      return;
+    }
+    if (file == null) {
+      context.showMessage(message: "App is not initialized".tl);
+      return;
+    }
+    await Clipboard.setData(ClipboardData(text: file.path));
+    if (mounted) {
+      context.showMessage(message: "Exported: ${file.path}");
+    }
+  }
+
+  Future<void> _saveLogsFile() async {
+    final data = utf8.encode(await Log.buildExportText());
+    await saveFile(data: data, filename: "venera_logs.txt");
+    if (mounted) {
+      context.showMessage(message: "Saved".tl);
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -35,6 +110,58 @@ class DebugPageState extends State<DebugPage> {
           title: "Ignore Certificate Errors".tl,
           settingKey: "ignoreBadCertificate",
         ).toSliver(),
+        SliverToBoxAdapter(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const SizedBox(height: 8),
+              const Text(
+                "Diagnostics Server",
+                style: TextStyle(fontSize: 16),
+              ).paddingLeft(16),
+              const SizedBox(height: 8),
+              Text(_serverStatusText).paddingHorizontal(16),
+              const SizedBox(height: 8),
+              TextButton(
+                onPressed: _toggleServer,
+                child: Text(exporter.isRunning ? "Stop".tl : "Start".tl),
+              ).paddingHorizontal(8),
+              if (exporter.isRunning) ...[
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: [
+                    TextButton(
+                      onPressed: () => _copyUrl(exporter.baseUri),
+                      child: Text("Copy Base URL".tl),
+                    ),
+                    TextButton(
+                      onPressed: () => _copyUrl(exporter.logsUri()),
+                      child: Text("Copy Logs URL".tl),
+                    ),
+                    TextButton(
+                      onPressed: () => _copyUrl(exporter.diagnosticsUri()),
+                      child: Text("Copy Diagnostics URL".tl),
+                    ),
+                  ],
+                ).paddingHorizontal(8),
+              ],
+              if (Log.logFilePath != null) ...[
+                const SizedBox(height: 8),
+                Text("Log File: ${Log.logFilePath}").paddingHorizontal(16),
+              ],
+              const SizedBox(height: 8),
+              TextButton(
+                onPressed: _exportLogsSnapshot,
+                child: Text("Export Logs Snapshot".tl),
+              ).paddingHorizontal(8),
+              TextButton(
+                onPressed: _saveLogsFile,
+                child: Text("Save Logs File".tl),
+              ).paddingHorizontal(8),
+            ],
+          ),
+        ),
         SliverToBoxAdapter(
           child: Column(
             children: [
@@ -86,9 +213,7 @@ class DebugPageState extends State<DebugPage> {
                   border: Border.all(color: context.colorScheme.outline),
                   borderRadius: BorderRadius.circular(4),
                 ),
-                child: SingleChildScrollView(
-                  child: Text(result).paddingAll(4),
-                ),
+                child: SingleChildScrollView(child: Text(result).paddingAll(4)),
               ),
             ],
           ),
