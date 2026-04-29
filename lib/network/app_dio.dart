@@ -2,7 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:dio/dio.dart';
-import 'package:flutter/services.dart';
+import 'package:flutter/foundation.dart';
 import 'package:rhttp/rhttp.dart' as rhttp;
 import 'package:venera/foundation/appdata.dart';
 import 'package:venera/foundation/log.dart';
@@ -15,35 +15,80 @@ import 'cookie_jar.dart';
 
 export 'package:dio/dio.dart';
 
+const Set<String> _defaultRedactedHeaderKeys = {
+  'authorization',
+  'proxy-authorization',
+  'cookie',
+  'set-cookie',
+  'x-api-key',
+  'api-key',
+  'token',
+  'x-token',
+  'x-session-token',
+  'session',
+  'source-token',
+  'csrf-token',
+  'x-csrf-token',
+};
+
+@visibleForTesting
+Map<String, dynamic> redactHeadersForLog(
+  Map<String, dynamic> headers, {
+  List<String>? maskHeadersInLog,
+}) {
+  const mask = "********";
+  final masked = <String>{...(maskHeadersInLog ?? const <String>[])};
+  final maskedLower = masked.map((key) => key.toLowerCase()).toSet();
+  return headers.map((key, value) {
+    final keyLower = key.toLowerCase();
+    if (_defaultRedactedHeaderKeys.contains(keyLower) ||
+        masked.contains(key) ||
+        maskedLower.contains(keyLower)) {
+      return MapEntry<String, dynamic>(key, mask);
+    }
+    return MapEntry<String, dynamic>(key, value);
+  });
+}
+
 class MyLogInterceptor implements Interceptor {
   @override
   void onError(DioException err, ErrorInterceptorHandler handler) {
-    Log.error("Network",
-        "${err.requestOptions.method} ${err.requestOptions.path}\n$err\n${err.response?.data.toString()}");
+    Log.error(
+      "Network",
+      "${err.requestOptions.method} ${err.requestOptions.path}\n$err\n${err.response?.data.toString()}",
+    );
     switch (err.type) {
       case DioExceptionType.badResponse:
         var statusCode = err.response?.statusCode;
         if (statusCode != null) {
           err = err.copyWith(
-              message: "Invalid Status Code: $statusCode. "
-                  "${_getStatusCodeInfo(statusCode)}");
+            message:
+                "Invalid Status Code: $statusCode. "
+                "${_getStatusCodeInfo(statusCode)}",
+          );
         }
       case DioExceptionType.connectionTimeout:
         err = err.copyWith(message: "Connection Timeout");
       case DioExceptionType.receiveTimeout:
         err = err.copyWith(
-            message: "Receive Timeout: "
-                "This indicates that the server is too busy to respond");
+          message:
+              "Receive Timeout: "
+              "This indicates that the server is too busy to respond",
+        );
       case DioExceptionType.unknown:
         if (err.toString().contains("Connection terminated during handshake")) {
           err = err.copyWith(
-              message: "Connection terminated during handshake: "
-                  "This may be caused by the firewall blocking the connection "
-                  "or your requests are too frequent.");
+            message:
+                "Connection terminated during handshake: "
+                "This may be caused by the firewall blocking the connection "
+                "or your requests are too frequent.",
+          );
         } else if (err.toString().contains("Connection reset by peer")) {
           err = err.copyWith(
-              message: "Connection reset by peer: "
-                  "The error is unrelated to app, please check your network.");
+            message:
+                "Connection reset by peer: "
+                "The error is unrelated to app, please check your network.",
+          );
         }
       default:
         {}
@@ -70,10 +115,16 @@ class MyLogInterceptor implements Interceptor {
 
   @override
   void onResponse(
-      Response<dynamic> response, ResponseInterceptorHandler handler) {
-    var headers = response.headers.map.map((key, value) => MapEntry(
-        key.toLowerCase(), value.length == 1 ? value.first : value.toString()));
-    headers.remove("cookie");
+    Response<dynamic> response,
+    ResponseInterceptorHandler handler,
+  ) {
+    final headers = response.headers.map.map(
+      (key, value) => MapEntry(
+        key.toLowerCase(),
+        value.length == 1 ? value.first : value.toString(),
+      ),
+    );
+    final redactedHeaders = redactHeadersForLog(headers);
     String content;
     if (response.data is List<int>) {
       try {
@@ -85,38 +136,28 @@ class MyLogInterceptor implements Interceptor {
       content = response.data.toString();
     }
     Log.addLog(
-        (response.statusCode != null && response.statusCode! < 400)
-            ? LogLevel.info
-            : LogLevel.error,
-        "Network",
-        "Response ${response.realUri.toString()} ${response.statusCode}\n"
-            "headers:\n$headers\n$content");
+      (response.statusCode != null && response.statusCode! < 400)
+          ? LogLevel.info
+          : LogLevel.error,
+      "Network",
+      "Response ${response.realUri.toString()} ${response.statusCode}\n"
+          "headers:\n$redactedHeaders\n$content",
+    );
     handler.next(response);
   }
 
   @override
   void onRequest(RequestOptions options, RequestInterceptorHandler handler) {
-    const String headerMask = "********";
     const String dataMask = "****** DATA_PROTECTED ******";
+    final maskHeadersInLog = options.extra["maskHeadersInLog"];
+    final customMaskHeaders = maskHeadersInLog is List
+        ? maskHeadersInLog.cast<String>()
+        : null;
     Log.info(
-        "Network",
-        "${options.method} ${options.uri}\n"
-            "headers:\n${
-              options.extra.containsKey("maskHeadersInLog")
-                ? options.headers.map((key, value) =>
-                  MapEntry(
-                    key,
-                    options.extra["maskHeadersInLog"].contains(key)
-                      ? headerMask
-                      : value
-                  ))
-                : options.headers
-            }\n"
-            "data:\n${
-              options.extra["maskDataInLog"] == true
-                ? dataMask
-                : options.data
-            }"
+      "Network",
+      "${options.method} ${options.uri}\n"
+          "headers:\n${redactHeadersForLog(options.headers, maskHeadersInLog: customMaskHeaders)}\n"
+          "data:\n${options.extra["maskDataInLog"] == true ? dataMask : options.data}",
     );
     options.connectTimeout = const Duration(seconds: 15);
     options.receiveTimeout = const Duration(seconds: 15);
