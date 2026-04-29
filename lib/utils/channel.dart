@@ -8,24 +8,29 @@ class Channel<T> {
 
   Channel(this.size) : _queue = Queue<T>();
 
-  Completer? _releaseCompleter;
+  final Queue<Completer<void>> _releaseWaiters = Queue<Completer<void>>();
 
   Completer? _pushCompleter;
 
   var currentSize = 0;
 
+  var _reservedSlots = 0;
+
   var isClosed = false;
 
   Future<void> push(T item) async {
-    if (currentSize >= size) {
-      _releaseCompleter ??= Completer();
-      return _releaseCompleter!.future.then((_) {
-        if (isClosed) {
-          return;
-        }
-        _queue.addLast(item);
-        currentSize++;
-      });
+    while (currentSize + _reservedSlots >= size) {
+      if (isClosed) {
+        return;
+      }
+      var waiter = Completer<void>();
+      _releaseWaiters.addLast(waiter);
+      await waiter.future;
+      if (isClosed) {
+        return;
+      }
+      _reservedSlots--;
+      break;
     }
     _queue.addLast(item);
     currentSize++;
@@ -43,16 +48,24 @@ class Channel<T> {
     }
     var item = _queue.removeFirst();
     currentSize--;
-    if (_releaseCompleter != null && currentSize < size) {
-      _releaseCompleter!.complete();
-      _releaseCompleter = null;
-    }
+    _wakeNextPusher();
     return item;
   }
 
   void close() {
     isClosed = true;
     _pushCompleter?.complete();
-    _releaseCompleter?.complete();
+    while (_releaseWaiters.isNotEmpty) {
+      _releaseWaiters.removeFirst().complete();
+    }
+  }
+
+  void _wakeNextPusher() {
+    // Reserve one freed slot per waiter so competing producers cannot overfill
+    // the bounded channel before the woken producer resumes.
+    while (_releaseWaiters.isNotEmpty && currentSize + _reservedSlots < size) {
+      _reservedSlots++;
+      _releaseWaiters.removeFirst().complete();
+    }
   }
 }

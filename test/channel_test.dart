@@ -112,4 +112,26 @@ void main() {
     var item4 = await channel.pop();
     expect(item4, null);
   });
+
+  test("blocked producers claim one freed slot each", () async {
+    var channel = Channel<int>(1);
+
+    await channel.push(1);
+    var secondPush = channel.push(2);
+    var thirdPush = channel.push(3);
+
+    expect(channel.currentSize, 1);
+    expect(await channel.pop(), 1);
+    await Future<void>.delayed(Duration.zero);
+    expect(channel.currentSize, 1);
+
+    expect(await channel.pop(), 2);
+    await secondPush;
+    await Future<void>.delayed(Duration.zero);
+    expect(channel.currentSize, 1);
+
+    expect(await channel.pop(), 3);
+    await thirdPush;
+    expect(channel.currentSize, 0);
+  });
 }

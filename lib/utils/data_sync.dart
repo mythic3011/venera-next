@@ -128,16 +128,27 @@ class DataSync with ChangeNotifier {
       );
 
       try {
-        appdata.settings['dataVersion']++;
+        var previousVersion = appdata.settings['dataVersion'];
+        if (previousVersion is! int) {
+          previousVersion = 0;
+        }
+        var nextVersion = previousVersion + 1;
+        File? data;
+        appdata.settings['dataVersion'] = nextVersion;
         await appdata.saveData(false);
-        var data = await exportAppData(
-            appdata.settings['disableSyncFields'].toString().isNotEmpty
-        );
-        var time =
-            (DateTime.now().millisecondsSinceEpoch ~/ 86400000).toString();
+        try {
+          data = await exportAppData(
+            appdata.settings['disableSyncFields'].toString().isNotEmpty,
+          );
+        } finally {
+          appdata.settings['dataVersion'] = previousVersion;
+          await appdata.saveData(false);
+        }
+        var time = (DateTime.now().millisecondsSinceEpoch ~/ 86400000)
+            .toString();
         var filename = time;
         filename += '-';
-        filename += appdata.settings['dataVersion'].toString();
+        filename += nextVersion.toString();
         filename += '.venera';
         var files = await client.readDir('/');
         files = files.where((e) => e.name!.endsWith('.venera')).toList();
@@ -151,6 +162,10 @@ class DataSync with ChangeNotifier {
         }
         await client.write(filename, await data.readAsBytes());
         data.deleteIgnoreError();
+        // Persist the new local version only after the remote snapshot exists;
+        // otherwise downloads must still be able to recover that snapshot.
+        appdata.settings['dataVersion'] = nextVersion;
+        await appdata.saveData(false);
         Log.info("Upload Data", "Data uploaded successfully");
         return const Res(true);
       } catch (e, s) {
