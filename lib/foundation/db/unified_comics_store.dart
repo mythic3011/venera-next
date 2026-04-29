@@ -122,6 +122,104 @@ class LocalLibraryItemRecord {
   final String? updatedAt;
 }
 
+class ChapterRecord {
+  const ChapterRecord({
+    required this.id,
+    required this.comicId,
+    this.chapterNo,
+    required this.title,
+    required this.normalizedTitle,
+    this.createdAt,
+    this.updatedAt,
+  });
+
+  final String id;
+  final String comicId;
+  final double? chapterNo;
+  final String title;
+  final String normalizedTitle;
+  final String? createdAt;
+  final String? updatedAt;
+}
+
+class PageRecord {
+  const PageRecord({
+    required this.id,
+    required this.chapterId,
+    required this.pageIndex,
+    required this.localPath,
+    this.contentHash,
+    this.width,
+    this.height,
+    this.bytes,
+    this.createdAt,
+  });
+
+  final String id;
+  final String chapterId;
+  final int pageIndex;
+  final String localPath;
+  final String? contentHash;
+  final int? width;
+  final int? height;
+  final int? bytes;
+  final String? createdAt;
+}
+
+class PageOrderRecord {
+  const PageOrderRecord({
+    required this.id,
+    required this.chapterId,
+    required this.orderName,
+    required this.normalizedOrderName,
+    required this.orderType,
+    this.isActive = false,
+    this.createdAt,
+    this.updatedAt,
+  });
+
+  final String id;
+  final String chapterId;
+  final String orderName;
+  final String normalizedOrderName;
+  final String orderType;
+  final bool isActive;
+  final String? createdAt;
+  final String? updatedAt;
+}
+
+class PageOrderItemRecord {
+  const PageOrderItemRecord({
+    required this.pageOrderId,
+    required this.pageId,
+    required this.sortOrder,
+    this.isHidden = false,
+    this.addedAt,
+  });
+
+  final String pageOrderId;
+  final String pageId;
+  final int sortOrder;
+  final bool isHidden;
+  final String? addedAt;
+}
+
+class PageOrderSummaryRecord {
+  const PageOrderSummaryRecord({
+    required this.totalOrders,
+    required this.totalPageCount,
+    required this.visiblePageCount,
+    this.activeOrderId,
+    this.activeOrderType,
+  });
+
+  final String? activeOrderId;
+  final String? activeOrderType;
+  final int totalOrders;
+  final int totalPageCount;
+  final int visiblePageCount;
+}
+
 class ResolvedSourcePlatform {
   const ResolvedSourcePlatform({
     required this.platformId,
@@ -149,11 +247,13 @@ class UnifiedComicSnapshot {
     required this.comic,
     required this.titles,
     required this.localLibraryItems,
+    this.chapters = const <ChapterRecord>[],
   });
 
   final ComicRecord comic;
   final List<ComicTitleRecord> titles;
   final List<LocalLibraryItemRecord> localLibraryItems;
+  final List<ChapterRecord> chapters;
 }
 
 class UnifiedComicsStore extends GeneratedDatabase {
@@ -303,6 +403,84 @@ class UnifiedComicsStore extends GeneratedDatabase {
     await customStatement('''
       CREATE INDEX IF NOT EXISTS idx_local_library_items_storage_updated
       ON local_library_items(storage_type, updated_at DESC);
+    ''');
+    await customStatement('''
+      CREATE TABLE IF NOT EXISTS chapters (
+        id TEXT PRIMARY KEY,
+        comic_id TEXT NOT NULL,
+        chapter_no REAL,
+        title TEXT NOT NULL,
+        normalized_title TEXT NOT NULL,
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (comic_id)
+          REFERENCES comics(id)
+          ON DELETE CASCADE,
+        UNIQUE(comic_id, chapter_no),
+        UNIQUE(comic_id, normalized_title)
+      );
+    ''');
+    await customStatement('''
+      CREATE TABLE IF NOT EXISTS pages (
+        id TEXT PRIMARY KEY,
+        chapter_id TEXT NOT NULL,
+        page_index INTEGER NOT NULL,
+        local_path TEXT,
+        content_hash TEXT,
+        width INTEGER,
+        height INTEGER,
+        bytes INTEGER,
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (chapter_id)
+          REFERENCES chapters(id)
+          ON DELETE CASCADE,
+        UNIQUE(chapter_id, page_index)
+      );
+    ''');
+    await customStatement('''
+      CREATE TABLE IF NOT EXISTS page_orders (
+        id TEXT PRIMARY KEY,
+        chapter_id TEXT NOT NULL,
+        order_name TEXT NOT NULL,
+        normalized_order_name TEXT NOT NULL,
+        order_type TEXT NOT NULL CHECK (
+          order_type IN (
+            'source_default',
+            'user_custom',
+            'imported_folder',
+            'temporary_session'
+          )
+        ),
+        is_active INTEGER NOT NULL DEFAULT 0,
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (chapter_id)
+          REFERENCES chapters(id)
+          ON DELETE CASCADE,
+        UNIQUE(chapter_id, normalized_order_name)
+      );
+    ''');
+    await customStatement('''
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_page_orders_one_active_per_chapter
+      ON page_orders(chapter_id)
+      WHERE is_active = 1;
+    ''');
+    await customStatement('''
+      CREATE TABLE IF NOT EXISTS page_order_items (
+        page_order_id TEXT NOT NULL,
+        page_id TEXT NOT NULL,
+        sort_order INTEGER NOT NULL,
+        is_hidden INTEGER NOT NULL DEFAULT 0,
+        added_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        PRIMARY KEY (page_order_id, page_id),
+        FOREIGN KEY (page_order_id)
+          REFERENCES page_orders(id)
+          ON DELETE CASCADE,
+        FOREIGN KEY (page_id)
+          REFERENCES pages(id)
+          ON DELETE CASCADE,
+        UNIQUE(page_order_id, sort_order)
+      );
     ''');
   }
 
@@ -526,7 +704,9 @@ class UnifiedComicsStore extends GeneratedDatabase {
         source_platform_id,
         created_at
       )
-      VALUES (?, ?, ?, ?, ?, COALESCE(?, CURRENT_TIMESTAMP));
+      VALUES (?, ?, ?, ?, ?, COALESCE(?, CURRENT_TIMESTAMP))
+      ON CONFLICT(comic_id, normalized_title, title_type, source_platform_id) DO UPDATE SET
+        title = excluded.title;
       ''',
       [
         record.comicId,
@@ -537,6 +717,12 @@ class UnifiedComicsStore extends GeneratedDatabase {
         record.createdAt,
       ],
     );
+  }
+
+  Future<void> deleteComicTitlesForComic(String comicId) {
+    return customStatement('DELETE FROM comic_titles WHERE comic_id = ?;', [
+      comicId,
+    ]);
   }
 
   Future<void> upsertLocalLibraryItem(LocalLibraryItemRecord record) {
@@ -581,6 +767,144 @@ class UnifiedComicsStore extends GeneratedDatabase {
     );
   }
 
+  Future<void> upsertChapter(ChapterRecord record) {
+    return customStatement(
+      '''
+      INSERT INTO chapters (
+        id,
+        comic_id,
+        chapter_no,
+        title,
+        normalized_title,
+        created_at,
+        updated_at
+      )
+      VALUES (?, ?, ?, ?, ?, COALESCE(?, CURRENT_TIMESTAMP), COALESCE(?, CURRENT_TIMESTAMP))
+      ON CONFLICT(id) DO UPDATE SET
+        comic_id = excluded.comic_id,
+        chapter_no = excluded.chapter_no,
+        title = excluded.title,
+        normalized_title = excluded.normalized_title,
+        updated_at = COALESCE(excluded.updated_at, CURRENT_TIMESTAMP);
+      ''',
+      [
+        record.id,
+        record.comicId,
+        record.chapterNo,
+        record.title,
+        record.normalizedTitle,
+        record.createdAt,
+        record.updatedAt,
+      ],
+    );
+  }
+
+  Future<void> upsertPage(PageRecord record) {
+    return customStatement(
+      '''
+      INSERT INTO pages (
+        id,
+        chapter_id,
+        page_index,
+        local_path,
+        content_hash,
+        width,
+        height,
+        bytes,
+        created_at
+      )
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, COALESCE(?, CURRENT_TIMESTAMP))
+      ON CONFLICT(id) DO UPDATE SET
+        chapter_id = excluded.chapter_id,
+        page_index = excluded.page_index,
+        local_path = excluded.local_path,
+        content_hash = excluded.content_hash,
+        width = excluded.width,
+        height = excluded.height,
+        bytes = excluded.bytes;
+      ''',
+      [
+        record.id,
+        record.chapterId,
+        record.pageIndex,
+        record.localPath,
+        record.contentHash,
+        record.width,
+        record.height,
+        record.bytes,
+        record.createdAt,
+      ],
+    );
+  }
+
+  Future<void> upsertPageOrder(PageOrderRecord record) {
+    return customStatement(
+      '''
+      INSERT INTO page_orders (
+        id,
+        chapter_id,
+        order_name,
+        normalized_order_name,
+        order_type,
+        is_active,
+        created_at,
+        updated_at
+      )
+      VALUES (?, ?, ?, ?, ?, ?, COALESCE(?, CURRENT_TIMESTAMP), COALESCE(?, CURRENT_TIMESTAMP))
+      ON CONFLICT(id) DO UPDATE SET
+        chapter_id = excluded.chapter_id,
+        order_name = excluded.order_name,
+        normalized_order_name = excluded.normalized_order_name,
+        order_type = excluded.order_type,
+        is_active = excluded.is_active,
+        updated_at = COALESCE(excluded.updated_at, CURRENT_TIMESTAMP);
+      ''',
+      [
+        record.id,
+        record.chapterId,
+        record.orderName,
+        record.normalizedOrderName,
+        record.orderType,
+        record.isActive ? 1 : 0,
+        record.createdAt,
+        record.updatedAt,
+      ],
+    );
+  }
+
+  Future<void> replacePageOrderItems(
+    String pageOrderId,
+    List<PageOrderItemRecord> items,
+  ) async {
+    await transaction(() async {
+      await customStatement(
+        'DELETE FROM page_order_items WHERE page_order_id = ?;',
+        [pageOrderId],
+      );
+      for (final record in items) {
+        await customStatement(
+          '''
+          INSERT INTO page_order_items (
+            page_order_id,
+            page_id,
+            sort_order,
+            is_hidden,
+            added_at
+          )
+          VALUES (?, ?, ?, ?, COALESCE(?, CURRENT_TIMESTAMP));
+          ''',
+          [
+            record.pageOrderId,
+            record.pageId,
+            record.sortOrder,
+            record.isHidden ? 1 : 0,
+            record.addedAt,
+          ],
+        );
+      }
+    });
+  }
+
   Future<UnifiedComicSnapshot?> loadComicSnapshot(String comicId) async {
     final comicRow = await customSelect(
       'SELECT * FROM comics WHERE id = ? LIMIT 1;',
@@ -605,10 +929,97 @@ class UnifiedComicsStore extends GeneratedDatabase {
       ''',
       variables: [Variable<String>(comicId)],
     ).get();
+    final chapterRows = await customSelect(
+      '''
+      SELECT * FROM chapters
+      WHERE comic_id = ?
+      ORDER BY COALESCE(chapter_no, 1000000000) ASC, normalized_title ASC;
+      ''',
+      variables: [Variable<String>(comicId)],
+    ).get();
     return UnifiedComicSnapshot(
       comic: _comicRecordFromRow(comicRow),
       titles: titleRows.map(_comicTitleRecordFromRow).toList(),
       localLibraryItems: localRows.map(_localLibraryItemRecordFromRow).toList(),
+      chapters: chapterRows.map(_chapterRecordFromRow).toList(),
+    );
+  }
+
+  Future<int> countPagesForChapter(String chapterId) async {
+    final rows = await customSelect(
+      'SELECT COUNT(*) AS c FROM pages WHERE chapter_id = ?;',
+      variables: [Variable<String>(chapterId)],
+    ).getSingle();
+    return rows.read<int>('c');
+  }
+
+  Future<PageOrderSummaryRecord> loadPageOrderSummary(String comicId) async {
+    final rows = await customSelect(
+      '''
+      SELECT
+        po.id AS active_order_id,
+        po.order_type AS active_order_type,
+        (
+          SELECT COUNT(*)
+          FROM page_orders po_all
+          JOIN chapters ch_all ON ch_all.id = po_all.chapter_id
+          WHERE ch_all.comic_id = ?
+        ) AS total_orders,
+        (
+          SELECT COUNT(*)
+          FROM pages p
+          JOIN chapters ch ON ch.id = p.chapter_id
+          WHERE ch.comic_id = ?
+        ) AS total_page_count,
+        (
+          SELECT COUNT(*)
+          FROM page_order_items poi
+          JOIN page_orders po_visible ON po_visible.id = poi.page_order_id
+          JOIN chapters ch_visible ON ch_visible.id = po_visible.chapter_id
+          WHERE ch_visible.comic_id = ?
+            AND po_visible.is_active = 1
+            AND poi.is_hidden = 0
+        ) AS visible_page_count
+      FROM page_orders po
+      JOIN chapters ch ON ch.id = po.chapter_id
+      WHERE ch.comic_id = ?
+        AND po.is_active = 1
+      ORDER BY ch.chapter_no ASC, ch.normalized_title ASC
+      LIMIT 1;
+      ''',
+      variables: [
+        Variable<String>(comicId),
+        Variable<String>(comicId),
+        Variable<String>(comicId),
+        Variable<String>(comicId),
+      ],
+    ).getSingleOrNull();
+    if (rows == null) {
+      final fallback = await customSelect(
+        '''
+        SELECT
+          0 AS total_orders,
+          (
+            SELECT COUNT(*)
+            FROM pages p
+            JOIN chapters ch ON ch.id = p.chapter_id
+            WHERE ch.comic_id = ?
+          ) AS total_page_count
+        ''',
+        variables: [Variable<String>(comicId)],
+      ).getSingle();
+      return PageOrderSummaryRecord(
+        totalOrders: fallback.read<int>('total_orders'),
+        totalPageCount: fallback.read<int>('total_page_count'),
+        visiblePageCount: fallback.read<int>('total_page_count'),
+      );
+    }
+    return PageOrderSummaryRecord(
+      activeOrderId: rows.read<String?>('active_order_id'),
+      activeOrderType: rows.read<String?>('active_order_type'),
+      totalOrders: rows.read<int>('total_orders'),
+      totalPageCount: rows.read<int>('total_page_count'),
+      visiblePageCount: rows.read<int>('visible_page_count'),
     );
   }
 
@@ -646,6 +1057,18 @@ class UnifiedComicsStore extends GeneratedDatabase {
       totalBytes: row.read<int>('total_bytes'),
       contentFingerprint: row.read<String?>('content_fingerprint'),
       importedAt: row.read<String>('imported_at'),
+      updatedAt: row.read<String>('updated_at'),
+    );
+  }
+
+  ChapterRecord _chapterRecordFromRow(QueryRow row) {
+    return ChapterRecord(
+      id: row.read<String>('id'),
+      comicId: row.read<String>('comic_id'),
+      chapterNo: row.read<double?>('chapter_no'),
+      title: row.read<String>('title'),
+      normalizedTitle: row.read<String>('normalized_title'),
+      createdAt: row.read<String>('created_at'),
       updatedAt: row.read<String>('updated_at'),
     );
   }

@@ -1,3 +1,5 @@
+import 'package:venera/foundation/db/unified_comics_store.dart';
+
 import 'models.dart';
 
 typedef ComicDetailLoader =
@@ -49,5 +51,72 @@ class StubComicDetailRepository implements ComicDetailRepository {
       title: comicId,
       libraryState: missingState,
     );
+  }
+}
+
+class UnifiedLocalComicDetailRepository implements ComicDetailRepository {
+  const UnifiedLocalComicDetailRepository({required this.store});
+
+  final UnifiedComicsStore store;
+
+  @override
+  Future<ComicDetailViewModel?> getComicDetail(String comicId) async {
+    final snapshot = await store.loadComicSnapshot(comicId);
+    if (snapshot == null || snapshot.localLibraryItems.isEmpty) {
+      return null;
+    }
+
+    final chapters = <ChapterVm>[];
+    for (final chapter in snapshot.chapters) {
+      chapters.add(
+        ChapterVm(
+          chapterId: chapter.id,
+          title: chapter.title,
+          chapterNo: chapter.chapterNo,
+          pageCount: await store.countPagesForChapter(chapter.id),
+        ),
+      );
+    }
+
+    final summary = await store.loadPageOrderSummary(comicId);
+    return ComicDetailViewModel(
+      comicId: snapshot.comic.id,
+      title: snapshot.comic.title,
+      coverLocalPath: snapshot.comic.coverLocalPath,
+      libraryState: LibraryState.localOnly,
+      chapters: chapters,
+      pageOrderSummary: PageOrderSummaryVm(
+        activeOrderId: summary.activeOrderId,
+        activeOrderType: _mapPageOrderKind(summary.activeOrderType),
+        totalOrders: summary.totalOrders,
+        totalPageCount: summary.totalPageCount,
+        visiblePageCount: summary.visiblePageCount,
+      ),
+      availableActions: const ComicDetailActions(
+        canContinueReading: true,
+        canStartReading: true,
+        canOpenInNewTab: true,
+        canFavorite: true,
+        canManageUserTags: true,
+        canManagePageOrder: true,
+        canSearchRelatedRemote: true,
+        canLinkRemoteSource: true,
+      ),
+    );
+  }
+}
+
+PageOrderKind? _mapPageOrderKind(String? orderType) {
+  switch (orderType) {
+    case 'source_default':
+      return PageOrderKind.sourceDefault;
+    case 'user_custom':
+      return PageOrderKind.userCustom;
+    case 'imported_folder':
+      return PageOrderKind.importedFolder;
+    case 'temporary_session':
+      return PageOrderKind.temporarySession;
+    default:
+      return null;
   }
 }

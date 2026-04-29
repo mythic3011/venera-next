@@ -29,9 +29,13 @@ void main() {
     expect(
       tables,
       containsAll(<String>[
+        'chapters',
         'comic_titles',
         'comics',
         'local_library_items',
+        'page_order_items',
+        'page_orders',
+        'pages',
         'source_platform_aliases',
         'source_platforms',
       ]),

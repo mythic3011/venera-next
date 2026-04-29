@@ -395,6 +395,10 @@ Minimum target fields:
 
 - migrate local comic truth into `comics`, `local_library_items`, `chapters`,
   `pages`, and source-default `page_orders`
+- this is a one-time breaking import into `venera.db`, not a long-lived
+  compatibility bridge
+- after import completes, runtime reads for migrated local comics come only from
+  `venera.db`
 
 ### PR3: Migrate `history.db`
 
@@ -411,10 +415,13 @@ Minimum target fields:
 - project source/plugin mapping into `source_platforms`,
   `source_platform_aliases`, and `comic_sources`
 
-### PR6: Keep old DBs read-only for one release
+### PR6: Finalize breaking migration contract
 
-- old DBs remain read-only fallback only
-- no writes back to legacy DBs
+- old DBs are import sources only
+- no runtime fallback reads from legacy DBs after migration completes
+- no writes back to legacy DBs at any time in the new fork contract
+- migration failure must fail loudly instead of silently continuing on legacy
+  stores
 
 ### PR7: Export migration report + smoke debug snapshot
 
@@ -437,6 +444,7 @@ Minimum target fields:
 - Page reorder uses `page_orders` / `page_order_items`
 - Migration is idempotent
 - Old DB files are never written after migration
+- Old DB files are not used as runtime fallback after migration
 - Debug snapshot prints active DB path, `comicId`, `localLibraryItemId`,
   `comicSourceId`, `readerTabId`, `pageOrderId`, and `loadMode`
 
@@ -454,6 +462,26 @@ The first repo-grounded implementation slice should be:
 
 This keeps the first patch narrow, testable, and aligned with the corrected
 single-DB authority model instead of reinforcing the current fragmented layout.
+
+## Breaking Change Position
+
+This fork should treat the storage redesign as a deliberate breaking change.
+
+Reasons:
+
+- upstream is archived and no longer an active maintenance channel
+- preserving multi-DB compatibility would make the fork carry the old authority
+  split from day one
+- SQLite schema reshape already requires explicit table-copy migration for
+  complex changes, so pretending this can stay transparent only hides risk
+
+Therefore:
+
+- `local.db`, `history.db`, `local_favorite.db`, and hidden JSON domain state
+  are legacy import inputs only
+- the new contract is `venera.db` as sole domain authority
+- migration/import is explicit, observable, and one-time
+- no dual-write and no legacy fallback mode
 
 ## Non-goals
 

@@ -1,5 +1,8 @@
+import 'dart:io';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:venera/foundation/comic_detail/comic_detail.dart';
+import 'package:venera/foundation/db/unified_comics_store.dart';
 
 void main() {
   test('static repository returns mapped detail for comic id', () async {
@@ -67,6 +70,93 @@ void main() {
       expect(detail.title, 'missing-comic');
       expect(detail.libraryState, LibraryState.unavailable);
       expect(detail.availableActions.hasAnyAction, isFalse);
+    },
+  );
+
+  test(
+    'unified local repository reads canonical store detail surface',
+    () async {
+      final tempDir = Directory.systemTemp.createTempSync(
+        'venera-comic-detail-repo-',
+      );
+      final store = UnifiedComicsStore('${tempDir.path}/data/venera.db');
+      addTearDown(() async {
+        await store.close();
+        if (tempDir.existsSync()) {
+          tempDir.deleteSync(recursive: true);
+        }
+      });
+      await store.init();
+      await store.upsertComic(
+        const ComicRecord(
+          id: 'comic-1',
+          title: 'Canonical Local',
+          normalizedTitle: 'canonical local',
+        ),
+      );
+      await store.insertComicTitle(
+        const ComicTitleRecord(
+          comicId: 'comic-1',
+          title: 'Canonical Local',
+          normalizedTitle: 'canonical local',
+          titleType: 'primary',
+        ),
+      );
+      await store.upsertLocalLibraryItem(
+        const LocalLibraryItemRecord(
+          id: 'local-1',
+          comicId: 'comic-1',
+          storageType: 'user_imported',
+          localRootPath: '/tmp/local-1',
+        ),
+      );
+      await store.upsertChapter(
+        const ChapterRecord(
+          id: 'chapter-1',
+          comicId: 'comic-1',
+          chapterNo: 1,
+          title: 'Imported',
+          normalizedTitle: 'imported',
+        ),
+      );
+      await store.upsertPage(
+        const PageRecord(
+          id: 'page-1',
+          chapterId: 'chapter-1',
+          pageIndex: 0,
+          localPath: '/tmp/local-1/1.jpg',
+        ),
+      );
+      await store.upsertPageOrder(
+        const PageOrderRecord(
+          id: 'order-1',
+          chapterId: 'chapter-1',
+          orderName: 'Source Default',
+          normalizedOrderName: 'source default',
+          orderType: 'source_default',
+          isActive: true,
+        ),
+      );
+      await store.replacePageOrderItems('order-1', const [
+        PageOrderItemRecord(
+          pageOrderId: 'order-1',
+          pageId: 'page-1',
+          sortOrder: 0,
+        ),
+      ]);
+
+      final repository = UnifiedLocalComicDetailRepository(store: store);
+      final detail = await repository.getComicDetail('comic-1');
+
+      expect(detail, isNotNull);
+      expect(detail!.libraryState, LibraryState.localOnly);
+      expect(detail.chapters.single.title, 'Imported');
+      expect(
+        detail.pageOrderSummary.activeOrderType,
+        PageOrderKind.sourceDefault,
+      );
+      expect(detail.pageOrderSummary.totalPageCount, 1);
+      expect(detail.availableActions.canManagePageOrder, isTrue);
     },
   );
 }
