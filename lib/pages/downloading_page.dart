@@ -3,8 +3,8 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:venera/components/components.dart';
 import 'package:venera/foundation/app.dart';
+import 'package:venera/foundation/download/download_queue_repository.dart';
 import 'package:venera/foundation/image_provider/cached_image.dart';
-import 'package:venera/foundation/local.dart';
 import 'package:venera/network/download.dart';
 import 'package:venera/utils/io.dart';
 import 'package:venera/utils/translations.dart';
@@ -19,6 +19,7 @@ class DownloadingPage extends StatefulWidget {
 class _DownloadingPageState extends State<DownloadingPage> {
   DownloadTask? firstTask;
   bool _isReady = false;
+  final downloadQueue = const DownloadQueueRepository();
 
   @override
   void didChangeDependencies() {
@@ -26,7 +27,7 @@ class _DownloadingPageState extends State<DownloadingPage> {
     if (!_isReady) {
       return;
     }
-    firstTask = LocalManager().downloadingTasks.firstOrNull;
+    firstTask = downloadQueue.firstTask;
     firstTask?.addListener(update);
   }
 
@@ -37,12 +38,12 @@ class _DownloadingPageState extends State<DownloadingPage> {
   }
 
   Future<void> _initialize() async {
-    await LocalManager().ensureInitialized();
+    await downloadQueue.ensureInitialized();
     if (!mounted) {
       return;
     }
-    LocalManager().addListener(update);
-    firstTask = LocalManager().downloadingTasks.firstOrNull;
+    downloadQueue.addListener(update);
+    firstTask = downloadQueue.firstTask;
     firstTask?.addListener(update);
     setState(() {
       _isReady = true;
@@ -52,14 +53,14 @@ class _DownloadingPageState extends State<DownloadingPage> {
   @override
   void dispose() {
     if (_isReady) {
-      LocalManager().removeListener(update);
+      downloadQueue.removeListener(update);
     }
     firstTask?.removeListener(update);
     super.dispose();
   }
 
   void update() {
-    var currentFirstTask = LocalManager().downloadingTasks.firstOrNull;
+    var currentFirstTask = downloadQueue.firstTask;
     if (currentFirstTask != firstTask) {
       firstTask?.removeListener(update);
       firstTask = currentFirstTask;
@@ -78,7 +79,7 @@ class _DownloadingPageState extends State<DownloadingPage> {
     return PopUpWidgetScaffold(
       title: "",
       body: ListView.builder(
-        itemCount: LocalManager().downloadingTasks.length + 1,
+        itemCount: downloadQueue.tasks.length + 1,
         itemBuilder: (BuildContext context, int i) {
           if (i == 0) {
             return buildTop();
@@ -86,8 +87,8 @@ class _DownloadingPageState extends State<DownloadingPage> {
           i--;
 
           return _DownloadTaskTile(
-            key: ValueKey(LocalManager().downloadingTasks[i]),
-            task: LocalManager().downloadingTasks[i],
+            key: ValueKey(downloadQueue.tasks[i]),
+            task: downloadQueue.tasks[i],
           );
         },
       ),
@@ -96,10 +97,10 @@ class _DownloadingPageState extends State<DownloadingPage> {
 
   Widget buildTop() {
     int speed = 0;
-    if (LocalManager().downloadingTasks.isNotEmpty) {
-      speed = LocalManager().downloadingTasks.first.speed;
+    if (downloadQueue.tasks.isNotEmpty) {
+      speed = downloadQueue.tasks.first.speed;
     }
-    var first = LocalManager().downloadingTasks.firstOrNull;
+    var first = downloadQueue.firstTask;
     return Container(
       height: 48,
       decoration: BoxDecoration(
@@ -162,6 +163,7 @@ class _DownloadTaskTile extends StatefulWidget {
 
 class _DownloadTaskTileState extends State<_DownloadTaskTile> {
   late DownloadTask task;
+  final downloadQueue = const DownloadQueueRepository();
 
   @override
   void initState() {
@@ -240,7 +242,7 @@ class _DownloadTaskTileState extends State<_DownloadTaskTile> {
                           icon: Icons.vertical_align_top,
                           text: "Move To First".tl,
                           onClick: () {
-                            LocalManager().moveToFirst(widget.task);
+                            downloadQueue.moveToFirst(widget.task);
                           },
                         ),
                       ],
