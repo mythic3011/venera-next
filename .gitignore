@@ -56,3 +56,4 @@ macos/Podfile.lock
 macos/*.xcodeproj/
 macos/Runner.xcodeproj/xcshareddata/xcschemes/Runner.xcscheme
 result/*.dmg
+.worktrees/
