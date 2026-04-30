@@ -420,9 +420,15 @@ class _ComicSourceListState extends State<_ComicSourceList> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                ListTile(
-                  leading: Icon(Icons.source_outlined),
-                  title: Text("Repo URL".tl),
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 8, 16, 10),
+                  child: Row(
+                    children: [
+                      const Icon(Icons.source_outlined),
+                      const SizedBox(width: 12),
+                      Text("Repo URL".tl, style: ts.s16),
+                    ],
+                  ),
                 ),
                 TextField(
                   controller: controller,

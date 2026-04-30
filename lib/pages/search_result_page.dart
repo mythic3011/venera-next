@@ -349,18 +349,24 @@ class _SuggestionsState extends State<_Suggestions> {
 
     return Column(
       children: [
-        ListTile(
-          leading: const Icon(Icons.hub_outlined),
-          title: Text("Suggestions".tl),
-          trailing: Tooltip(
-            message: "Clear".tl,
-            child: IconButton(
-              icon: const Icon(Icons.clear_all),
-              onPressed: () {
-                widget.controller.suggestions.clear();
-                widget.controller.remove();
-              },
-            ),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 8, 16, 10),
+          child: Row(
+            children: [
+              const Icon(Icons.hub_outlined),
+              const SizedBox(width: 12),
+              Expanded(child: Text("Suggestions".tl, style: ts.s16)),
+              Tooltip(
+                message: "Clear".tl,
+                child: IconButton(
+                  icon: const Icon(Icons.clear_all),
+                  onPressed: () {
+                    widget.controller.suggestions.clear();
+                    widget.controller.remove();
+                  },
+                ),
+              ),
+            ],
           ),
         ),
         Expanded(
