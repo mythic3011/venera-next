@@ -488,6 +488,28 @@ class ReaderTabRecord {
   final String? updatedAt;
 }
 
+class ReaderActivityRecord {
+  const ReaderActivityRecord({
+    required this.comicId,
+    required this.title,
+    required this.subtitle,
+    required this.cover,
+    required this.sourceRefJson,
+    required this.chapterId,
+    required this.pageIndex,
+    required this.lastReadAt,
+  });
+
+  final String comicId;
+  final String title;
+  final String subtitle;
+  final String cover;
+  final String sourceRefJson;
+  final String chapterId;
+  final int pageIndex;
+  final String lastReadAt;
+}
+
 class RemoteMatchCandidateRecord {
   const RemoteMatchCandidateRecord({
     required this.id,
@@ -2163,6 +2185,61 @@ class UnifiedComicsStore extends GeneratedDatabase {
     return customStatement('DELETE FROM reader_tabs WHERE id = ?;', [tabId]);
   }
 
+  Future<List<ReaderActivityRecord>> loadReaderActivity({int? limit}) async {
+    final baseQuery = '''
+      SELECT
+        rs.comic_id,
+        c.title,
+        '' AS subtitle,
+        COALESCE(c.cover_local_path, '') AS cover,
+        rt.source_ref_json,
+        rt.chapter_id,
+        rt.page_index,
+        COALESCE(rs.updated_at, rt.updated_at, rs.created_at) AS last_read_at
+      FROM reader_sessions rs
+      JOIN reader_tabs rt
+        ON rt.session_id = rs.id
+       AND rt.id = rs.active_tab_id
+      JOIN comics c
+        ON c.id = rs.comic_id
+      ORDER BY rs.updated_at DESC,
+               rt.updated_at DESC,
+               rs.created_at DESC,
+               rs.id ASC
+    ''';
+    final rows = limit == null
+        ? await customSelect(baseQuery).get()
+        : await customSelect(
+            '$baseQuery LIMIT ?;',
+            variables: [Variable<int>(limit)],
+          ).get();
+    return rows.map(_readerActivityRecordFromRow).toList();
+  }
+
+  Future<int> countReaderActivity() async {
+    final row = await customSelect(
+      '''
+      SELECT COUNT(*) AS c
+      FROM reader_sessions rs
+      JOIN reader_tabs rt
+        ON rt.session_id = rs.id
+       AND rt.id = rs.active_tab_id;
+      ''',
+    ).getSingle();
+    return row.read<int>('c');
+  }
+
+  Future<void> deleteReaderActivity(String comicId) {
+    return customStatement(
+      'DELETE FROM reader_sessions WHERE comic_id = ?;',
+      [comicId],
+    );
+  }
+
+  Future<void> clearReaderActivity() {
+    return customStatement('DELETE FROM reader_sessions;');
+  }
+
   Future<void> upsertRemoteMatchCandidate(RemoteMatchCandidateRecord record) {
     return customStatement(
       '''
@@ -2641,6 +2718,19 @@ class UnifiedComicsStore extends GeneratedDatabase {
       pageOrderId: row.read<String?>('page_order_id'),
       createdAt: row.read<String>('created_at'),
       updatedAt: row.read<String>('updated_at'),
+    );
+  }
+
+  ReaderActivityRecord _readerActivityRecordFromRow(QueryRow row) {
+    return ReaderActivityRecord(
+      comicId: row.read<String>('comic_id'),
+      title: row.read<String>('title'),
+      subtitle: row.read<String>('subtitle'),
+      cover: row.read<String>('cover'),
+      sourceRefJson: row.read<String>('source_ref_json'),
+      chapterId: row.read<String>('chapter_id'),
+      pageIndex: row.read<int>('page_index'),
+      lastReadAt: row.read<String>('last_read_at'),
     );
   }
 
