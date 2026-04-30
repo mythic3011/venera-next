@@ -60,6 +60,7 @@ class ImageFavoriteRecord {
 }
 
 class HistoryStore extends GeneratedDatabase {
+  // Legacy DB access. Do not call from reader/home/history runtime paths.
   HistoryStore(String dbPath)
     : super(NativeDatabase.createInBackground(File(dbPath)));
 

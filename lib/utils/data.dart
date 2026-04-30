@@ -26,15 +26,16 @@ Future<File> exportAppData([bool sync = true]) async {
   }
   await Isolate.run(() {
     var zipFile = ZipFile.open(cacheFilePath);
-    var historyFile = FilePath.join(dataPath, "history.db");
-    var localFavoriteFile = FilePath.join(dataPath, "local_favorite.db");
+    // Legacy DB export only. Do not use these files as runtime authority.
+    var legacyHistoryDb = FilePath.join(dataPath, "history.db");
+    var legacyFavoritesDb = FilePath.join(dataPath, "local_favorite.db");
     var appdata = FilePath.join(
       dataPath,
       sync ? "syncdata.json" : "appdata.json",
     );
     var cookies = FilePath.join(dataPath, "cookie.db");
-    zipFile.addFile("history.db", historyFile);
-    zipFile.addFile("local_favorite.db", localFavoriteFile);
+    zipFile.addFile("history.db", legacyHistoryDb);
+    zipFile.addFile("local_favorite.db", legacyFavoritesDb);
     zipFile.addFile("appdata.json", appdata);
     zipFile.addFile("cookie.db", cookies);
     for (var file in Directory(
@@ -60,8 +61,9 @@ Future<void> importAppData(File file, [bool checkVersion = false]) async {
     await Isolate.run(() {
       ZipFile.openAndExtract(file.path, cacheDirPath);
     });
-    var historyFile = cacheDir.joinFile("history.db");
-    var localFavoriteFile = cacheDir.joinFile("local_favorite.db");
+    // Legacy DB restore only. Do not call from reader/home/history runtime paths.
+    var legacyHistoryDb = cacheDir.joinFile("history.db");
+    var legacyFavoritesDb = cacheDir.joinFile("local_favorite.db");
     var appdataFile = cacheDir.joinFile("appdata.json");
     var cookieFile = cacheDir.joinFile("cookie.db");
     if (checkVersion && appdataFile.existsSync()) {
@@ -71,18 +73,18 @@ Future<void> importAppData(File file, [bool checkVersion = false]) async {
         return;
       }
     }
-    if (await historyFile.exists()) {
+    if (await legacyHistoryDb.exists()) {
       await HistoryManager().close();
       File(FilePath.join(App.dataPath, "history.db")).deleteIfExistsSync();
-      historyFile.renameSync(FilePath.join(App.dataPath, "history.db"));
+      legacyHistoryDb.renameSync(FilePath.join(App.dataPath, "history.db"));
       HistoryManager().init();
     }
-    if (await localFavoriteFile.exists()) {
+    if (await legacyFavoritesDb.exists()) {
       await LocalFavoritesManager().close();
       File(
         FilePath.join(App.dataPath, "local_favorite.db"),
       ).deleteIfExistsSync();
-      localFavoriteFile.renameSync(
+      legacyFavoritesDb.renameSync(
         FilePath.join(App.dataPath, "local_favorite.db"),
       );
       LocalFavoritesManager().init();
@@ -134,9 +136,9 @@ Future<void> importPicaData(File file) async {
     await Isolate.run(() {
       ZipFile.openAndExtract(file.path, cacheDirPath);
     });
-    var localFavoriteFile = cacheDir.joinFile("local_favorite.db");
-    if (localFavoriteFile.existsSync()) {
-      var db = sqlite3.open(localFavoriteFile.path);
+    var legacyFavoritesDb = cacheDir.joinFile("local_favorite.db");
+    if (legacyFavoritesDb.existsSync()) {
+      var db = sqlite3.open(legacyFavoritesDb.path);
       try {
         var folderNames = db
             .select("SELECT name FROM sqlite_master WHERE type='table';")
@@ -193,9 +195,9 @@ Future<void> importPicaData(File file) async {
         db.dispose();
       }
     }
-    var historyFile = cacheDir.joinFile("history.db");
-    if (historyFile.existsSync()) {
-      var db = sqlite3.open(historyFile.path);
+    var legacyHistoryDb = cacheDir.joinFile("history.db");
+    if (legacyHistoryDb.existsSync()) {
+      var db = sqlite3.open(legacyHistoryDb.path);
       try {
         for (var comic in db.select("SELECT * FROM history;")) {
           await HistoryManager().addHistory(

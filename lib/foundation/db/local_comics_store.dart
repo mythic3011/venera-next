@@ -31,6 +31,7 @@ class LocalComicRecord {
 }
 
 class LocalComicsStore extends GeneratedDatabase {
+  // Legacy DB access. Do not call from reader/home/history runtime paths.
   LocalComicsStore(String dbPath)
     : super(NativeDatabase.createInBackground(File(dbPath)));
 

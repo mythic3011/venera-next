@@ -27,6 +27,7 @@ class FavoriteComicRecord {
 class FavoritesStore extends GeneratedDatabase {
   final Database _syncDb;
 
+  // Legacy DB access. Do not call from reader/home/history runtime paths.
   FavoritesStore(String dbPath)
     : _syncDb = sqlite3.open(dbPath),
       super(NativeDatabase.createInBackground(File(dbPath)));
