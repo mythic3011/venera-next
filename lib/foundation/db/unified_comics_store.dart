@@ -1117,9 +1117,64 @@ class UnifiedComicsStore extends GeneratedDatabase {
       comic: _comicRecordFromRow(comicRow),
       titles: titleRows.map(_comicTitleRecordFromRow).toList(),
       localLibraryItems: localRows.map(_localLibraryItemRecordFromRow).toList(),
-      favorite: favoriteRow == null ? null : _favoriteRecordFromRow(favoriteRow),
+      favorite: favoriteRow == null
+          ? null
+          : _favoriteRecordFromRow(favoriteRow),
       chapters: chapterRows.map(_chapterRecordFromRow).toList(),
     );
+  }
+
+  Future<LocalLibraryItemRecord?> loadPrimaryLocalLibraryItem(
+    String comicId,
+  ) async {
+    final row = await customSelect(
+      '''
+      SELECT * FROM local_library_items
+      WHERE comic_id = ?
+      ORDER BY updated_at DESC, imported_at DESC, id DESC
+      LIMIT 1;
+      ''',
+      variables: [Variable<String>(comicId)],
+    ).getSingleOrNull();
+    if (row == null) {
+      return null;
+    }
+    return _localLibraryItemRecordFromRow(row);
+  }
+
+  Future<PageOrderRecord?> loadActivePageOrderForChapter(
+    String chapterId,
+  ) async {
+    final row = await customSelect(
+      '''
+      SELECT * FROM page_orders
+      WHERE chapter_id = ?
+        AND is_active = 1
+      LIMIT 1;
+      ''',
+      variables: [Variable<String>(chapterId)],
+    ).getSingleOrNull();
+    if (row == null) {
+      return null;
+    }
+    return _pageOrderRecordFromRow(row);
+  }
+
+  Future<List<PageRecord>> loadActivePageOrderPages(String chapterId) async {
+    final rows = await customSelect(
+      '''
+      SELECT p.*
+      FROM page_orders po
+      JOIN page_order_items poi ON poi.page_order_id = po.id
+      JOIN pages p ON p.id = poi.page_id
+      WHERE po.chapter_id = ?
+        AND po.is_active = 1
+        AND poi.is_hidden = 0
+      ORDER BY poi.sort_order ASC;
+      ''',
+      variables: [Variable<String>(chapterId)],
+    ).get();
+    return rows.map(_pageRecordFromRow).toList();
   }
 
   Future<bool> isComicFavorited(String comicId) async {
@@ -1281,6 +1336,33 @@ class UnifiedComicsStore extends GeneratedDatabase {
       chapterNo: row.read<double?>('chapter_no'),
       title: row.read<String>('title'),
       normalizedTitle: row.read<String>('normalized_title'),
+      createdAt: row.read<String>('created_at'),
+      updatedAt: row.read<String>('updated_at'),
+    );
+  }
+
+  PageRecord _pageRecordFromRow(QueryRow row) {
+    return PageRecord(
+      id: row.read<String>('id'),
+      chapterId: row.read<String>('chapter_id'),
+      pageIndex: row.read<int>('page_index'),
+      localPath: row.read<String>('local_path'),
+      contentHash: row.read<String?>('content_hash'),
+      width: row.read<int?>('width'),
+      height: row.read<int?>('height'),
+      bytes: row.read<int?>('bytes'),
+      createdAt: row.read<String>('created_at'),
+    );
+  }
+
+  PageOrderRecord _pageOrderRecordFromRow(QueryRow row) {
+    return PageOrderRecord(
+      id: row.read<String>('id'),
+      chapterId: row.read<String>('chapter_id'),
+      orderName: row.read<String>('order_name'),
+      normalizedOrderName: row.read<String>('normalized_order_name'),
+      orderType: row.read<String>('order_type'),
+      isActive: row.read<int>('is_active') == 1,
       createdAt: row.read<String>('created_at'),
       updatedAt: row.read<String>('updated_at'),
     );
