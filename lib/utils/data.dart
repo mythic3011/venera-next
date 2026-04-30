@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:isolate';
 
+import 'package:flutter/foundation.dart';
 import 'package:sqlite3/sqlite3.dart';
 import 'package:venera/foundation/app.dart';
 import 'package:venera/foundation/appdata.dart';
@@ -15,6 +16,30 @@ import 'package:venera/utils/ext.dart';
 import 'package:zip_flutter/zip_flutter.dart';
 
 import 'io.dart';
+
+typedef _ArchiveExtractor = Future<void> Function(
+  String archivePath,
+  String outputDir,
+);
+
+_ArchiveExtractor _archiveExtractor = _defaultArchiveExtractor;
+
+Future<void> _defaultArchiveExtractor(String archivePath, String outputDir) {
+  return Isolate.run(() {
+    ZipFile.openAndExtract(archivePath, outputDir);
+  });
+}
+
+Future<void> _extractArchive(String archivePath, String outputDir) {
+  return _archiveExtractor(archivePath, outputDir);
+}
+
+@visibleForTesting
+void setArchiveExtractorForTest(
+  Future<void> Function(String archivePath, String outputDir)? extractor,
+) {
+  _archiveExtractor = extractor ?? _defaultArchiveExtractor;
+}
 
 Future<File> exportAppData([bool sync = true]) async {
   var time = DateTime.now().millisecondsSinceEpoch ~/ 1000;
@@ -58,9 +83,7 @@ Future<void> importAppData(File file, [bool checkVersion = false]) async {
   }
   cacheDir.createSync();
   try {
-    await Isolate.run(() {
-      ZipFile.openAndExtract(file.path, cacheDirPath);
-    });
+    await _extractArchive(file.path, cacheDirPath);
     // Legacy DB restore only. Do not call from reader/home/history runtime paths.
     var legacyHistoryDb = cacheDir.joinFile("history.db");
     var legacyFavoritesDb = cacheDir.joinFile("local_favorite.db");
@@ -73,21 +96,20 @@ Future<void> importAppData(File file, [bool checkVersion = false]) async {
         return;
       }
     }
+    // Runtime authority boundary:
+    // Do not restore legacy runtime DB files into App.dataPath.
+    // Legacy DB imports must go through explicit migration/import entrypoints.
     if (await legacyHistoryDb.exists()) {
-      await HistoryManager().close();
-      File(FilePath.join(App.dataPath, "history.db")).deleteIfExistsSync();
-      legacyHistoryDb.renameSync(FilePath.join(App.dataPath, "history.db"));
-      HistoryManager().init();
+      Log.warning(
+        "Import Data",
+        "Skipped restoring legacy history.db into runtime path.",
+      );
     }
     if (await legacyFavoritesDb.exists()) {
-      await LocalFavoritesManager().close();
-      File(
-        FilePath.join(App.dataPath, "local_favorite.db"),
-      ).deleteIfExistsSync();
-      legacyFavoritesDb.renameSync(
-        FilePath.join(App.dataPath, "local_favorite.db"),
+      Log.warning(
+        "Import Data",
+        "Skipped restoring legacy local_favorite.db into runtime path.",
       );
-      LocalFavoritesManager().init();
     }
     if (await appdataFile.exists()) {
       var content = await appdataFile.readAsString();
@@ -133,9 +155,7 @@ Future<void> importPicaData(File file) async {
   }
   cacheDir.createSync();
   try {
-    await Isolate.run(() {
-      ZipFile.openAndExtract(file.path, cacheDirPath);
-    });
+    await _extractArchive(file.path, cacheDirPath);
     var legacyFavoritesDb = cacheDir.joinFile("local_favorite.db");
     if (legacyFavoritesDb.existsSync()) {
       var db = sqlite3.open(legacyFavoritesDb.path);

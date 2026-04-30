@@ -53,13 +53,16 @@ class _FollowUpdatesWidgetState
   }
 
   Future<void> _initialize() async {
-    await LocalFavoritesManager().init();
     if (!mounted) {
       return;
     }
     setState(() {
       _isReady = true;
-      getCount();
+      if (LocalFavoritesManager().isInitialized) {
+        getCount();
+      } else {
+        _count = 0;
+      }
     });
   }
 
