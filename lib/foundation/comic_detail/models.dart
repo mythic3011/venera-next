@@ -1,3 +1,5 @@
+import 'package:venera/foundation/source_ref.dart';
+
 enum LibraryState {
   localOnly,
   remoteOnly,
@@ -92,7 +94,10 @@ class ReaderTabVm {
   final String? title;
   final String? currentChapterId;
   final int currentPageIndex;
+  final SourceRef sourceRef;
   final ReaderTabLoadMode loadMode;
+  final String? pageOrderId;
+  final bool isActive;
   final DateTime? updatedAt;
 
   const ReaderTabVm({
@@ -100,7 +105,10 @@ class ReaderTabVm {
     this.title,
     this.currentChapterId,
     this.currentPageIndex = 0,
+    required this.sourceRef,
     required this.loadMode,
+    this.pageOrderId,
+    this.isActive = false,
     this.updatedAt,
   });
 }

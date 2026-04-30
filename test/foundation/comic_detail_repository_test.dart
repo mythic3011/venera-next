@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
@@ -5,6 +6,7 @@ import 'package:venera/foundation/comic_source/comic_source.dart';
 import 'package:venera/foundation/comic_detail/comic_detail.dart';
 import 'package:venera/foundation/db/unified_comics_store.dart';
 import 'package:venera/foundation/res.dart';
+import 'package:venera/foundation/source_ref.dart';
 import 'package:venera/foundation/source_identity/source_identity.dart';
 import 'package:venera/pages/comic_details_page/comic_page.dart';
 
@@ -253,6 +255,132 @@ void main() {
   );
 
   test(
+    'canonical session tabs populate detail and win over legacy history ordering',
+    () async {
+      final tempDir = Directory.systemTemp.createTempSync(
+        'venera-comic-detail-repo-tabs-',
+      );
+      final store = UnifiedComicsStore('${tempDir.path}/data/venera.db');
+      addTearDown(() async {
+        await store.close();
+        if (tempDir.existsSync()) {
+          tempDir.deleteSync(recursive: true);
+        }
+      });
+      await store.init();
+      await store.upsertComic(
+        const ComicRecord(
+          id: 'comic-tabs',
+          title: 'Tabbed Comic',
+          normalizedTitle: 'tabbed comic',
+        ),
+      );
+      await store.upsertLocalLibraryItem(
+        const LocalLibraryItemRecord(
+          id: 'local-tabs',
+          comicId: 'comic-tabs',
+          storageType: 'downloaded',
+          localRootPath: '/tmp/comic-tabs',
+        ),
+      );
+      await store.upsertChapter(
+        const ChapterRecord(
+          id: 'chapter-1',
+          comicId: 'comic-tabs',
+          chapterNo: 1,
+          title: 'Chapter 1',
+          normalizedTitle: 'chapter 1',
+        ),
+      );
+      await store.upsertChapter(
+        const ChapterRecord(
+          id: 'chapter-2',
+          comicId: 'comic-tabs',
+          chapterNo: 2,
+          title: 'Chapter 2',
+          normalizedTitle: 'chapter 2',
+        ),
+      );
+      await store.upsertHistoryEvent(
+        const HistoryEventRecord(
+          id: 'history-tabs',
+          comicId: 'comic-tabs',
+          sourceTypeValue: 0,
+          sourceKey: 'local',
+          title: 'Tabbed Comic',
+          subtitle: '',
+          cover: '',
+          eventTime: '2026-04-30T12:00:00.000Z',
+          chapterIndex: 1,
+          pageIndex: 1,
+          readEpisode: '1',
+        ),
+      );
+      await store.upsertReaderSession(
+        const ReaderSessionRecord(id: 'session-tabs', comicId: 'comic-tabs'),
+      );
+      await store.upsertReaderTab(
+        ReaderTabRecord(
+          id: 'tab-local',
+          sessionId: 'session-tabs',
+          comicId: 'comic-tabs',
+          chapterId: 'chapter-1',
+          pageIndex: 3,
+          sourceRefJson: jsonEncode(
+            SourceRef.fromLegacyLocal(
+              localType: 'local',
+              localComicId: 'comic-tabs',
+              chapterId: 'chapter-1',
+            ).toJson(),
+          ),
+          updatedAt: '2026-04-30T10:00:00.000Z',
+        ),
+      );
+      await store.upsertReaderTab(
+        ReaderTabRecord(
+          id: 'tab-remote',
+          sessionId: 'session-tabs',
+          comicId: 'comic-tabs',
+          chapterId: 'chapter-2',
+          pageIndex: 7,
+          sourceRefJson: jsonEncode(
+            SourceRef.fromLegacyRemote(
+              sourceKey: 'copymanga',
+              comicId: 'comic-tabs',
+              chapterId: 'chapter-2',
+            ).toJson(),
+          ),
+          pageOrderId: 'order-2',
+          updatedAt: '2026-04-30T11:00:00.000Z',
+        ),
+      );
+      await store.setReaderSessionActiveTab(
+        sessionId: 'session-tabs',
+        activeTabId: 'tab-remote',
+      );
+
+      final repository = UnifiedCanonicalComicDetailRepository(store: store);
+      final detail = await repository.getComicDetail('comic-tabs');
+
+      expect(detail, isNotNull);
+      expect(detail!.readerTabs, hasLength(2));
+      expect(detail.readerTabs.map((tab) => tab.tabId), [
+        'tab-remote',
+        'tab-local',
+      ]);
+      expect(detail.readerTabs.first.isActive, isTrue);
+      expect(detail.readerTabs.first.currentChapterId, 'chapter-2');
+      expect(detail.readerTabs.first.currentPageIndex, 7);
+      expect(detail.readerTabs.first.loadMode, ReaderTabLoadMode.remoteSource);
+      expect(detail.readerTabs.first.sourceRef.params['chapterId'], 'chapter-2');
+      expect(detail.readerTabs.first.pageOrderId, 'order-2');
+      expect(detail.availableActions.canContinueReading, isTrue);
+      expect(detail.chapters.first.lastReadAt, isNotNull);
+      expect(detail.chapters[1].lastReadAt, isNull);
+    },
+  );
+
+  test(
     'unified local repository returns not-linked local comic when provenance is absent',
     () async {
       final tempDir = Directory.systemTemp.createTempSync(
@@ -467,6 +595,258 @@ void main() {
       expect(detail.availableActions.canViewSource, isTrue);
     },
   );
+
+  test('pending remote match candidate stays separate from primary source', () async {
+    final tempDir = Directory.systemTemp.createTempSync(
+      'venera-comic-detail-repo-candidate-',
+    );
+    final store = UnifiedComicsStore('${tempDir.path}/data/venera.db');
+    addTearDown(() async {
+      await store.close();
+      if (tempDir.existsSync()) {
+        tempDir.deleteSync(recursive: true);
+      }
+    });
+    await store.init();
+    await store.upsertComic(
+      const ComicRecord(
+        id: 'candidate-comic',
+        title: 'Candidate Comic',
+        normalizedTitle: 'candidate comic',
+      ),
+    );
+    await store.upsertSourcePlatform(
+      const SourcePlatformRecord(
+        id: 'copymanga',
+        canonicalKey: 'copymanga',
+        displayName: 'CopyManga',
+        kind: 'remote',
+      ),
+    );
+    await RemoteMatchRepository(store: store).upsertCandidate(
+      const RemoteMatchCandidateRecord(
+        id: 'candidate-1',
+        comicId: 'candidate-comic',
+        sourcePlatformId: 'copymanga',
+        sourceComicId: 'remote-1',
+        sourceUrl: 'https://example.com/comic/remote-1',
+        sourceTitle: 'Remote Pending',
+        confidence: 0.91,
+        metadataJson: '{}',
+        status: 'pending',
+      ),
+    );
+
+    final repository = UnifiedCanonicalComicDetailRepository(store: store);
+    final detail = await repository.getComicDetail('candidate-comic');
+    final candidates = await RemoteMatchRepository(store: store).listCandidates(
+      'candidate-comic',
+    );
+
+    expect(detail, isNotNull);
+    expect(detail!.primarySource, isNull);
+    expect(candidates.single.status, 'pending');
+    expect(await store.loadComicSourceLinks('candidate-comic'), isEmpty);
+  });
+
+  test('accepting a candidate creates a primary source link when none exists', () async {
+    final tempDir = Directory.systemTemp.createTempSync(
+      'venera-comic-detail-repo-candidate-accept-',
+    );
+    final store = UnifiedComicsStore('${tempDir.path}/data/venera.db');
+    addTearDown(() async {
+      await store.close();
+      if (tempDir.existsSync()) {
+        tempDir.deleteSync(recursive: true);
+      }
+    });
+    await store.init();
+    await store.upsertComic(
+      const ComicRecord(
+        id: 'candidate-comic-accept',
+        title: 'Candidate Comic Accept',
+        normalizedTitle: 'candidate comic accept',
+      ),
+    );
+    await store.upsertSourcePlatform(
+      const SourcePlatformRecord(
+        id: 'copymanga',
+        canonicalKey: 'copymanga',
+        displayName: 'CopyManga',
+        kind: 'remote',
+      ),
+    );
+    final remoteMatches = RemoteMatchRepository(store: store);
+    await remoteMatches.upsertCandidate(
+      const RemoteMatchCandidateRecord(
+        id: 'candidate-accept-1',
+        comicId: 'candidate-comic-accept',
+        sourcePlatformId: 'copymanga',
+        sourceComicId: 'remote-2',
+        sourceUrl: 'https://example.com/comic/remote-2',
+        sourceTitle: 'Remote Accepted',
+        confidence: 0.97,
+        metadataJson:
+            '{"downloaded_at":"2026-04-30T10:00:00.000Z","last_verified_at":"2026-04-30T12:00:00.000Z"}',
+        status: 'pending',
+      ),
+    );
+
+    await remoteMatches.acceptCandidate(
+      comicId: 'candidate-comic-accept',
+      candidateId: 'candidate-accept-1',
+    );
+
+    final links = await store.loadComicSourceLinks('candidate-comic-accept');
+    final candidates = await remoteMatches.listCandidates('candidate-comic-accept');
+
+    expect(links, hasLength(1));
+    expect(links.single.id, buildPromotedComicSourceLinkId(
+      comicId: 'candidate-comic-accept',
+      sourcePlatformId: 'copymanga',
+      sourceComicId: 'remote-2',
+    ));
+    expect(links.single.isPrimary, isTrue);
+    expect(links.single.sourceTitle, 'Remote Accepted');
+    expect(links.single.downloadedAt, '2026-04-30T10:00:00.000Z');
+    expect(links.single.lastVerifiedAt, '2026-04-30T12:00:00.000Z');
+    expect(candidates.single.status, 'accepted');
+  });
+
+  test('rejecting a candidate leaves provenance untouched', () async {
+    final tempDir = Directory.systemTemp.createTempSync(
+      'venera-comic-detail-repo-candidate-reject-',
+    );
+    final store = UnifiedComicsStore('${tempDir.path}/data/venera.db');
+    addTearDown(() async {
+      await store.close();
+      if (tempDir.existsSync()) {
+        tempDir.deleteSync(recursive: true);
+      }
+    });
+    await store.init();
+    await store.upsertComic(
+      const ComicRecord(
+        id: 'candidate-comic-reject',
+        title: 'Candidate Comic Reject',
+        normalizedTitle: 'candidate comic reject',
+      ),
+    );
+    await store.upsertSourcePlatform(
+      const SourcePlatformRecord(
+        id: 'copymanga',
+        canonicalKey: 'copymanga',
+        displayName: 'CopyManga',
+        kind: 'remote',
+      ),
+    );
+    final remoteMatches = RemoteMatchRepository(store: store);
+    await remoteMatches.upsertCandidate(
+      const RemoteMatchCandidateRecord(
+        id: 'candidate-reject-1',
+        comicId: 'candidate-comic-reject',
+        sourcePlatformId: 'copymanga',
+        sourceComicId: 'remote-3',
+        sourceUrl: 'https://example.com/comic/remote-3',
+        sourceTitle: 'Remote Reject',
+        confidence: 0.52,
+        metadataJson: '{}',
+        status: 'pending',
+      ),
+    );
+
+    await remoteMatches.rejectCandidate(
+      comicId: 'candidate-comic-reject',
+      candidateId: 'candidate-reject-1',
+    );
+
+    final links = await store.loadComicSourceLinks('candidate-comic-reject');
+    final candidates = await remoteMatches.listCandidates('candidate-comic-reject');
+
+    expect(links, isEmpty);
+    expect(candidates.single.status, 'rejected');
+  });
+
+  test('makePrimary promotion demotes the previous primary in one logical flow', () async {
+    final tempDir = Directory.systemTemp.createTempSync(
+      'venera-comic-detail-repo-candidate-primary-',
+    );
+    final store = UnifiedComicsStore('${tempDir.path}/data/venera.db');
+    addTearDown(() async {
+      await store.close();
+      if (tempDir.existsSync()) {
+        tempDir.deleteSync(recursive: true);
+      }
+    });
+    await store.init();
+    await store.upsertComic(
+      const ComicRecord(
+        id: 'candidate-comic-primary',
+        title: 'Candidate Comic Primary',
+        normalizedTitle: 'candidate comic primary',
+      ),
+    );
+    await store.upsertSourcePlatform(
+      const SourcePlatformRecord(
+        id: 'picacg',
+        canonicalKey: 'picacg',
+        displayName: 'PicACG',
+        kind: 'remote',
+      ),
+    );
+    await store.upsertSourcePlatform(
+      const SourcePlatformRecord(
+        id: 'copymanga',
+        canonicalKey: 'copymanga',
+        displayName: 'CopyManga',
+        kind: 'remote',
+      ),
+    );
+    await store.upsertComicSourceLink(
+      const ComicSourceLinkRecord(
+        id: 'existing-primary',
+        comicId: 'candidate-comic-primary',
+        sourcePlatformId: 'picacg',
+        sourceComicId: 'remote-old',
+        isPrimary: true,
+        sourceTitle: 'Existing Primary',
+      ),
+    );
+    final remoteMatches = RemoteMatchRepository(store: store);
+    await remoteMatches.upsertCandidate(
+      const RemoteMatchCandidateRecord(
+        id: 'candidate-primary-1',
+        comicId: 'candidate-comic-primary',
+        sourcePlatformId: 'copymanga',
+        sourceComicId: 'remote-new',
+        sourceUrl: 'https://example.com/comic/remote-new',
+        sourceTitle: 'Remote New Primary',
+        confidence: 0.99,
+        metadataJson: '{}',
+        status: 'pending',
+      ),
+    );
+
+    await remoteMatches.acceptCandidate(
+      comicId: 'candidate-comic-primary',
+      candidateId: 'candidate-primary-1',
+      makePrimary: true,
+    );
+
+    final links = await store.loadComicSourceLinks('candidate-comic-primary');
+    final primary = await store.loadPrimaryComicSourceLink('candidate-comic-primary');
+
+    expect(links, hasLength(2));
+    expect(primary?.sourceComicId, 'remote-new');
+    expect(
+      links.singleWhere((link) => link.sourceComicId == 'remote-old').isPrimary,
+      isFalse,
+    );
+    expect(
+      links.singleWhere((link) => link.sourceComicId == 'remote-new').isPrimary,
+      isTrue,
+    );
+  });
 
   test(
     'canonical remote repository returns page-ready detail with canonical overlays',

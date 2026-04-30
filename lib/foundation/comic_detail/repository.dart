@@ -2,6 +2,7 @@ import 'package:venera/foundation/comic_source/comic_source.dart';
 import 'package:venera/foundation/db/remote_comic_sync.dart';
 import 'package:venera/foundation/res.dart';
 import 'package:venera/foundation/db/unified_comics_store.dart';
+import 'package:venera/foundation/reader/reader_session_repository.dart';
 
 import 'models.dart';
 
@@ -75,10 +76,14 @@ class UnifiedCanonicalComicDetailRepository implements ComicDetailRepository {
   const UnifiedCanonicalComicDetailRepository({
     required this.store,
     this.requireLocalLibraryItems = false,
-  });
+    ReaderSessionRepository? readerSessions,
+  }) : _readerSessions = readerSessions;
 
   final UnifiedComicsStore store;
   final bool requireLocalLibraryItems;
+  ReaderSessionRepository get readerSessions =>
+      _readerSessions ?? ReaderSessionRepository(store: store);
+  final ReaderSessionRepository? _readerSessions;
 
   @override
   Future<ComicDetailViewModel?> getComicDetail(String comicId) async {
@@ -122,6 +127,7 @@ class UnifiedCanonicalComicDetailRepository implements ComicDetailRepository {
     }
 
     final summary = await store.loadPageOrderSummary(comicId);
+    final readerTabs = await readerSessions.loadReaderTabs(comicId);
     final libraryState = _resolveLibraryState(
       localLibraryItems: snapshot.localLibraryItems,
       primarySource: primarySource,
@@ -135,6 +141,7 @@ class UnifiedCanonicalComicDetailRepository implements ComicDetailRepository {
       userTags: userTags,
       sourceTags: sourceTags,
       chapters: chapters,
+      readerTabs: readerTabs,
       pageOrderSummary: PageOrderSummaryVm(
         activeOrderId: summary.activeOrderId,
         activeOrderType: _mapPageOrderKind(summary.activeOrderType),
@@ -144,7 +151,7 @@ class UnifiedCanonicalComicDetailRepository implements ComicDetailRepository {
       ),
       updatedAt: _parseStoreDateTime(snapshot.comic.updatedAt),
       availableActions: ComicDetailActions(
-        canContinueReading: latestHistory != null,
+        canContinueReading: readerTabs.isNotEmpty || latestHistory != null,
         canStartReading: true,
         canOpenInNewTab: true,
         canFavorite: true,
