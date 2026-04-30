@@ -30,6 +30,7 @@ void main() {
       tables,
       containsAll(<String>[
         'chapters',
+        'comic_source_links',
         'comic_titles',
         'comics',
         'favorites',
@@ -241,6 +242,100 @@ void main() {
 
     expect(item?.id, 'local-item-newer');
     expect(item?.localRootPath, '/library/comic-1-newer');
+  });
+
+  test('can upsert and read primary comic source link', () async {
+    await store.upsertSourcePlatform(
+      const SourcePlatformRecord(
+        id: 'platform-a',
+        canonicalKey: 'platform-a',
+        displayName: 'Platform A',
+        kind: 'remote',
+      ),
+    );
+    await store.upsertComic(
+      const ComicRecord(
+        id: 'comic-source-1',
+        title: 'Source Comic',
+        normalizedTitle: 'source comic',
+      ),
+    );
+    await store.upsertComicSourceLink(
+      const ComicSourceLinkRecord(
+        id: 'link-1',
+        comicId: 'comic-source-1',
+        sourcePlatformId: 'platform-a',
+        sourceComicId: 'remote-123',
+        linkStatus: 'active',
+        isPrimary: true,
+        metadataJson: '{"origin":"import"}',
+      ),
+    );
+
+    final primary = await store.loadPrimaryComicSourceLink('comic-source-1');
+    final all = await store.loadComicSourceLinks('comic-source-1');
+
+    expect(primary, isNotNull);
+    expect(primary?.id, 'link-1');
+    expect(primary?.isPrimary, isTrue);
+    expect(primary?.sourcePlatformId, 'platform-a');
+    expect(primary?.sourceComicId, 'remote-123');
+    expect(primary?.metadataJson, '{"origin":"import"}');
+    expect(all.length, 1);
+  });
+
+  test('primary ordering keeps primary first when multiple links exist', () async {
+    await store.upsertSourcePlatform(
+      const SourcePlatformRecord(
+        id: 'platform-a',
+        canonicalKey: 'platform-a',
+        displayName: 'Platform A',
+        kind: 'remote',
+      ),
+    );
+    await store.upsertSourcePlatform(
+      const SourcePlatformRecord(
+        id: 'platform-b',
+        canonicalKey: 'platform-b',
+        displayName: 'Platform B',
+        kind: 'remote',
+      ),
+    );
+    await store.upsertComic(
+      const ComicRecord(
+        id: 'comic-source-2',
+        title: 'Source Comic 2',
+        normalizedTitle: 'source comic 2',
+      ),
+    );
+    await store.upsertComicSourceLink(
+      const ComicSourceLinkRecord(
+        id: 'link-a',
+        comicId: 'comic-source-2',
+        sourcePlatformId: 'platform-a',
+        sourceComicId: 'a-1',
+        isPrimary: false,
+      ),
+    );
+    await store.upsertComicSourceLink(
+      const ComicSourceLinkRecord(
+        id: 'link-b',
+        comicId: 'comic-source-2',
+        sourcePlatformId: 'platform-b',
+        sourceComicId: 'b-1',
+        isPrimary: true,
+      ),
+    );
+
+    final links = await store.loadComicSourceLinks('comic-source-2');
+    final primary = await store.loadPrimaryComicSourceLink('comic-source-2');
+
+    expect(links.length, 2);
+    expect(links.first.id, 'link-b');
+    expect(links.first.isPrimary, isTrue);
+    expect(links.last.id, 'link-a');
+    expect(links.last.isPrimary, isFalse);
+    expect(primary?.id, 'link-b');
   });
 
   test('loads active visible pages in page-order sequence', () async {

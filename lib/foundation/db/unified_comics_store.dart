@@ -96,6 +96,30 @@ class ComicTitleRecord {
   final String? createdAt;
 }
 
+class ComicSourceLinkRecord {
+  const ComicSourceLinkRecord({
+    required this.id,
+    required this.comicId,
+    required this.sourcePlatformId,
+    required this.sourceComicId,
+    this.linkStatus = 'active',
+    this.isPrimary = false,
+    this.linkedAt,
+    this.updatedAt,
+    this.metadataJson,
+  });
+
+  final String id;
+  final String comicId;
+  final String sourcePlatformId;
+  final String sourceComicId;
+  final String linkStatus;
+  final bool isPrimary;
+  final String? linkedAt;
+  final String? updatedAt;
+  final String? metadataJson;
+}
+
 class LocalLibraryItemRecord {
   const LocalLibraryItemRecord({
     required this.id,
@@ -447,6 +471,31 @@ class UnifiedComicsStore extends GeneratedDatabase {
           ON DELETE CASCADE,
         UNIQUE(local_root_path)
       );
+    ''');
+    await customStatement('''
+      CREATE TABLE IF NOT EXISTS comic_source_links (
+        id TEXT PRIMARY KEY,
+        comic_id TEXT NOT NULL,
+        source_platform_id TEXT NOT NULL,
+        source_comic_id TEXT NOT NULL,
+        link_status TEXT NOT NULL CHECK(link_status IN ('active','candidate','broken')) DEFAULT 'active',
+        is_primary INTEGER NOT NULL DEFAULT 0,
+        linked_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        metadata_json TEXT,
+        FOREIGN KEY (comic_id)
+          REFERENCES comics(id)
+          ON DELETE CASCADE,
+        FOREIGN KEY (source_platform_id)
+          REFERENCES source_platforms(id)
+          ON DELETE RESTRICT,
+        UNIQUE(comic_id, source_platform_id, source_comic_id)
+      );
+    ''');
+    await customStatement('''
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_comic_source_links_one_primary_per_comic
+      ON comic_source_links(comic_id)
+      WHERE is_primary = 1;
     ''');
     await customStatement('''
       CREATE INDEX IF NOT EXISTS idx_local_library_items_storage_updated
@@ -858,6 +907,84 @@ class UnifiedComicsStore extends GeneratedDatabase {
         record.updatedAt,
       ],
     );
+  }
+
+  Future<void> upsertComicSourceLink(ComicSourceLinkRecord record) async {
+    await transaction(() async {
+      if (record.isPrimary) {
+        await customStatement(
+          '''
+          UPDATE comic_source_links
+          SET is_primary = 0,
+              updated_at = CURRENT_TIMESTAMP
+          WHERE comic_id = ? AND is_primary = 1;
+          ''',
+          [record.comicId],
+        );
+      }
+      await customStatement(
+        '''
+        INSERT INTO comic_source_links (
+          id,
+          comic_id,
+          source_platform_id,
+          source_comic_id,
+          link_status,
+          is_primary,
+          linked_at,
+          updated_at,
+          metadata_json
+        )
+        VALUES (?, ?, ?, ?, ?, ?, COALESCE(?, CURRENT_TIMESTAMP), COALESCE(?, CURRENT_TIMESTAMP), ?)
+        ON CONFLICT(comic_id, source_platform_id, source_comic_id) DO UPDATE SET
+          id = excluded.id,
+          link_status = excluded.link_status,
+          is_primary = excluded.is_primary,
+          linked_at = COALESCE(excluded.linked_at, comic_source_links.linked_at),
+          updated_at = COALESCE(excluded.updated_at, CURRENT_TIMESTAMP),
+          metadata_json = excluded.metadata_json;
+        ''',
+        [
+          record.id,
+          record.comicId,
+          record.sourcePlatformId,
+          record.sourceComicId,
+          record.linkStatus,
+          record.isPrimary ? 1 : 0,
+          record.linkedAt,
+          record.updatedAt,
+          record.metadataJson,
+        ],
+      );
+    });
+  }
+
+  Future<ComicSourceLinkRecord?> loadPrimaryComicSourceLink(String comicId) async {
+    final row = await customSelect(
+      '''
+      SELECT * FROM comic_source_links
+      WHERE comic_id = ?
+        AND is_primary = 1
+      LIMIT 1;
+      ''',
+      variables: [Variable<String>(comicId)],
+    ).getSingleOrNull();
+    if (row == null) {
+      return null;
+    }
+    return _comicSourceLinkRecordFromRow(row);
+  }
+
+  Future<List<ComicSourceLinkRecord>> loadComicSourceLinks(String comicId) async {
+    final rows = await customSelect(
+      '''
+      SELECT * FROM comic_source_links
+      WHERE comic_id = ?
+      ORDER BY is_primary DESC, updated_at DESC, linked_at DESC, id ASC;
+      ''',
+      variables: [Variable<String>(comicId)],
+    ).get();
+    return rows.map(_comicSourceLinkRecordFromRow).toList();
   }
 
   Future<void> upsertFavorite(FavoriteRecord record) {
@@ -1318,6 +1445,20 @@ class UnifiedComicsStore extends GeneratedDatabase {
       contentFingerprint: row.read<String?>('content_fingerprint'),
       importedAt: row.read<String>('imported_at'),
       updatedAt: row.read<String>('updated_at'),
+    );
+  }
+
+  ComicSourceLinkRecord _comicSourceLinkRecordFromRow(QueryRow row) {
+    return ComicSourceLinkRecord(
+      id: row.read<String>('id'),
+      comicId: row.read<String>('comic_id'),
+      sourcePlatformId: row.read<String>('source_platform_id'),
+      sourceComicId: row.read<String>('source_comic_id'),
+      linkStatus: row.read<String>('link_status'),
+      isPrimary: row.read<int>('is_primary') == 1,
+      linkedAt: row.read<String>('linked_at'),
+      updatedAt: row.read<String>('updated_at'),
+      metadataJson: row.read<String?>('metadata_json'),
     );
   }
 
