@@ -185,6 +185,54 @@ void main() {
     },
   );
 
+  test('reader decode success/error and frame events are distinguishable', () {
+    readerTraceRecorder.clear();
+    ReaderDiagnostics.recordImageDecodeSuccess(
+      imageKey: 'https://example.com/page-5.jpg',
+      sourceKey: 'copymanga',
+      comicId: 'comic-7',
+      chapterId: 'ch-3',
+      page: 5,
+      byteLength: 2048,
+    );
+    ReaderDiagnostics.recordImageDecodeError(
+      imageKey: 'https://example.com/page-6.jpg',
+      sourceKey: 'copymanga',
+      comicId: 'comic-7',
+      chapterId: 'ch-3',
+      page: 6,
+      error: 'bad codec',
+    );
+    ReaderDiagnostics.recordImageFrameRendered(
+      imageKey: 'https://example.com/page-5.jpg',
+      sourceKey: 'copymanga',
+      comicId: 'comic-7',
+      chapterId: 'ch-3',
+      page: 5,
+      frameNumber: 0,
+      synchronousCall: false,
+      widgetType: 'ComicImage',
+    );
+
+    final events =
+        (ReaderDiagnostics.toDiagnosticsJson()['readerTrace']
+                as Map<String, dynamic>)['events']
+            as List<dynamic>;
+    expect(events[0]['event'], 'image.decode.success');
+    expect(events[1]['event'], 'image.decode.error');
+    expect(events[2]['event'], 'image.frame.rendered');
+    expect(events[0]['phase'], 'decode');
+    expect(events[1]['phase'], 'decode');
+    expect(events[2]['phase'], 'decode');
+
+    final decodeEvents = DevDiagnosticsApi.recent(channel: 'reader.decode');
+    expect(decodeEvents.map((e) => e.message), [
+      'image.decode.success',
+      'bad codec',
+      'image.frame.rendered',
+    ]);
+  });
+
   test('canonical session events serialize as structured diagnostics', () {
     readerTraceRecorder.clear();
     ReaderDiagnostics.recordCanonicalSessionEvent(

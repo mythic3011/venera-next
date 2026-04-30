@@ -1,4 +1,5 @@
 import 'dart:async' show Future;
+import 'dart:ui' as ui;
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_qjs/flutter_qjs.dart';
@@ -217,6 +218,30 @@ class ReaderImageProvider
   @override
   Future<ReaderImageProvider> obtainKey(ImageConfiguration configuration) {
     return SynchronousFuture(this);
+  }
+
+  @override
+  void onDecodeSuccess({required Uint8List data, required ui.Codec codec}) {
+    ReaderDiagnostics.recordImageDecodeSuccess(
+      imageKey: imageKey,
+      sourceKey: sourceKey,
+      comicId: cid,
+      chapterId: eid,
+      page: page,
+      byteLength: data.length,
+    );
+  }
+
+  @override
+  void onDecodeError({required Object error}) {
+    ReaderDiagnostics.recordImageDecodeError(
+      imageKey: imageKey,
+      sourceKey: sourceKey,
+      comicId: cid,
+      chapterId: eid,
+      page: page,
+      error: error,
+    );
   }
 
   @override

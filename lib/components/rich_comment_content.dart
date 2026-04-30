@@ -137,22 +137,44 @@ class RichCommentContent extends StatefulWidget {
 class _RichCommentContentState extends State<RichCommentContent> {
   var textSpan = <InlineSpan>[];
   var images = <_CommentImage>[];
-  bool isRendered = false;
 
   @override
   void didChangeDependencies() {
-    if (!isRendered) {
-      render();
-      isRendered = true;
-    }
+    _render();
     super.didChangeDependencies();
+  }
+
+  @override
+  void didUpdateWidget(covariant RichCommentContent oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.text != widget.text ||
+        oldWidget.showImages != widget.showImages) {
+      _render();
+    }
+  }
+
+  @override
+  void dispose() {
+    _disposeRecognizers();
+    super.dispose();
   }
 
   bool isValidUrlChar(String char) {
     return RegExp(r'[a-zA-Z0-9%:/.@\-_?&=#*!+;]').hasMatch(char);
   }
 
-  void render() {
+  void _disposeRecognizers() {
+    for (final span in textSpan) {
+      if (span is TextSpan) {
+        span.recognizer?.dispose();
+      }
+    }
+  }
+
+  void _render() {
+    _disposeRecognizers();
+    textSpan = <InlineSpan>[];
+    images = <_CommentImage>[];
     var s = Queue<_Tag>();
 
     int i = 0;

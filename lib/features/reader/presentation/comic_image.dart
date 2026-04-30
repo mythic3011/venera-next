@@ -215,11 +215,25 @@ class _ComicImageState extends State<ComicImage> with WidgetsBindingObserver {
   }
 
   void _handleImageFrame(ImageInfo imageInfo, bool synchronousCall) {
+    final nextFrameNumber = _frameNumber == null ? 0 : _frameNumber! + 1;
+    final imageProvider = widget.image;
+    if (imageProvider is ReaderImageProvider) {
+      ReaderDiagnostics.recordImageFrameRendered(
+        imageKey: imageProvider.imageKey,
+        sourceKey: imageProvider.sourceKey,
+        comicId: imageProvider.cid,
+        chapterId: imageProvider.eid,
+        page: imageProvider.page,
+        frameNumber: nextFrameNumber,
+        synchronousCall: synchronousCall,
+        widgetType: 'ComicImage',
+      );
+    }
     setState(() {
       _replaceImage(info: imageInfo);
       _loadingProgress = null;
       _lastException = null;
-      _frameNumber = _frameNumber == null ? 0 : _frameNumber! + 1;
+      _frameNumber = nextFrameNumber;
       _wasSynchronouslyLoaded = _wasSynchronouslyLoaded | synchronousCall;
     });
   }

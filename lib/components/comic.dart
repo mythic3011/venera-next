@@ -881,9 +881,8 @@ class _SliverGridComicsState extends State<SliverGridComics> {
     }
     final requestId = ++_statusRequestId;
     try {
-      final statuses = await ReaderStatusRepository(
-        store: App.unifiedComicsStore,
-      ).loadStatusesForComics(comics);
+      final statuses = await App.repositories.readerStatus
+          .loadStatusesForComics(comics);
       if (!mounted || requestId != _statusRequestId) {
         return;
       }
@@ -962,10 +961,11 @@ class _SliverGridComics extends StatelessWidget {
             ? false
             : selection![comics[index]] ?? false;
         final currentComic = comics[index];
-        final status = statuses?[readerStatusMapKey(
-          comicId: currentComic.id,
-          sourceKey: currentComic.sourceKey,
-        )];
+        final status =
+            statuses?[readerStatusMapKey(
+              comicId: currentComic.id,
+              sourceKey: currentComic.sourceKey,
+            )];
         var comic = ComicTile(
           comic: currentComic,
           meta: ComicTileMeta.fromStatus(

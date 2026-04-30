@@ -220,7 +220,8 @@ class ReaderDiagnostics {
     String? loadMode,
     SourceRef? sourceRef,
   }) {
-    final resolvedLoadMode = loadMode ?? (type == ComicType.local ? 'local' : 'remote');
+    final resolvedLoadMode =
+        loadMode ?? (type == ComicType.local ? 'local' : 'remote');
     final resolvedSourceKey = sourceKey ?? type.sourceKey;
     readerTraceRecorder.updateReaderState(
       lifecycle: lifecycle,
@@ -275,7 +276,8 @@ class ReaderDiagnostics {
     String? sourceKey,
     String? loadMode,
   }) {
-    final resolvedLoadMode = loadMode ?? (type == ComicType.local ? 'local' : 'remote');
+    final resolvedLoadMode =
+        loadMode ?? (type == ComicType.local ? 'local' : 'remote');
     final resolvedSourceKey = sourceKey ?? type.sourceKey;
     readerTraceRecorder.record(
       ReaderTraceEvent(
@@ -637,6 +639,115 @@ class ReaderDiagnostics {
         'chapterId': chapterId,
         'page': page,
         'imageKey': imageKey,
+      },
+    );
+  }
+
+  static void recordImageDecodeSuccess({
+    required String imageKey,
+    required String? sourceKey,
+    required String comicId,
+    required String chapterId,
+    required int page,
+    required int byteLength,
+  }) {
+    readerTraceRecorder.record(
+      ReaderTraceEvent(
+        event: 'image.decode.success',
+        timestamp: DateTime.now(),
+        imageKey: imageKey,
+        sourceKey: sourceKey,
+        comicId: comicId,
+        chapterId: chapterId,
+        page: page,
+        resultSummary: 'bytes=$byteLength',
+        phase: ReaderTracePhase.decode,
+      ),
+    );
+    AppDiagnostics.trace(
+      'reader.decode',
+      'image.decode.success',
+      data: {
+        'sourceKey': sourceKey,
+        'comicId': comicId,
+        'chapterId': chapterId,
+        'page': page,
+        'imageKey': imageKey,
+        'byteLength': byteLength,
+      },
+    );
+  }
+
+  static void recordImageDecodeError({
+    required String imageKey,
+    required String? sourceKey,
+    required String comicId,
+    required String chapterId,
+    required int page,
+    required Object error,
+  }) {
+    readerTraceRecorder.record(
+      ReaderTraceEvent(
+        event: 'image.decode.error',
+        timestamp: DateTime.now(),
+        imageKey: imageKey,
+        sourceKey: sourceKey,
+        comicId: comicId,
+        chapterId: chapterId,
+        page: page,
+        errorMessage: error.toString(),
+        phase: ReaderTracePhase.decode,
+      ),
+    );
+    AppDiagnostics.error(
+      'reader.decode',
+      error,
+      data: {
+        'sourceKey': sourceKey,
+        'comicId': comicId,
+        'chapterId': chapterId,
+        'page': page,
+        'imageKey': imageKey,
+      },
+    );
+  }
+
+  static void recordImageFrameRendered({
+    required String imageKey,
+    required String? sourceKey,
+    required String comicId,
+    required String chapterId,
+    required int page,
+    required int frameNumber,
+    required bool synchronousCall,
+    required String widgetType,
+  }) {
+    readerTraceRecorder.record(
+      ReaderTraceEvent(
+        event: 'image.frame.rendered',
+        timestamp: DateTime.now(),
+        imageKey: imageKey,
+        sourceKey: sourceKey,
+        comicId: comicId,
+        chapterId: chapterId,
+        page: page,
+        resultSummary:
+            'frame=$frameNumber sync=$synchronousCall widget=$widgetType',
+        phase: ReaderTracePhase.decode,
+      ),
+    );
+    AppDiagnostics.trace(
+      'reader.decode',
+      'image.frame.rendered',
+      data: {
+        'sourceKey': sourceKey,
+        'comicId': comicId,
+        'chapterId': chapterId,
+        'page': page,
+        'imageKey': imageKey,
+        'frameNumber': frameNumber,
+        'synchronousCall': synchronousCall,
+        'widgetType': widgetType,
       },
     );
   }

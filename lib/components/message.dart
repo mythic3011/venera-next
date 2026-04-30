@@ -426,13 +426,22 @@ Future<void> showInputDialog({
                   if (futureOr is Future) {
                     setState(() => isLoading = true);
                     result = await futureOr;
+                    if (!context.mounted) {
+                      return;
+                    }
                     setState(() => isLoading = false);
                   } else {
                     result = futureOr;
                   }
                   if (result == null) {
+                    if (!context.mounted) {
+                      return;
+                    }
                     context.pop();
                   } else {
+                    if (!context.mounted) {
+                      return;
+                    }
                     setState(() => error = result.toString());
                   }
                 },
