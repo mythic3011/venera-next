@@ -59,6 +59,10 @@ Object resolveLocalChapterPageTarget({
   return hasChapters ? selectedChapterId! : 0;
 }
 
+ComicDetailPage buildLocalComicDetailEntry(LocalComic comic) {
+  return ComicDetailPage(comicId: comic.id, title: comic.title);
+}
+
 String localImageUriToPath(String imageUri) {
   return imageUri.replaceFirst('file://', '');
 }
@@ -344,10 +348,7 @@ class _LocalComicsPageState extends State<LocalComicsPage> {
             text: "View Detail".tl,
             onClick: () {
               context.to(
-                () => ComicPage(
-                  id: selectedComics.keys.first.id,
-                  sourceKey: selectedComics.keys.first.sourceKey,
-                ),
+                () => buildLocalComicDetailEntry(selectedComics.keys.first),
               );
             },
           ),

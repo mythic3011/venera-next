@@ -2,6 +2,8 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:venera/foundation/comic_type.dart';
 import 'package:venera/foundation/db/unified_comics_store.dart';
 import 'package:venera/foundation/local.dart';
+import 'package:venera/foundation/source_identity/source_identity.dart';
+import 'package:venera/pages/comic_details_page/comic_page.dart';
 import 'package:venera/pages/local_comics_page.dart';
 
 void main() {
@@ -79,4 +81,14 @@ void main() {
       expect(visible.map((comic) => comic.id), ['comic-b']);
     },
   );
+
+  test('local detail entry uses canonical comic id route', () {
+    final page = buildLocalComicDetailEntry(comicA);
+
+    expect(page, isA<ComicDetailPage>());
+    expect(page.comicId, 'comic-a');
+    expect(page.id, 'comic-a');
+    expect(page.sourceKey, localSourceKey);
+    expect(page.title, 'Legacy Alpha');
+  });
 }
