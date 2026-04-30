@@ -1,4 +1,5 @@
 import 'package:venera/foundation/reader/local_page_provider.dart';
+import 'package:venera/foundation/reader/canonical_remote_page_provider.dart';
 import 'package:venera/foundation/reader/diagnostic_mapping.dart';
 import 'package:venera/foundation/reader/remote_page_provider.dart';
 import 'package:venera/foundation/reader/source_ref_diagnostics.dart';
@@ -18,19 +19,26 @@ class ReaderPageLoader {
     required this.loadLocalPages,
     required this.loadRemotePages,
     required this.sourceExists,
+    this.canonicalRemotePageProviderFactory,
   });
 
   final LocalPagesLoader loadLocalPages;
   final RemotePagesLoader loadRemotePages;
   final bool Function(String sourceKey) sourceExists;
+  final CanonicalRemotePageProvider Function(String sourceKey)?
+  canonicalRemotePageProviderFactory;
 
   Future<ReaderPageLoaderResult> load(SourceRef sourceRef) async {
     final loadMode = sourceRef.type == SourceRefType.local ? 'local' : 'remote';
     final localProvider = LocalPageProvider(loadLocalPages: loadLocalPages);
     final resolver = SourceRefResolver(
       localProvider: localProvider,
-      remoteProviderFactory: (_) =>
-          RemotePageProvider(loadRemotePages: loadRemotePages),
+      remoteProviderFactory: (sourceKey) => RemotePageProvider(
+        loadRemotePages: loadRemotePages,
+        canonicalRemotePageProvider: canonicalRemotePageProviderFactory?.call(
+          sourceKey,
+        ),
+      ),
       sourceExists: sourceExists,
     );
     try {

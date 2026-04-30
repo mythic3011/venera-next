@@ -27,6 +27,35 @@ class CanonicalReaderPages {
     return pages.map((page) => Uri.file(page.localPath).toString()).toList();
   }
 
+  Future<List<String>> loadRemotePages({
+    required String canonicalComicId,
+    required String chapterId,
+  }) async {
+    final snapshot = await store.loadComicSnapshot(canonicalComicId);
+    if (snapshot == null) {
+      throw StateError('CANONICAL_REMOTE_COMIC_NOT_FOUND:$canonicalComicId');
+    }
+
+    final canonicalChapterId = '$canonicalComicId:$chapterId';
+    final chapterExists = snapshot.chapters.any(
+      (chapter) => chapter.id == canonicalChapterId,
+    );
+    if (!chapterExists) {
+      throw StateError(
+        'CANONICAL_REMOTE_CHAPTER_NOT_FOUND:$canonicalChapterId',
+      );
+    }
+
+    final pages = await store.loadActivePageOrderPages(canonicalChapterId);
+    if (pages.isEmpty) {
+      throw StateError(
+        'CANONICAL_REMOTE_PAGE_ORDER_NOT_FOUND:$canonicalChapterId',
+      );
+    }
+
+    return pages.map((page) => page.localPath).toList();
+  }
+
   String? _firstChapterId(UnifiedComicSnapshot snapshot) {
     if (snapshot.chapters.isEmpty) {
       return null;

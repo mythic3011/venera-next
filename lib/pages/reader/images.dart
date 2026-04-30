@@ -289,6 +289,11 @@ class _ReaderImagesState extends State<_ReaderImages> {
             }
             return await loadComicPages(comicId, chapterId);
           },
+      canonicalRemotePageProviderFactory: (_) => CanonicalRemotePageProvider(
+        canonicalReaderPages: CanonicalReaderPages(
+          store: App.unifiedComicsStore,
+        ),
+      ),
       sourceExists: (sourceKey) => ComicSource.find(sourceKey) != null,
     );
     final result = await dispatchReaderPageLoad(
@@ -329,6 +334,28 @@ class _ReaderImagesState extends State<_ReaderImages> {
         );
       }
     } else {
+      if (sourceRef.type == SourceRefType.remote) {
+        final remoteComicId =
+            sourceRef.params['comicId']?.toString() ?? reader.cid;
+        final remoteChapterId =
+            sourceRef.params['chapterId']?.toString() ??
+            reader.chapter.toString();
+        try {
+          await RemoteComicCanonicalSyncService(
+            store: App.unifiedComicsStore,
+          ).syncChapterPages(
+            sourceKey: sourceRef.sourceKey,
+            comicId: remoteComicId,
+            chapterId: remoteChapterId,
+            pageKeys: res.data,
+          );
+        } catch (e, s) {
+          Log.error(
+            'RemoteComicCanonicalSyncService',
+            'Failed to sync remote reader pages: $e\n$s',
+          );
+        }
+      }
       setState(() {
         reader.images = res.data;
         reader.isLoading = false;
