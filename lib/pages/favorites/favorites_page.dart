@@ -12,6 +12,7 @@ import 'package:venera/foundation/comic_source/comic_source.dart';
 import 'package:venera/foundation/comic_type.dart';
 import 'package:venera/foundation/consts.dart';
 import 'package:venera/foundation/favorites.dart';
+import 'package:venera/foundation/favorites/favorites_runtime_repository.dart';
 import 'package:venera/foundation/local.dart';
 import 'package:venera/foundation/log.dart';
 import 'package:venera/foundation/reader/reader_status_repository.dart';
@@ -35,6 +36,8 @@ part 'network_favorites_page.dart';
 const _kLeftBarWidth = 256.0;
 
 const _kTwoPanelChangeWidth = 720.0;
+
+const favoritesRepo = FavoritesRuntimeRepository();
 
 class FavoritesPage extends StatefulWidget {
   const FavoritesPage({super.key});
@@ -71,15 +74,13 @@ class _FavoritesPageState extends State<FavoritesPage> {
   }
 
   Future<void> _initialize() async {
-    await LocalFavoritesManager().init();
+    await favoritesRepo.init();
     var data = appdata.implicitData['favoriteFolder'];
     if (data != null) {
       folder = data['name'];
       isNetwork = data['isNetwork'] ?? false;
     }
-    if (folder != null &&
-        !isNetwork &&
-        !LocalFavoritesManager().existsFolder(folder!)) {
+    if (folder != null && !isNetwork && !favoritesRepo.existsFolder(folder!)) {
       folder = null;
     }
     if (!mounted) {

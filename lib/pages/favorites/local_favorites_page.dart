@@ -40,8 +40,6 @@ class _LocalFavoritesPageState extends State<_LocalFavoritesPage> {
 
   bool get isAllFolder => widget.folder == _localAllFolderLabel;
 
-  LocalFavoritesManager get manager => LocalFavoritesManager();
-
   bool isLoading = false;
 
   late String readFilterSelect;
@@ -70,13 +68,13 @@ class _LocalFavoritesPageState extends State<_LocalFavoritesPage> {
   void updateComics() {
     if (isLoading) return;
     if (isAllFolder) {
-      var totalComics = manager.totalComics;
+      var totalComics = favoritesRepo.totalComics;
       if (totalComics < _asyncDataFetchLimit) {
-        comics = manager.getAllComics();
+        comics = favoritesRepo.getAllComics();
         unawaited(_loadStatuses(comics));
       } else {
         isLoading = true;
-        manager
+        favoritesRepo
             .getAllComicsAsync()
             .minTime(const Duration(milliseconds: 200))
             .then((value) {
@@ -90,13 +88,13 @@ class _LocalFavoritesPageState extends State<_LocalFavoritesPage> {
         });
       }
     } else {
-      var folderComics = manager.folderComics(widget.folder);
+      var folderComics = favoritesRepo.folderComics(widget.folder);
       if (folderComics < _asyncDataFetchLimit) {
-        comics = manager.getFolderComics(widget.folder);
+        comics = favoritesRepo.getFolderComics(widget.folder);
         unawaited(_loadStatuses(comics));
       } else {
         isLoading = true;
-        manager
+        favoritesRepo
             .getFolderComicsAsync(widget.folder)
             .minTime(const Duration(milliseconds: 200))
             .then((value) {
@@ -228,7 +226,7 @@ class _LocalFavoritesPageState extends State<_LocalFavoritesPage> {
         readFilterList[0];
     favPage = context.findAncestorStateOfType<_FavoritesPageState>()!;
     if (!isAllFolder) {
-      var (a, b) = LocalFavoritesManager().findLinked(widget.folder);
+      var (a, b) = favoritesRepo.findLinked(widget.folder);
       networkSource = a;
       networkFolder = b;
     } else {
@@ -237,14 +235,14 @@ class _LocalFavoritesPageState extends State<_LocalFavoritesPage> {
     }
     comics = [];
     updateComics();
-    LocalFavoritesManager().addListener(updateComics);
+    favoritesRepo.addListener(updateComics);
     super.initState();
   }
 
   @override
   void dispose() {
     super.dispose();
-    LocalFavoritesManager().removeListener(updateComics);
+    favoritesRepo.removeListener(updateComics);
   }
 
   void selectAll() {
@@ -453,7 +451,7 @@ class _LocalFavoritesPageState extends State<_LocalFavoritesPage> {
                             if (err != null) {
                               return err;
                             }
-                            LocalFavoritesManager().rename(
+                            favoritesRepo.rename(
                               widget.folder,
                               value.toString(),
                             );
@@ -490,7 +488,7 @@ class _LocalFavoritesPageState extends State<_LocalFavoritesPage> {
                       icon: Icons.upload_file,
                       text: "Export".tl,
                       onClick: () {
-                        var json = LocalFavoritesManager().folderToJson(
+                        var json = favoritesRepo.folderToJson(
                           widget.folder,
                         );
                         saveFile(
@@ -526,7 +524,7 @@ class _LocalFavoritesPageState extends State<_LocalFavoritesPage> {
                           btnColor: context.colorScheme.error,
                           onConfirm: () {
                             favPage.setFolder(false, null);
-                            LocalFavoritesManager().deleteFolder(widget.folder);
+                            favoritesRepo.deleteFolder(widget.folder);
                             favPage.folderList?.updateFolders();
                           },
                         );
@@ -698,7 +696,7 @@ class _LocalFavoritesPageState extends State<_LocalFavoritesPage> {
                     icon: Icons.delete,
                     text: "Delete".tl,
                     onClick: () {
-                      LocalFavoritesManager().deleteComicWithId(
+                      favoritesRepo.deleteComicWithId(
                         widget.folder,
                         c.id,
                         (c as FavoriteItem).type,
@@ -841,7 +839,7 @@ class _LocalFavoritesPageState extends State<_LocalFavoritesPage> {
   }
 
   void favoriteOption(String option) {
-    var targetFolders = LocalFavoritesManager()
+    var targetFolders = favoritesRepo
         .folderNames
         .where((folder) => folder != favPage.folder)
         .toList();
@@ -871,7 +869,7 @@ class _LocalFavoritesPageState extends State<_LocalFavoritesPage> {
                                   onPressed: () {
                                     newFolder().then((v) {
                                       setState(() {
-                                        targetFolders = LocalFavoritesManager()
+                                        targetFolders = favoritesRepo
                                             .folderNames
                                             .where((folder) =>
                                                 folder != favPage.folder)
@@ -936,7 +934,7 @@ class _LocalFavoritesPageState extends State<_LocalFavoritesPage> {
                                 .map((e) => e as FavoriteItem)
                                 .toList();
                             for (var f in selectedLocalFolders) {
-                              LocalFavoritesManager().batchMoveFavorites(
+                              favoritesRepo.batchMoveFavorites(
                                 favPage.folder as String,
                                 f,
                                 comics,
@@ -947,7 +945,7 @@ class _LocalFavoritesPageState extends State<_LocalFavoritesPage> {
                                 .map((e) => e as FavoriteItem)
                                 .toList();
                             for (var f in selectedLocalFolders) {
-                              LocalFavoritesManager().batchCopyFavorites(
+                              favoritesRepo.batchCopyFavorites(
                                 favPage.folder as String,
                                 f,
                                 comics,
@@ -988,7 +986,7 @@ class _LocalFavoritesPageState extends State<_LocalFavoritesPage> {
 
   void _deleteComicWithId() {
     var toBeDeleted = selectedComics.keys.map((e) => e as FavoriteItem).toList();
-    LocalFavoritesManager().batchDeleteComics(widget.folder, toBeDeleted);
+    favoritesRepo.batchDeleteComics(widget.folder, toBeDeleted);
     _cancel();
   }
 }
@@ -1008,7 +1006,7 @@ class _ReorderComicsPageState extends State<_ReorderComicsPage> {
   final _key = GlobalKey();
   var reorderWidgetKey = UniqueKey();
   final _scrollController = ScrollController();
-  late var comics = LocalFavoritesManager().getFolderComics(widget.name);
+  late var comics = favoritesRepo.getFolderComics(widget.name);
   bool changed = false;
 
   static int _floatToInt8(double x) {
@@ -1031,7 +1029,7 @@ class _ReorderComicsPageState extends State<_ReorderComicsPage> {
     if (changed) {
       // Delay to ensure navigation is completed
       Future.delayed(const Duration(milliseconds: 200), () {
-        LocalFavoritesManager().reorder(comics, widget.name);
+        favoritesRepo.reorder(comics, widget.name);
       });
     }
     super.dispose();

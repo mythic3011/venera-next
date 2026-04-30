@@ -38,7 +38,7 @@ Future<void> newFolder() async {
                   if (file == null) return;
                   var data = await file.readAsBytes();
                   try {
-                    LocalFavoritesManager().fromJson(utf8.decode(data));
+                    favoritesRepo.fromJson(utf8.decode(data));
                   } catch (e) {
                     context.showMessage(message: "Failed to import".tl);
                     return;
@@ -54,7 +54,7 @@ Future<void> newFolder() async {
                       error = e;
                     });
                   } else {
-                    LocalFavoritesManager().createFolder(controller.text);
+                    favoritesRepo.createFolder(controller.text);
                     context.pop();
                   }
                 },
@@ -69,7 +69,7 @@ Future<void> newFolder() async {
 }
 
 String? validateFolderName(String newFolderName) {
-  var folders = LocalFavoritesManager().folderNames;
+  var folders = favoritesRepo.folderNames;
   if (newFolderName.isEmpty) {
     return "Folder name cannot be empty".tl;
   } else if (newFolderName.length > 50) {
@@ -81,7 +81,7 @@ String? validateFolderName(String newFolderName) {
 }
 
 void addFavorite(List<Comic> comics) {
-  var folders = LocalFavoritesManager().folderNames;
+  var folders = favoritesRepo.folderNames;
 
   showDialog(
     context: App.rootContext,
@@ -110,7 +110,7 @@ void addFavorite(List<Comic> comics) {
                 onPressed: () {
                   if (selectedFolder != null) {
                     for (var comic in comics) {
-                      LocalFavoritesManager().addComic(
+                      favoritesRepo.addComic(
                         selectedFolder!,
                         FavoriteItem(
                           id: comic.id,
@@ -136,7 +136,7 @@ void addFavorite(List<Comic> comics) {
 }
 
 Future<List<FavoriteItem>> updateComicsInfo(String folder) async {
-  var comics = LocalFavoritesManager().getFolderComics(folder);
+  var comics = favoritesRepo.getFolderComics(folder);
 
   Future<void> updateSingleComic(int index) async {
     int retry = 3;
@@ -173,7 +173,7 @@ Future<List<FavoriteItem>> updateComicsInfo(String folder) async {
           tags: newTags,
         );
 
-        LocalFavoritesManager().updateInfo(folder, comics[index]);
+        favoritesRepo.updateInfo(folder, comics[index]);
         return;
       } catch (e) {
         retry--;
@@ -263,7 +263,7 @@ Future<List<FavoriteItem>> updateComicsInfo(String folder) async {
 }
 
 Future<void> sortFolders() async {
-  var folders = LocalFavoritesManager().folderNames;
+  var folders = favoritesRepo.folderNames;
 
   await showPopUpWidget(
     App.rootContext,
@@ -309,7 +309,7 @@ Future<void> sortFolders() async {
     ),
   );
 
-  LocalFavoritesManager().updateOrder(folders);
+  favoritesRepo.updateOrder(folders);
 }
 
 Future<void> importNetworkFolder(
@@ -326,9 +326,9 @@ Future<void> importNetworkFolder(
     folder = null;
   }
   var resultName = folder ?? comicSource.name;
-  var exists = LocalFavoritesManager().existsFolder(resultName);
+  var exists = favoritesRepo.existsFolder(resultName);
   if (exists) {
-    if (!LocalFavoritesManager().isLinkedToNetworkFolder(
+    if (!favoritesRepo.isLinkedToNetworkFolder(
       resultName,
       source,
       folderID ?? "",
@@ -338,8 +338,8 @@ Future<void> importNetworkFolder(
     }
   }
   if (!exists) {
-    LocalFavoritesManager().createFolder(resultName);
-    LocalFavoritesManager().linkFolderToNetwork(
+    favoritesRepo.createFolder(resultName);
+    favoritesRepo.linkFolderToNetwork(
       resultName,
       source,
       folderID ?? "",
@@ -372,7 +372,7 @@ Future<void> importNetworkFolder(
           var count = 0;
           receivedComics += res.data.length;
           for (var c in res.data) {
-            if (!LocalFavoritesManager().comicExists(
+            if (!favoritesRepo.comicExists(
               resultName,
               c.id,
               ComicType.fromKey(source),
@@ -403,7 +403,7 @@ Future<void> importNetworkFolder(
           var count = 0;
           receivedComics += res.data.length;
           for (var c in res.data) {
-            if (!LocalFavoritesManager().comicExists(
+            if (!favoritesRepo.comicExists(
               resultName,
               c.id,
               ComicType.fromKey(source),
@@ -522,7 +522,7 @@ Future<void> importNetworkFolder(
       comics = comics.reversed.toList();
     }
     for (var c in comics) {
-      LocalFavoritesManager().addComic(resultName, c);
+      favoritesRepo.addComic(resultName, c);
     }
     // 延迟一点, 让用户看清楚到底新增了多少
     await Future.delayed(const Duration(milliseconds: 500));

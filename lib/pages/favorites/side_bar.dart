@@ -39,10 +39,10 @@ class _LeftBarState extends State<_LeftBar> implements FolderList {
     favPage = widget.favPage ??
         context.findAncestorStateOfType<_FavoritesPageState>()!;
     favPage.folderList = this;
-    folders = LocalFavoritesManager().folderNames;
+    folders = favoritesRepo.folderNames;
     findNetworkFolders();
     appdata.settings.addListener(updateFolders);
-    LocalFavoritesManager().addListener(updateFolders);
+    favoritesRepo.addListener(updateFolders);
     super.initState();
   }
 
@@ -50,7 +50,7 @@ class _LeftBarState extends State<_LeftBar> implements FolderList {
   void dispose() {
     super.dispose();
     appdata.settings.removeListener(updateFolders);
-    LocalFavoritesManager().removeListener(updateFolders);
+    favoritesRepo.removeListener(updateFolders);
   }
 
   @override
@@ -135,7 +135,7 @@ class _LeftBarState extends State<_LeftBar> implements FolderList {
                 onClick: () {
                   newFolder().then((value) {
                     setState(() {
-                      folders = LocalFavoritesManager().folderNames;
+                      folders = favoritesRepo.folderNames;
                     });
                   });
                 },
@@ -146,7 +146,7 @@ class _LeftBarState extends State<_LeftBar> implements FolderList {
                 onClick: () {
                   sortFolders().then((value) {
                     setState(() {
-                      folders = LocalFavoritesManager().folderNames;
+                      folders = favoritesRepo.folderNames;
                     });
                   });
                 },
@@ -197,9 +197,9 @@ class _LeftBarState extends State<_LeftBar> implements FolderList {
     bool isSelected = name == favPage.folder && !favPage.isNetwork;
     int count = 0;
     if (name == _localAllFolderLabel) {
-      count = LocalFavoritesManager().totalComics;
+      count = favoritesRepo.totalComics;
     } else {
-      count = LocalFavoritesManager().folderComics(name);
+      count = favoritesRepo.folderComics(name);
     }
     var folderName = name == _localAllFolderLabel
         ? "All".tl
@@ -296,7 +296,7 @@ class _LeftBarState extends State<_LeftBar> implements FolderList {
   void updateFolders() {
     if (!mounted) return;
     setState(() {
-      folders = LocalFavoritesManager().folderNames;
+      folders = favoritesRepo.folderNames;
       findNetworkFolders();
     });
   }
