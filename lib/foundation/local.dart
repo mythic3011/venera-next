@@ -8,11 +8,11 @@ import 'package:path_provider/path_provider.dart';
 import 'package:sqlite3/sqlite3.dart';
 import 'package:venera/foundation/comic_source/comic_source.dart';
 import 'package:venera/foundation/comic_type.dart';
+import 'package:venera/foundation/db/local_comic_sync.dart';
 import 'package:venera/foundation/favorites.dart';
 import 'package:venera/foundation/log.dart';
 import 'package:venera/foundation/local_metadata/local_metadata.dart';
 import 'package:venera/foundation/reader/reader_open_target.dart';
-import 'package:venera/foundation/source_ref.dart';
 import 'package:venera/network/download.dart';
 import 'package:venera/pages/reader/reader.dart';
 import 'package:venera/utils/import_sort.dart';
@@ -114,7 +114,15 @@ class LocalComic with HistoryMixin implements Comic {
   @override
   int? get maxPage => null;
 
-  void read() {
+  void read() async {
+    try {
+      await LocalComicCanonicalSyncService(
+        store: App.unifiedComicsStore,
+      ).syncComic(this);
+    } catch (error) {
+      App.rootContext.showMessage(message: error.toString());
+      return;
+    }
     var history = HistoryManager().find(id, comicType);
     int? firstDownloadedChapter;
     int? firstDownloadedChapterGroup;

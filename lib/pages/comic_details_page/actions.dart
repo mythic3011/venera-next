@@ -1,5 +1,24 @@
 part of 'comic_page.dart';
 
+@visibleForTesting
+SourceRef resolveComicDetailsReadSourceRef({
+  required String comicId,
+  required String sourceKey,
+  required ComicChapters? chapters,
+  required int? ep,
+  required int? group,
+  required SourceRef? resumeSourceRef,
+}) {
+  return resolveReaderTargetSourceRef(
+    comicId: comicId,
+    sourceKey: sourceKey,
+    chapters: chapters,
+    ep: ep,
+    group: group,
+    resumeSourceRef: resumeSourceRef,
+  );
+}
+
 abstract mixin class _ComicPageActions {
   void update();
 

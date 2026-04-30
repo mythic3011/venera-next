@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:io';
 import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -20,7 +19,7 @@ import 'package:venera/foundation/history.dart';
 import 'package:venera/foundation/image_provider/cached_image.dart';
 import 'package:venera/foundation/local.dart';
 import 'package:venera/foundation/db/local_comic_sync.dart';
-import 'package:venera/foundation/comic_detail/repository.dart';
+import 'package:venera/foundation/comic_detail/comic_detail.dart';
 import 'package:venera/foundation/source_ref.dart';
 import 'package:venera/foundation/source_identity/source_identity.dart';
 import 'package:venera/foundation/reader/reader_open_target.dart';
