@@ -69,6 +69,21 @@ void main() {
     expect(position.group, 3);
   });
 
+  test('explicit_group_override_is_preserved_in_initial_position', () {
+    final position = resolveReaderInitialPosition(
+      requestedEp: 2,
+      requestedPage: 4,
+      requestedGroup: 5,
+      historyEp: 7,
+      historyPage: 12,
+      historyGroup: 3,
+    );
+
+    expect(position.chapter, 2);
+    expect(position.page, 4);
+    expect(position.group, 5);
+  });
+
   test('explicit_resume_remote_ref_is_not_reinterpreted_as_local', () {
     final remoteResume = SourceRef.fromLegacyRemote(
       sourceKey: 'unknown-remote',

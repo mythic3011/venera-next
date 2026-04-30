@@ -79,6 +79,7 @@ class ReaderWithLoading extends StatefulWidget {
     this.sourceKey,
     this.initialEp,
     this.initialPage,
+    this.initialGroup,
   }) : assert(sourceRef != null || sourceKey != null);
 
   final String id;
@@ -90,6 +91,8 @@ class ReaderWithLoading extends StatefulWidget {
   final int? initialEp;
 
   final int? initialPage;
+
+  final int? initialGroup;
 
   @override
   State<ReaderWithLoading> createState() => _ReaderWithLoadingState();
@@ -120,7 +123,7 @@ class _ReaderWithLoadingState
     final initialPosition = resolveReaderInitialPosition(
       requestedEp: widget.initialEp,
       requestedPage: widget.initialPage,
-      requestedGroup: null,
+      requestedGroup: widget.initialGroup,
       historyEp: data.history.ep,
       historyPage: data.history.page,
       historyGroup: data.history.group,

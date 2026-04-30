@@ -134,18 +134,13 @@ abstract mixin class _ComicPageActions {
     );
     App.rootContext
         .to(
-      () => Reader(
-        type: comic.comicType,
-        cid: comic.id,
-        name: comic.title,
-        chapters: comic.chapters,
-        initialChapter: ep,
-        initialPage: page,
-        initialChapterGroup: group,
-        history: history ?? History.fromModel(model: comic, ep: 0, page: 0),
+      () => ReaderWithLoading(
+        id: comic.id,
         sourceRef: sourceRef,
-        author: comic.findAuthor() ?? '',
-        tags: comic.plainTags,
+        sourceKey: sourceRef.sourceKey,
+        initialEp: ep,
+        initialPage: page,
+        initialGroup: group,
       )
     )
         .then((_) {

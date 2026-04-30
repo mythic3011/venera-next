@@ -160,18 +160,13 @@ class LocalComic with HistoryMixin implements Comic {
       resumeSourceRef: HistoryManager().findResumeSourceRef(id, comicType),
     );
     App.rootContext.to(
-      () => Reader(
-        type: comicType,
-        cid: id,
-        name: title,
-        chapters: chapters,
-        initialChapter: history?.ep ?? firstDownloadedChapter,
-        initialPage: history?.page,
-        initialChapterGroup: history?.group ?? firstDownloadedChapterGroup,
-        history: history ?? History.fromModel(model: this, ep: 0, page: 0),
+      () => ReaderWithLoading(
+        id: id,
         sourceRef: sourceRef,
-        author: subtitle,
-        tags: tags,
+        sourceKey: sourceRef.sourceKey,
+        initialEp: history?.ep ?? firstDownloadedChapter,
+        initialPage: history?.page,
+        initialGroup: history?.group ?? firstDownloadedChapterGroup,
       )
     );
   }
