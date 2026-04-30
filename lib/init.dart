@@ -47,11 +47,11 @@ Future<void> init() async {
       App.initComponents(),
       SAFTaskWorker().init().wait(),
       AppTranslation.init().wait(),
-      TagsTranslation.readData().wait(),
       JsEngine().init().wait(),
       ComicSourceManager().init().wait(),
     ];
     await Future.wait(futures);
+    await TagsTranslation.readData().wait();
   } catch (e, s) {
     Log.error("init", "$e\n$s");
   }

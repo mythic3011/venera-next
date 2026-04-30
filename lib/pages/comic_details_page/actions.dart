@@ -22,7 +22,11 @@ SourceRef resolveComicDetailsReadSourceRef({
 abstract mixin class _ComicPageActions {
   void update();
 
+  void retry();
+
   ComicDetails get comic;
+
+  String? get canonicalComicId;
 
   ComicSource get comicSource => ComicSource.find(comic.sourceKey)!;
 
@@ -134,18 +138,18 @@ abstract mixin class _ComicPageActions {
     );
     App.rootContext
         .to(
-      () => ReaderWithLoading(
-        id: comic.id,
-        sourceRef: sourceRef,
-        sourceKey: sourceRef.sourceKey,
-        initialEp: ep,
-        initialPage: page,
-        initialGroup: group,
-      )
-    )
+          () => ReaderWithLoading(
+            id: comic.id,
+            sourceRef: sourceRef,
+            sourceKey: sourceRef.sourceKey,
+            initialEp: ep,
+            initialPage: page,
+            initialGroup: group,
+          ),
+        )
         .then((_) {
-      onReadEnd();
-    });
+          onReadEnd();
+        });
   }
 
   void continueRead() {
@@ -191,10 +195,7 @@ abstract mixin class _ComicPageActions {
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      RadioListTile<int>(
-                        value: -1,
-                        title: Text("Normal".tl),
-                      ),
+                      RadioListTile<int>(value: -1, title: Text("Normal".tl)),
                       ExpansionTile(
                         title: Text("Archive".tl),
                         shape: const RoundedRectangleBorder(
@@ -209,16 +210,17 @@ abstract mixin class _ComicPageActions {
                             comicSource.archiveDownloader!
                                 .getArchives(comic.id)
                                 .then((value) {
-                              if (value.success) {
-                                archives = value.data;
-                              } else {
-                                App.rootContext
-                                    .showMessage(message: value.errorMessage!);
-                              }
-                              setState(() {
-                                isLoading = false;
-                              });
-                            });
+                                  if (value.success) {
+                                    archives = value.data;
+                                  } else {
+                                    App.rootContext.showMessage(
+                                      message: value.errorMessage!,
+                                    );
+                                  }
+                                  setState(() {
+                                    isLoading = false;
+                                  });
+                                });
                           }
                         },
                         children: [
@@ -230,9 +232,9 @@ abstract mixin class _ComicPageActions {
                                 value: i,
                                 title: Text(archives![i].title),
                                 subtitle: Text(archives![i].description),
-                              )
+                              ),
                         ],
-                      )
+                      ),
                     ],
                   ),
                 ),
@@ -248,11 +250,8 @@ abstract mixin class _ComicPageActions {
                       setState(() {
                         isGettingLink = true;
                       });
-                      var res =
-                          await comicSource.archiveDownloader!.getDownloadUrl(
-                        comic.id,
-                        archives![selected].id,
-                      );
+                      var res = await comicSource.archiveDownloader!
+                          .getDownloadUrl(comic.id, archives![selected].id);
                       if (res.error) {
                         App.rootContext.showMessage(message: res.errorMessage!);
                         setState(() {
@@ -260,10 +259,12 @@ abstract mixin class _ComicPageActions {
                         });
                       } else if (context.mounted) {
                         if (res.data.isNotEmpty) {
-                          LocalManager()
-                            .addTask(ArchiveDownloadTask(res.data, comic));
-                          App.rootContext
-                            .showMessage(message: "Download started".tl);
+                          LocalManager().addTask(
+                            ArchiveDownloadTask(res.data, comic),
+                          );
+                          App.rootContext.showMessage(
+                            message: "Download started".tl,
+                          );
                         }
                         context.pop();
                       }
@@ -282,19 +283,22 @@ abstract mixin class _ComicPageActions {
     }
 
     if (comic.chapters == null) {
-      LocalManager().addTask(ImagesDownloadTask(
-        source: comicSource,
-        comicId: comic.id,
-        comic: comic,
-      ));
+      LocalManager().addTask(
+        ImagesDownloadTask(
+          source: comicSource,
+          comicId: comic.id,
+          comic: comic,
+        ),
+      );
     } else {
       List<int>? selected;
       var downloaded = <int>[];
       var localComic = LocalManager().find(comic.id, comic.comicType);
       if (localComic != null) {
         for (int i = 0; i < comic.chapters!.length; i++) {
-          if (localComic.downloadedChapters
-              .contains(comic.chapters!.ids.elementAt(i))) {
+          if (localComic.downloadedChapters.contains(
+            comic.chapters!.ids.elementAt(i),
+          )) {
             downloaded.add(i);
           }
         }
@@ -308,14 +312,16 @@ abstract mixin class _ComicPageActions {
         ),
       );
       if (selected == null) return;
-      LocalManager().addTask(ImagesDownloadTask(
-        source: comicSource,
-        comicId: comic.id,
-        comic: comic,
-        chapters: selected!.map((i) {
-          return comic.chapters!.ids.elementAt(i);
-        }).toList(),
-      ));
+      LocalManager().addTask(
+        ImagesDownloadTask(
+          source: comicSource,
+          comicId: comic.id,
+          comic: comic,
+          chapters: selected!.map((i) {
+            return comic.chapters!.ids.elementAt(i);
+          }).toList(),
+        ),
+      );
     }
     App.rootContext.showMessage(message: "Download started".tl);
     update();
@@ -327,58 +333,195 @@ abstract mixin class _ComicPageActions {
     target?.jump(context);
   }
 
+  Future<void> manageLocalUserTags() async {
+    final targetComicId = canonicalComicId;
+    if (targetComicId == null) {
+      return;
+    }
+    final existing = await App.unifiedComicsStore.loadUserTagsForComic(
+      targetComicId,
+    );
+    final tags = existing.map((tag) => tag.name).toList(growable: true);
+    final controller = TextEditingController();
+    var saved = false;
+    await showDialog(
+      context: App.rootContext,
+      builder: (dialogContext) {
+        return StatefulBuilder(
+          builder: (context, setState) {
+            void addTag(String value) {
+              final trimmed = value.trim();
+              if (trimmed.isEmpty) {
+                return;
+              }
+              if (tags.any(
+                (tag) => tag.toLowerCase() == trimmed.toLowerCase(),
+              )) {
+                controller.clear();
+                return;
+              }
+              setState(() {
+                tags.add(trimmed);
+                tags.sort((left, right) => left.compareTo(right));
+                controller.clear();
+              });
+            }
+
+            return ContentDialog(
+              title: 'User Tags'.tl,
+              content: SizedBox(
+                width: 520,
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Wrap(
+                      runSpacing: 8,
+                      spacing: 8,
+                      children: [
+                        for (final tag in tags)
+                          InputChip(
+                            label: Text(tag),
+                            onDeleted: () {
+                              setState(() {
+                                tags.remove(tag);
+                              });
+                            },
+                          ),
+                      ],
+                    ),
+                    const SizedBox(height: 12),
+                    TextField(
+                      controller: controller,
+                      decoration: InputDecoration(
+                        hintText: 'Add tag'.tl,
+                        suffixIcon: IconButton(
+                          onPressed: () => addTag(controller.text),
+                          icon: const Icon(Icons.add),
+                        ),
+                      ),
+                      onSubmitted: addTag,
+                    ),
+                  ],
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(dialogContext),
+                  child: Text('Cancel'.tl),
+                ),
+                FilledButton(
+                  onPressed: () async {
+                    await _saveCanonicalUserTags(targetComicId, tags);
+                    saved = true;
+                    if (App.rootContext.mounted) {
+                      App.rootContext.showMessage(message: 'Saved'.tl);
+                    }
+                    if (dialogContext.mounted) {
+                      Navigator.pop(dialogContext);
+                    }
+                  },
+                  child: Text('Confirm'.tl),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+    controller.dispose();
+    if (saved) {
+      retry();
+    }
+  }
+
+  Future<void> _saveCanonicalUserTags(
+    String targetComicId,
+    List<String> tags,
+  ) async {
+    final existing = await App.unifiedComicsStore.loadUserTagsForComic(
+      targetComicId,
+    );
+    final existingByNormalized = {
+      for (final tag in existing) _normalizeUserTag(tag.name): tag,
+    };
+    final nextByNormalized = {
+      for (final tag in tags)
+        if (_normalizeUserTag(tag).isNotEmpty)
+          _normalizeUserTag(tag): tag.trim(),
+    };
+
+    for (final entry in existingByNormalized.entries) {
+      if (!nextByNormalized.containsKey(entry.key)) {
+        await App.unifiedComicsStore.removeUserTagFromComic(
+          comicId: targetComicId,
+          userTagId: entry.value.id,
+        );
+      }
+    }
+
+    for (final entry in nextByNormalized.entries) {
+      final id = existingByNormalized[entry.key]?.id ?? 'user_tag:${entry.key}';
+      await App.unifiedComicsStore.upsertUserTag(
+        UserTagRecord(id: id, name: entry.value, normalizedName: entry.key),
+      );
+      await App.unifiedComicsStore.attachUserTagToComic(
+        ComicUserTagRecord(comicId: targetComicId, userTagId: id),
+      );
+    }
+  }
+
   void showMoreActions() {
     var context = App.rootContext;
-    showMenuX(
-        context,
-        Offset(
-          context.width - 16,
-          context.padding.top,
+    showMenuX(context, Offset(context.width - 16, context.padding.top), [
+      MenuEntry(
+        icon: Icons.copy,
+        text: "Copy Title".tl,
+        onClick: () {
+          Clipboard.setData(ClipboardData(text: comic.title));
+          context.showMessage(message: "Copied".tl);
+        },
+      ),
+      MenuEntry(
+        icon: Icons.copy_rounded,
+        text: "Copy ID".tl,
+        onClick: () {
+          Clipboard.setData(ClipboardData(text: comic.id));
+          context.showMessage(message: "Copied".tl);
+        },
+      ),
+      if (canonicalComicId != null)
+        MenuEntry(
+          icon: Icons.sell_outlined,
+          text: 'User Tags'.tl,
+          onClick: () {
+            manageLocalUserTags();
+          },
         ),
-        [
-          MenuEntry(
-            icon: Icons.copy,
-            text: "Copy Title".tl,
-            onClick: () {
-              Clipboard.setData(ClipboardData(text: comic.title));
-              context.showMessage(message: "Copied".tl);
-            },
-          ),
-          MenuEntry(
-            icon: Icons.copy_rounded,
-            text: "Copy ID".tl,
-            onClick: () {
-              Clipboard.setData(ClipboardData(text: comic.id));
-              context.showMessage(message: "Copied".tl);
-            },
-          ),
-          if (comic.url != null)
-            MenuEntry(
-              icon: Icons.link,
-              text: "Copy URL".tl,
-              onClick: () {
-                Clipboard.setData(ClipboardData(text: comic.url!));
-                context.showMessage(message: "Copied".tl);
-              },
-            ),
-          if (comic.url != null)
-            MenuEntry(
-              icon: Icons.open_in_browser,
-              text: "Open in Browser".tl,
-              onClick: () {
-                launchUrlString(comic.url!);
-              },
-            ),
-        ]);
+      if (comic.url != null)
+        MenuEntry(
+          icon: Icons.link,
+          text: "Copy URL".tl,
+          onClick: () {
+            Clipboard.setData(ClipboardData(text: comic.url!));
+            context.showMessage(message: "Copied".tl);
+          },
+        ),
+      if (comic.url != null)
+        MenuEntry(
+          icon: Icons.open_in_browser,
+          text: "Open in Browser".tl,
+          onClick: () {
+            launchUrlString(comic.url!);
+          },
+        ),
+    ]);
   }
 
   void showComments() {
     showSideBar(
       App.rootContext,
-      CommentsPage(
-        data: comic,
-        source: comicSource,
-      ),
+      CommentsPage(data: comic, source: comicSource),
     );
   }
 
@@ -402,9 +545,7 @@ abstract mixin class _ComicPageActions {
                   width: 210,
                   child: Column(
                     children: [
-                      const SizedBox(
-                        height: 10,
-                      ),
+                      const SizedBox(height: 10),
                       RatingWidget(
                         padding: 2,
                         onRatingUpdate: (value) => rating = value,
@@ -421,29 +562,33 @@ abstract mixin class _ComicPageActions {
                           });
                           comicSource.starRatingFunc!(comic.id, rating.round())
                               .then((value) {
-                            if (value.success) {
-                              App.rootContext
-                                  .showMessage(message: "Success".tl);
-                              Navigator.of(dialogContext).pop();
-                            } else {
-                              App.rootContext
-                                  .showMessage(message: value.errorMessage!);
-                              setState(() {
-                                isLoading = false;
+                                if (value.success) {
+                                  App.rootContext.showMessage(
+                                    message: "Success".tl,
+                                  );
+                                  Navigator.of(dialogContext).pop();
+                                } else {
+                                  App.rootContext.showMessage(
+                                    message: value.errorMessage!,
+                                  );
+                                  setState(() {
+                                    isLoading = false;
+                                  });
+                                }
                               });
-                            }
-                          });
                         },
                         child: Text("Submit".tl),
-                      )
+                      ),
                     ],
                   ),
                 ),
               ),
-            )
+            ),
           ],
         ),
       ),
     );
   }
 }
+
+String _normalizeUserTag(String value) => value.trim().toLowerCase();

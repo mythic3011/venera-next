@@ -11,6 +11,7 @@ import 'dart:ui';
 
 import 'package:flutter/services.dart';
 import 'package:venera/foundation/app.dart';
+import 'package:venera/foundation/db/unified_comics_store.dart';
 import 'package:venera/foundation/log.dart';
 import 'package:venera/utils/ext.dart';
 import 'package:venera/utils/opencc.dart';
@@ -19,8 +20,11 @@ const _latestTagsDatabaseUrl =
     "https://github.com/EhTagTranslation/Database/releases/latest/download/db.text.json";
 const _tagsDatabaseVersion = 7;
 const _tagsCachePrefix = "ehtag_translation";
+const _ehTagProviderKey = 'ehentai';
 
 enum _TagLocale { simplified, traditional }
+
+typedef EhTagTranslationDownloader = Future<String> Function();
 
 Map<String, Map<String, String>> _decodeTagData(List<int> bytes) {
   final decoded = jsonDecode(utf8.decode(bytes)) as Map<String, dynamic>;
@@ -85,28 +89,43 @@ Map<String, Map<String, String>> _convertTagData(
     for (final namespace in source.entries)
       namespace.key: {
         for (final tag in namespace.value.entries)
-          tag.key: OpenCC.simplifiedToTraditional(tag.value),
+          tag.key: _toTraditional(tag.value),
       },
   };
+}
+
+String _toTraditional(String value) {
+  try {
+    return OpenCC.simplifiedToTraditional(value);
+  } catch (_) {
+    return value;
+  }
 }
 
 extension TagsTranslation on String {
   static final Map<String, Map<String, String>> _data = {};
   static String? _loadedKey;
+  static EhTagTranslationDownloader _downloader = _defaultDownloadLatestTagData;
 
-  static Future<void> readData() async {
+  static Future<void> readData({
+    bool forceReload = false,
+    UnifiedComicsStore? store,
+  }) async {
     final locale = App.locale;
     final tagLocale = _tagLocaleFrom(locale);
     final cacheKey = _cacheKeyFrom(locale, tagLocale);
-    if (_loadedKey == cacheKey && _data.isNotEmpty) {
+    if (!forceReload && _loadedKey == cacheKey && _data.isNotEmpty) {
       return;
     }
 
-    final latest = await _downloadAndCacheLatestTagData(tagLocale, cacheKey);
-    if (latest != null) {
+    final dbLoaded = await _loadDbTagData(
+      cacheKey,
+      store: store ?? _storeOrNull(),
+    );
+    if (dbLoaded != null) {
       _data
         ..clear()
-        ..addAll(latest);
+        ..addAll(dbLoaded);
       _loadedKey = cacheKey;
       return;
     }
@@ -125,6 +144,46 @@ extension TagsTranslation on String {
       ..clear()
       ..addAll(parsed);
     _loadedKey = cacheKey;
+  }
+
+  static Future<bool> refreshEhTaxonomy({
+    UnifiedComicsStore? store,
+    EhTagTranslationDownloader? downloader,
+  }) async {
+    final targetStore = store ?? _storeOrNull();
+    if (targetStore == null) {
+      throw StateError('UnifiedComicsStore is not available');
+    }
+    final text = await (downloader ?? _downloader)();
+    final source = await Isolate.run(() => _decodeLatestTagData(text));
+    final sourceKey = await Isolate.run(() => _latestTagSourceKey(text));
+    final existing = await targetStore.loadEhTagTaxonomy(
+      providerKey: _ehTagProviderKey,
+      locale: 'zh_CN',
+    );
+    if (sourceKey != null &&
+        existing.isNotEmpty &&
+        existing.first.sourceSha == sourceKey) {
+      return false;
+    }
+
+    final simplified = source;
+    final traditional = _convertTagData(source, _TagLocale.traditional);
+    final records = <EhTagTaxonomyRecord>[
+      ..._buildTaxonomyRecords(
+        locale: 'zh_CN',
+        data: simplified,
+        sourceSha: sourceKey,
+      ),
+      ..._buildTaxonomyRecords(
+        locale: 'zh_TW',
+        data: traditional,
+        sourceSha: sourceKey,
+      ),
+    ];
+    await targetStore.replaceEhTagTaxonomyRecords(_ehTagProviderKey, records);
+    await readData(forceReload: true, store: targetStore);
+    return true;
   }
 
   static _TagLocale _tagLocaleFrom(Locale locale) {
@@ -152,77 +211,31 @@ extension TagsTranslation on String {
     return File("${App.dataPath}/${_tagsCachePrefix}_$cacheKey.json");
   }
 
-  static File? _cacheMetaFile(String cacheKey) {
-    if (!App.isInitialized) {
+  static Future<Map<String, Map<String, String>>?> _loadDbTagData(
+    String cacheKey, {
+    UnifiedComicsStore? store,
+  }) async {
+    if (store == null) {
       return null;
     }
-    return File("${App.dataPath}/${_tagsCachePrefix}_$cacheKey.meta.json");
-  }
-
-  static Future<Map<String, Map<String, String>>?>
-  _downloadAndCacheLatestTagData(_TagLocale tagLocale, String cacheKey) async {
     try {
-      final text = await _downloadLatestTagData();
-      final sourceKey = await Isolate.run(() => _latestTagSourceKey(text));
-      if (sourceKey != null && await _cacheSourceKey(cacheKey) == sourceKey) {
-        final cached = await _loadCachedTagData(cacheKey);
-        if (cached != null) {
-          return cached;
-        }
+      final rows = await store.loadEhTagTaxonomy(
+        providerKey: _ehTagProviderKey,
+        locale: _dbLocaleForCacheKey(cacheKey),
+      );
+      if (rows.isEmpty) {
+        return null;
       }
-      final source = await Isolate.run(() => _decodeLatestTagData(text));
-      final translated = _convertTagData(source, tagLocale);
-      final cacheFile = _cacheFile(cacheKey);
-      if (cacheFile != null) {
-        await cacheFile.writeAsString(jsonEncode(translated), flush: true);
+      final data = <String, Map<String, String>>{};
+      for (final row in rows) {
+        data.putIfAbsent(row.namespace, () => <String, String>{})[row.tagKey] =
+            row.translatedLabel;
       }
-      await _writeCacheSourceKey(cacheKey, sourceKey);
-      return translated;
+      return data.isEmpty ? null : data;
     } catch (e) {
-      Log.warning("Tags Translation", "Failed to update latest tag data: $e");
+      Log.warning("Tags Translation", "Failed to read DB tag data: $e");
       return null;
     }
-  }
-
-  static Future<String?> _cacheSourceKey(String cacheKey) async {
-    final metaFile = _cacheMetaFile(cacheKey);
-    final cacheFile = _cacheFile(cacheKey);
-    if (metaFile == null ||
-        cacheFile == null ||
-        !await metaFile.exists() ||
-        !await cacheFile.exists()) {
-      return null;
-    }
-    try {
-      final decoded =
-          jsonDecode(await metaFile.readAsString()) as Map<String, dynamic>;
-      final sourceKey = decoded["sourceKey"];
-      return sourceKey is String && sourceKey.isNotEmpty ? sourceKey : null;
-    } catch (_) {
-      return null;
-    }
-  }
-
-  static Future<void> _writeCacheSourceKey(
-    String cacheKey,
-    String? sourceKey,
-  ) async {
-    if (sourceKey == null) {
-      return;
-    }
-    final metaFile = _cacheMetaFile(cacheKey);
-    if (metaFile == null) {
-      return;
-    }
-    await metaFile.writeAsString(
-      jsonEncode({
-        "sourceUrl": _latestTagsDatabaseUrl,
-        "sourceKey": sourceKey,
-        "version": _tagsDatabaseVersion,
-        "updatedAt": DateTime.now().toUtc().toIso8601String(),
-      }),
-      flush: true,
-    );
   }
 
   static Future<Map<String, Map<String, String>>?> _loadCachedTagData(
@@ -283,7 +296,54 @@ extension TagsTranslation on String {
     return Isolate.run(() => _decodeTagData(bytes));
   }
 
-  static Future<String> _downloadLatestTagData() async {
+  static UnifiedComicsStore? _storeOrNull() {
+    if (!App.isInitialized) {
+      return null;
+    }
+    try {
+      return App.unifiedComicsStore;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  static String _dbLocaleForCacheKey(String cacheKey) {
+    return cacheKey == 'zh_HK' ? 'zh_TW' : cacheKey;
+  }
+
+  static List<EhTagTaxonomyRecord> _buildTaxonomyRecords({
+    required String locale,
+    required Map<String, Map<String, String>> data,
+    required String? sourceSha,
+  }) {
+    final updatedAt = DateTime.now().toUtc().toIso8601String();
+    return [
+      for (final namespaceEntry in data.entries)
+        for (final tagEntry in namespaceEntry.value.entries)
+          EhTagTaxonomyRecord(
+            providerKey: _ehTagProviderKey,
+            locale: locale,
+            namespace: namespaceEntry.key,
+            tagKey: tagEntry.key,
+            translatedLabel: tagEntry.value,
+            sourceSha: sourceSha,
+            sourceVersion: _tagsDatabaseVersion,
+            updatedAt: updatedAt,
+          ),
+    ];
+  }
+
+  static void setDownloaderForTest(EhTagTranslationDownloader downloader) {
+    _downloader = downloader;
+  }
+
+  static void resetStateForTest() {
+    _downloader = _defaultDownloadLatestTagData;
+    _loadedKey = null;
+    _data.clear();
+  }
+
+  static Future<String> _defaultDownloadLatestTagData() async {
     final uri = Uri.parse(_latestTagsDatabaseUrl);
     final client = HttpClient()..connectionTimeout = const Duration(seconds: 8);
     try {

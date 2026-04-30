@@ -19,6 +19,7 @@ import 'package:venera/foundation/history.dart';
 import 'package:venera/foundation/image_provider/cached_image.dart';
 import 'package:venera/foundation/local.dart';
 import 'package:venera/foundation/db/local_comic_sync.dart';
+import 'package:venera/foundation/db/unified_comics_store.dart';
 import 'package:venera/foundation/comic_detail/comic_detail.dart';
 import 'package:venera/foundation/source_ref.dart';
 import 'package:venera/foundation/source_identity/source_identity.dart';
@@ -75,35 +76,52 @@ class ComicPage extends StatefulWidget {
 class _ComicPageState extends LoadingState<ComicPage, ComicDetails>
     with _ComicPageActions {
   bool get _isLocalSource => isLocalSourceKey(widget.sourceKey);
+  String? _canonicalComicId;
 
   ComicDetails _buildLocalDetailsFromCanonical(
     ComicDetailViewModel detail,
     LocalComic localComic,
   ) {
     final tags = <String, List<String>>{};
-    for (final raw in localComic.tags) {
-      final index = raw.indexOf(':');
-      if (index > 0 && index < raw.length - 1) {
-        final namespace = raw.substring(0, index).trim();
-        final tag = raw.substring(index + 1).trim();
-        tags.putIfAbsent(namespace, () => <String>[]).add(tag);
-      } else {
-        tags.putIfAbsent("Tags", () => <String>[]).add(raw);
+    for (final tag in detail.sourceTags) {
+      final key = tag.namespace.isEmpty ? 'Source Tags' : tag.namespace;
+      tags.putIfAbsent(key, () => <String>[]).add(tag.name);
+    }
+    if (detail.userTags.isNotEmpty) {
+      tags['User Tags'] = detail.userTags.map((tag) => tag.name).toList();
+    }
+    if (tags.isEmpty) {
+      for (final raw in localComic.tags) {
+        final index = raw.indexOf(':');
+        if (index > 0 && index < raw.length - 1) {
+          final namespace = raw.substring(0, index).trim();
+          final tag = raw.substring(index + 1).trim();
+          tags.putIfAbsent(namespace, () => <String>[]).add(tag);
+        } else {
+          tags.putIfAbsent("Tags", () => <String>[]).add(raw);
+        }
       }
     }
+    final sourceLabel = detail.primarySource == null
+        ? 'Remote source: Not linked'
+        : 'Remote source: ${detail.primarySource!.platformName}';
+    final subtitleParts = <String>[
+      if (localComic.subtitle.isNotEmpty) localComic.subtitle,
+      sourceLabel,
+    ];
     final chapters = detail.chapters.isEmpty
         ? null
         : ComicChapters({
-            for (final chapter in detail.chapters) chapter.chapterId: chapter.title,
+            for (final chapter in detail.chapters)
+              chapter.chapterId: chapter.title,
           });
     return ComicDetails.fromJson({
       "title": detail.title,
-      "subtitle": localComic.subtitle,
-      "cover":
-          (detail.coverLocalPath != null
-                  ? File(detail.coverLocalPath!).uri.toString()
-                  : localComic.coverFile.uri.toString()),
-      "description": "",
+      "subtitle": subtitleParts.join(' | '),
+      "cover": (detail.coverLocalPath != null
+          ? File(detail.coverLocalPath!).uri.toString()
+          : localComic.coverFile.uri.toString()),
+      "description": detail.primarySource?.sourceTitle ?? "",
       "tags": tags,
       "chapters": chapters?.toJson(),
       "sourceKey": "local",
@@ -117,9 +135,9 @@ class _ComicPageState extends LoadingState<ComicPage, ComicDetails>
       "commentCount": null,
       "uploader": null,
       "uploadTime": null,
-      "updateTime":
-          (detail.updatedAt ?? localComic.createdAt).toIso8601String(),
-      "url": null,
+      "updateTime": (detail.updatedAt ?? localComic.createdAt)
+          .toIso8601String(),
+      "url": detail.primarySource?.comicUrl,
       "stars": null,
       "maxPage": null,
       "comments": null,
@@ -202,6 +220,9 @@ class _ComicPageState extends LoadingState<ComicPage, ComicDetails>
 
   @override
   ComicDetails get comic => data!;
+
+  @override
+  String? get canonicalComicId => _canonicalComicId;
 
   ImageProvider _comicPageCoverImageProvider() {
     if (_isLocalSource) {
@@ -301,6 +322,7 @@ class _ComicPageState extends LoadingState<ComicPage, ComicDetails>
         ComicType.local,
       );
       history = HistoryManager().find(widget.id, ComicType.local);
+      _canonicalComicId = widget.id;
       return Res(_buildLocalDetailsFromCanonical(detail, localComic));
     }
     var comicSource = ComicSource.find(widget.sourceKey);
@@ -315,7 +337,18 @@ class _ComicPageState extends LoadingState<ComicPage, ComicDetails>
       widget.id,
       ComicType.fromKey(widget.sourceKey),
     );
-    return comicSource.loadComicInfo!(widget.id);
+    final remoteDetail =
+        await CanonicalRemoteComicDetailRepository(
+          store: App.unifiedComicsStore,
+        ).getRemoteComicDetail(
+          comicId: widget.id,
+          loadComicInfo: comicSource.loadComicInfo!,
+        );
+    if (!remoteDetail.success) {
+      return Res.fromErrorRes(remoteDetail, subData: remoteDetail.subData);
+    }
+    _canonicalComicId = remoteDetail.data.canonicalComicId;
+    return Res(remoteDetail.data.detail, subData: remoteDetail.subData);
   }
 
   @override
