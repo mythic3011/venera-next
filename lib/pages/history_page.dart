@@ -41,7 +41,7 @@ class _HistoryPageState extends State<HistoryPage> {
   @override
   void initState() {
     super.initState();
-    _repository = ReaderActivityRepository(store: App.unifiedComicsStore);
+    _repository = App.repositories.readerActivity;
     _refreshActivity();
   }
 

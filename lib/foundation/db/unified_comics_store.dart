@@ -2820,4 +2820,19 @@ Iterable<SourcePlatformAliasRecord> _aliasesForDefinition(
       pageKeys: pageKeys,
     );
   }
+
+  @override
+  Future<void> syncRemoteChapterPages({
+    required String sourceKey,
+    required String comicId,
+    required String chapterId,
+    required List<String> pageKeys,
+  }) {
+    return RemoteComicCanonicalSyncService(store: this).syncChapterPages(
+      sourceKey: sourceKey,
+      comicId: comicId,
+      chapterId: chapterId,
+      pageKeys: pageKeys,
+    );
+  }
 }
