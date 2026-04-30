@@ -125,10 +125,9 @@ abstract mixin class _ComicPageActions {
   ///
   /// [group] the chapter group number, start from 1
   Future<void> read([int? ep, int? page, int? group]) async {
-    final resumeSourceRef = await HistoryManager().loadPreferredResumeSourceRef(
-      comic.id,
-      comic.comicType,
-    );
+    final resumeSourceRef = await ReaderResumeService(
+      readerSessions: ReaderSessionRepository(store: App.unifiedComicsStore),
+    ).loadPreferredResumeSourceRef(comic.id, comic.comicType);
     final sourceRef = resolveReaderTargetSourceRef(
       comicId: comic.id,
       sourceKey: comic.comicType.sourceKey,
@@ -156,7 +155,7 @@ abstract mixin class _ComicPageActions {
   void continueRead() {
     var ep = history?.ep ?? 1;
     var page = history?.page ?? 1;
-    var group = history?.group ?? 1;
+    var group = history?.group;
     read(ep, page, group);
   }
 

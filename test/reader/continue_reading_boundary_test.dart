@@ -218,4 +218,42 @@ void main() {
       }
     }
   });
+
+  test('detail progress compatibility history uses canonical active tab', () {
+    final history = buildComicDetailCompatibilityHistoryForTesting(
+      model: ComicDetails.fromJson({
+        'title': 'Comic 1',
+        'subtitle': '',
+        'cover': '',
+        'description': '',
+        'tags': const <String, List<String>>{},
+        'chapters': const {
+          'chapter-1': 'Episode 1',
+          'chapter-2': 'Episode 2',
+        },
+        'sourceKey': 'copymanga',
+        'comicId': 'comic-1',
+      }),
+      chapters: const ComicChapters({
+        'chapter-1': 'Episode 1',
+        'chapter-2': 'Episode 2',
+      }),
+      canonicalActiveTab: ReaderTabVm(
+        tabId: 'tab-1',
+        currentChapterId: 'chapter-2',
+        currentPageIndex: 8,
+        sourceRef: SourceRef.fromLegacyRemote(
+          sourceKey: 'copymanga',
+          comicId: 'comic-1',
+          chapterId: 'chapter-2',
+        ),
+        loadMode: ReaderTabLoadMode.remoteSource,
+        isActive: true,
+      ),
+    );
+
+    expect(history.ep, 2);
+    expect(history.page, 8);
+    expect(history.group, isNull);
+  });
 }
