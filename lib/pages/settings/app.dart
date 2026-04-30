@@ -1,15 +1,12 @@
 part of 'settings_page.dart';
 
 class _AppSettingsGateway {
-  // Legacy compatibility only: settings still delegates local path migration
-  // to LocalManager until LocalLibraryRepository owns storage-root changes.
-  LocalManager get _legacyLocalManager => LocalManager();
   CacheManager get _cacheManager => CacheManager();
 
-  String get localComicsPath => _legacyLocalManager.path;
+  String get localComicsPath => legacyReadLocalComicsStoragePath();
 
   Future<String?> setLocalComicsPath(String path) =>
-      _legacyLocalManager.setNewPath(path);
+      legacySetLocalComicsStoragePath(path);
 
   int get currentCacheSizeBytes => _cacheManager.currentSize;
 

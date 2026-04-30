@@ -6,6 +6,7 @@ import 'package:venera/foundation/app.dart';
 import 'package:venera/foundation/appdata.dart';
 import 'package:venera/foundation/comic_type.dart';
 import 'package:venera/foundation/local.dart';
+import 'package:venera/foundation/local_comics_legacy_bridge.dart';
 import 'package:venera/foundation/log.dart';
 import 'package:venera/foundation/repositories/local_library_repository.dart';
 import 'package:venera/pages/comic_details_page/comic_page.dart';
@@ -137,23 +138,26 @@ List<LocalComic> applyCanonicalLocalLibraryView({
 }
 
 class _LocalComicsGateway {
-  LocalManager get _manager => LocalManager();
+  Future<void> ensureInitialized() => legacyEnsureLocalComicsInitialized();
 
-  void addListener(VoidCallback listener) => _manager.addListener(listener);
+  bool get isInitialized => legacyIsLocalComicsInitialized();
+
+  void addListener(VoidCallback listener) =>
+      legacyAddLocalComicsListener(listener);
 
   void removeListener(VoidCallback listener) =>
-      _manager.removeListener(listener);
+      legacyRemoveLocalComicsListener(listener);
 
   List<LocalComic> getComics(LocalSortType sortType) =>
-      _manager.getComics(sortType);
+      legacyGetLocalComics(sortType);
 
-  List<LocalComic> search(String keyword) => _manager.search(keyword);
+  List<LocalComic> search(String keyword) => legacySearchLocalComics(keyword);
 
   Future<List<LocalComic>> getVisibleComics(
     LocalSortType sortType, {
     String keyword = '',
   }) async {
-    final comics = _manager.getComics(LocalSortType.name);
+    final comics = legacyGetLocalComics(LocalSortType.name);
     final browseRecords = await App.repositories.localLibrary
         .loadBrowseRecords();
     return applyCanonicalLocalLibraryView(
@@ -165,25 +169,25 @@ class _LocalComicsGateway {
   }
 
   LocalComic? findComic(String id, ComicType comicType) =>
-      _manager.find(id, comicType);
+      legacyFindLocalComicByIdAndType(id, comicType);
 
   Future<List<String>> loadImages(
     String comicId,
     ComicType comicType,
     Object chapterOrIndex,
-  ) => _manager.getImages(comicId, comicType, chapterOrIndex);
+  ) => legacyLoadLocalComicImages(comicId, comicType, chapterOrIndex);
 
   void renameChapter(LocalComic comic, String chapterId, String newName) =>
-      _manager.renameComicChapter(comic, chapterId, newName);
+      legacyRenameLocalComicChapter(comic, chapterId, newName);
 
   void deleteChapters(LocalComic comic, List<String> chapters) =>
-      _manager.deleteComicChapters(comic, chapters);
+      legacyDeleteLocalComicChapters(comic, chapters);
 
   void batchDeleteComics(
     List<LocalComic> comics,
     bool removeComicFile,
     bool removeFavoriteAndHistory,
-  ) => _manager.batchDeleteComics(
+  ) => legacyBatchDeleteLocalComics(
     comics,
     removeComicFile,
     removeFavoriteAndHistory,
@@ -193,25 +197,25 @@ class _LocalComicsGateway {
     LocalComic comic,
     Object chapterOrIndex,
     List<String> pageOrder,
-  ) => _manager.reorderComicPages(comic, chapterOrIndex, pageOrder);
+  ) => legacyReorderLocalComicPages(comic, chapterOrIndex, pageOrder);
 
   Future<void> setCover(LocalComic comic, String coverPath) =>
-      _manager.setComicCover(comic, coverPath);
+      legacySetLocalComicCover(comic, coverPath);
 
   Future<void> addComicsAsChapters(
     LocalComic comic,
     List<LocalComic> sources, {
     required bool deleteSourceComics,
-  }) => _manager.addComicsAsChapters(
+  }) => legacyAddComicsAsLocalChapters(
     comic,
     sources,
     deleteSourceComics: deleteSourceComics,
   );
 
   void reorderChapters(LocalComic comic, List<String> chapterIds) =>
-      _manager.reorderComicChapters(comic, chapterIds);
+      legacyReorderLocalComicChapters(comic, chapterIds);
 
-  String get localRootPath => _manager.path;
+  String get localRootPath => legacyLocalComicsRootPath();
 }
 
 class LocalComicsPage extends StatefulWidget {
@@ -263,7 +267,7 @@ class _LocalComicsPageState extends State<LocalComicsPage> {
   }
 
   Future<void> _initialize() async {
-    await LocalManager().ensureInitialized();
+    await _gateway.ensureInitialized();
     if (!mounted) {
       return;
     }
@@ -273,7 +277,7 @@ class _LocalComicsPageState extends State<LocalComicsPage> {
 
   @override
   void dispose() {
-    if (LocalManager().isInitialized) {
+    if (_gateway.isInitialized) {
       _gateway.removeListener(_handleManagerUpdate);
     }
     super.dispose();

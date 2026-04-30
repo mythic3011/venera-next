@@ -698,6 +698,9 @@ class UnifiedComicsStore extends GeneratedDatabase
   );
 
   Future<void> init() async {
+    // Defensive self-heal for older runtime databases with partial schema.
+    // All ensure methods are idempotent via CREATE TABLE/INDEX IF NOT EXISTS.
+    await _createLatestSchema();
     await customSelect('SELECT 1;').getSingle();
   }
 
@@ -2174,6 +2177,20 @@ class UnifiedComicsStore extends GeneratedDatabase
       return null;
     }
     return _localLibraryItemRecordFromRow(row);
+  }
+
+  Future<List<String>> loadChapterIdsForComic(String comicId) async {
+    final rows = await customSelect(
+      '''
+      SELECT ch.id
+      FROM chapters ch
+      JOIN local_library_items lli ON lli.comic_id = ch.comic_id
+      WHERE ch.comic_id = ?
+      ORDER BY COALESCE(ch.chapter_no, 1000000000) ASC, ch.normalized_title ASC;
+      ''',
+      variables: [Variable<String>(comicId)],
+    ).get();
+    return rows.map((row) => row.read<String>('id')).toList(growable: false);
   }
 
   Future<PageOrderRecord?> loadActivePageOrderForChapter(

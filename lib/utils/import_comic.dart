@@ -10,6 +10,7 @@ import 'package:venera/features/sources/comic_source/comic_source.dart';
 import 'package:venera/foundation/comic_type.dart';
 import 'package:venera/foundation/favorites.dart';
 import 'package:venera/foundation/local.dart';
+import 'package:venera/foundation/local_comics_legacy_bridge.dart';
 import 'package:venera/foundation/log.dart';
 import 'package:sqlite3/sqlite3.dart' as sql;
 import 'package:venera/utils/ext.dart';
@@ -308,11 +309,13 @@ class ImportComic {
       return null;
     }
     var title = sanitizeFileName(source.basenameWithoutExt);
-    var existed = LocalManager().findByName(title);
+    var existed = legacyFindLocalComicByName(title);
     if (existed != null) {
-      title = findValidDirectoryName(LocalManager().path, title);
+      title = findValidDirectoryName(legacyReadLocalComicsRootPath(), title);
     }
-    final dest = Directory(FilePath.join(LocalManager().path, title));
+    final dest = Directory(
+      FilePath.join(legacyReadLocalComicsRootPath(), title),
+    );
     if (dest.existsSync()) {
       await dest.deleteIgnoreError(recursive: true);
     }
@@ -481,10 +484,12 @@ class ImportComic {
     void Function(String message, double? progress)? onProgress,
   }) async {
     final title = sanitizeFileName(source.basenameWithoutExt);
-    if (LocalManager().findByName(title) != null) {
+    if (legacyFindLocalComicByName(title) != null) {
       throw Exception("Comic with name $title already exists");
     }
-    final dest = Directory(FilePath.join(LocalManager().path, title));
+    final dest = Directory(
+      FilePath.join(legacyReadLocalComicsRootPath(), title),
+    );
     if (dest.existsSync()) {
       await dest.deleteIgnoreError(recursive: true);
     }
@@ -759,7 +764,7 @@ class ImportComic {
   }
 
   Future<bool> localDownloads() async {
-    var localDir = LocalManager().directory;
+    var localDir = legacyLocalComicsDirectory();
     Map<String?, List<LocalComic>> imported = {null: []};
     bool cancelled = false;
     var controller = showLoadingDialog(
@@ -814,7 +819,7 @@ class ImportComic {
   }) async {
     if (!(await directory.exists())) return null;
     var name = title ?? directory.name;
-    if (LocalManager().findByName(name) != null) {
+    if (legacyFindLocalComicByName(name) != null) {
       Log.info("Import Comic", "Comic already exists: $name");
       return null;
     }
@@ -911,7 +916,7 @@ class ImportComic {
   Future<Map<String?, List<LocalComic>>> _copyComicsToLocalDir(
     Map<String?, List<LocalComic>> comics,
   ) async {
-    var destPath = LocalManager().path;
+    var destPath = legacyReadLocalComicsRootPath();
     Map<String?, List<LocalComic>> result = {};
     for (var favoriteFolder in comics.keys) {
       result[favoriteFolder] = comics[favoriteFolder]!
@@ -973,8 +978,8 @@ class ImportComic {
       int importedCount = 0;
       for (var folder in importedComics.keys) {
         for (var comic in importedComics[folder]!) {
-          var id = LocalManager().findValidId(ComicType.local);
-          LocalManager().add(comic, id);
+          var id = legacyFindValidLocalComicId(ComicType.local);
+          legacyRegisterLocalComic(comic, id);
           importedCount++;
           if (folder != null) {
             LocalFavoritesManager().addComic(

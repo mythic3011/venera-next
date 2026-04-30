@@ -221,6 +221,14 @@ class DebugPageState extends State<DebugPage> {
                   const SizedBox(height: 8),
                   Text("Log File: ${Log.logFilePath}").paddingHorizontal(16),
                 ],
+                if (App.isInitialized) ...[
+                  const SizedBox(height: 8),
+                  Text("Runtime Root: ${App.dataPath}").paddingHorizontal(16),
+                  if (App.runtimeRootOverrideActive)
+                    Text(
+                      "Runtime Root Override: ${App.runtimeRootOverridePath}",
+                    ).paddingHorizontal(16),
+                ],
                 const SizedBox(height: 8),
                 TextButton(
                   onPressed: _exportLogs,

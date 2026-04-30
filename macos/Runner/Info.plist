@@ -28,5 +28,7 @@
 	<string>MainMenu</string>
 	<key>NSPrincipalClass</key>
 	<string>NSApplication</string>
+	<key>VeneraRuntimeRootOverride</key>
+	<string>$(VENERA_RUNTIME_ROOT_OVERRIDE)</string>
 </dict>
 </plist>

@@ -12,3 +12,8 @@ PRODUCT_BUNDLE_IDENTIFIER = com.mythic3011.veneranext
 
 // The copyright displayed in application information
 PRODUCT_COPYRIGHT = Copyright © 2024 mythic3011. All rights reserved.
+
+// Optional dev-only runtime root override (empty by default).
+// Example absolute path:
+// /Users/<user>/Library/Application Support/com.mythic3011.veneranext.dev
+VENERA_RUNTIME_ROOT_OVERRIDE =

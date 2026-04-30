@@ -63,6 +63,22 @@ void main() {
     expect(await store.currentUserVersion(), store.schemaVersion);
   });
 
+  test('init recreates missing favorite folder tables for legacy dbs', () async {
+    final raw = sqlite3.open(dbPath);
+    raw.execute('DROP TABLE IF EXISTS favorite_folder_items;');
+    raw.dispose();
+
+    await store.init();
+
+    final tables = await store.listTables();
+    expect(tables, contains('favorite_folder_items'));
+
+    await expectLater(
+      store.deleteFavoriteFolderItemsByComic('non-existent-comic'),
+      completes,
+    );
+  });
+
   test('foreign key enforcement is enabled on store connection', () async {
     expect(await store.foreignKeysEnabled(), 1);
 

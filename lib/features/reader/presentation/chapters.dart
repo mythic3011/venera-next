@@ -23,13 +23,18 @@ class _ChaptersViewState extends State<_ChaptersView> {
     _scrollController = ScrollController(
       initialScrollOffset: (epIndex * 48.0 + 52).clamp(0, double.infinity),
     );
-    var local = LocalManager().findBySourceKey(
-      widget.reader.cid,
-      widget.reader.type.sourceKey,
-    );
-    if (local != null) {
-      downloaded = local.downloadedChapters;
+    _loadDownloadedChapters();
+  }
+
+  Future<void> _loadDownloadedChapters() async {
+    final chapterIds = await App.repositories.localLibrary
+        .loadDownloadedChapterIds(widget.reader.cid);
+    if (!mounted) {
+      return;
     }
+    setState(() {
+      downloaded = chapterIds;
+    });
   }
 
   @override
@@ -135,13 +140,18 @@ class _GroupedChaptersViewState extends State<_GroupedChaptersView>
     _scrollController = ScrollController(
       initialScrollOffset: (epIndexAtGroup * 48.0).clamp(0, double.infinity),
     );
-    var local = LocalManager().findBySourceKey(
-      widget.reader.cid,
-      widget.reader.type.sourceKey,
-    );
-    if (local != null) {
-      downloaded = local.downloadedChapters;
+    _loadDownloadedChapters();
+  }
+
+  Future<void> _loadDownloadedChapters() async {
+    final chapterIds = await App.repositories.localLibrary
+        .loadDownloadedChapterIds(widget.reader.cid);
+    if (!mounted) {
+      return;
     }
+    setState(() {
+      downloaded = chapterIds;
+    });
   }
 
   @override

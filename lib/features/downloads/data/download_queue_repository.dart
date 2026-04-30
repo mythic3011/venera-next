@@ -1,28 +1,26 @@
-import 'package:venera/foundation/local.dart';
+import 'package:venera/foundation/download_queue_legacy_bridge.dart';
 import 'package:venera/network/download.dart';
 
 class DownloadQueueRepository {
   const DownloadQueueRepository();
 
-  Future<void> ensureInitialized() => LocalManager().ensureInitialized();
+  Future<void> ensureInitialized() => legacyEnsureDownloadQueueInitialized();
 
   void addListener(void Function() listener) {
-    LocalManager().addListener(listener);
+    legacyAddDownloadQueueListener(listener);
   }
 
   void removeListener(void Function() listener) {
-    LocalManager().removeListener(listener);
+    legacyRemoveDownloadQueueListener(listener);
   }
 
-  List<DownloadTask> get tasks =>
-      List.unmodifiable(LocalManager().downloadingTasks);
+  List<DownloadTask> get tasks => legacyDownloadQueueTasks();
 
   DownloadTask? get firstTask {
-    final queue = LocalManager().downloadingTasks;
-    return queue.isEmpty ? null : queue.first;
+    return legacyDownloadQueueFirstTask();
   }
 
   void moveToFirst(DownloadTask task) {
-    LocalManager().moveToFirst(task);
+    legacyMoveDownloadTaskToFirst(task);
   }
 }

@@ -4,6 +4,7 @@ import 'package:flutter_7zip/flutter_7zip.dart';
 import 'package:venera/foundation/app.dart';
 import 'package:venera/features/sources/comic_source/comic_source.dart';
 import 'package:venera/foundation/comic_type.dart';
+import 'package:venera/foundation/local_comics_legacy_bridge.dart';
 import 'package:venera/foundation/local.dart';
 import 'package:venera/utils/ext.dart';
 import 'package:venera/utils/file_type.dart';
@@ -236,7 +237,7 @@ abstract class CBZ {
       author: "",
       tags: [],
     );
-    var old = LocalManager().findByName(metaData.title);
+    var old = legacyFindLocalComicByName(metaData.title);
     if (old != null) {
       throw Exception('Comic with name ${metaData.title} already exists');
     }
@@ -255,7 +256,10 @@ abstract class CBZ {
     }
     Map<String, String>? cpMap;
     var dest = Directory(
-      FilePath.join(LocalManager().path, sanitizeFileName(metaData.title)),
+      FilePath.join(
+        legacyLocalComicsRootPath(),
+        sanitizeFileName(metaData.title),
+      ),
     );
     dest.createSync();
     await coverFile.copyFast(
@@ -321,7 +325,7 @@ abstract class CBZ {
       );
     }
     var comic = LocalComic(
-      id: LocalManager().findValidId(ComicType.local),
+      id: legacyFindValidLocalComicId(ComicType.local),
       title: metaData.title,
       subtitle: metaData.author,
       tags: metaData.tags,
@@ -343,7 +347,11 @@ abstract class CBZ {
     cache.createSync();
     List<ComicChapter>? chapters;
     if (comic.chapters == null) {
-      var images = await LocalManager().getImages(comic.id, comic.comicType, 1);
+      var images = await legacyLoadLocalComicImages(
+        comic.id,
+        comic.comicType,
+        1,
+      );
       int i = 1;
       for (var image in images) {
         var src = File(image.replaceFirst('file://', ''));
@@ -359,7 +367,7 @@ abstract class CBZ {
       var allImages = <String>[];
       for (var c in comic.downloadedChapters) {
         var chapterName = comic.chapters![c];
-        var images = await LocalManager().getImages(
+        var images = await legacyLoadLocalComicImages(
           comic.id,
           comic.comicType,
           c,

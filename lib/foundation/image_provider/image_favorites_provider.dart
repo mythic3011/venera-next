@@ -4,7 +4,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:venera/foundation/app.dart';
 import 'package:venera/features/sources/comic_source/comic_source.dart';
-import 'package:venera/foundation/local.dart';
+import 'package:venera/foundation/local_comics_legacy_bridge.dart';
 import 'package:venera/network/images.dart';
 import 'package:venera/utils/io.dart';
 import '../history.dart';
@@ -91,7 +91,7 @@ class ImageFavoritesProvider
   }
 
   Future<Uint8List?> getImageFromLocal() async {
-    var localComic = LocalManager().findBySourceKey(cid, sourceKey);
+    var localComic = legacyFindLocalComicBySourceKey(cid, sourceKey);
     if (localComic == null) {
       return null;
     }
@@ -99,7 +99,7 @@ class ImageFavoritesProvider
     if (epIndex == -1 && localComic.hasChapters) {
       return null;
     }
-    var images = await LocalManager().getImagesBySourceKey(
+    var images = await legacyLoadLocalComicImagesBySourceKey(
       cid,
       sourceKey,
       epIndex,

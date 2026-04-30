@@ -1,7 +1,7 @@
 import 'dart:async' show Future;
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
-import 'package:venera/foundation/local.dart';
+import 'package:venera/foundation/local_comics_legacy_bridge.dart';
 import 'package:venera/network/images.dart';
 import '../history.dart';
 import 'base_image_provider.dart';
@@ -20,7 +20,10 @@ class HistoryImageProvider
   Future<Uint8List> load(chunkEvents, checkStop) async {
     var url = history.cover;
     if (!url.contains('/')) {
-      var localComic = LocalManager().find(history.id, history.type);
+      var localComic = legacyFindLocalComicByIdAndType(
+        history.id,
+        history.type,
+      );
       if (localComic != null) {
         return localComic.coverFile.readAsBytes();
       }
@@ -38,10 +41,12 @@ class HistoryImageProvider
       history.id,
     )) {
       checkStop();
-      chunkEvents.add(ImageChunkEvent(
-        cumulativeBytesLoaded: progress.currentBytes,
-        expectedTotalBytes: progress.totalBytes,
-      ));
+      chunkEvents.add(
+        ImageChunkEvent(
+          cumulativeBytesLoaded: progress.currentBytes,
+          expectedTotalBytes: progress.totalBytes,
+        ),
+      );
       if (progress.imageBytes != null) {
         return progress.imageBytes!;
       }

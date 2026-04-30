@@ -12,6 +12,14 @@ class AppDelegate: FlutterAppDelegate {
 
       methodChannel.setMethodCallHandler { (call, result) in
         switch call.method {
+        case "getRuntimeRootOverride":
+            let value = Bundle.main.object(forInfoDictionaryKey: "VeneraRuntimeRootOverride") as? String
+            let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            if trimmed.isEmpty {
+                result(nil)
+            } else {
+                result(trimmed)
+            }
         case "getProxy":
             if let proxySettings = CFNetworkCopySystemProxySettings()?.takeUnretainedValue() as NSDictionary? {
                 if let httpProxy = proxySettings[kCFNetworkProxiesHTTPProxy] as? String,

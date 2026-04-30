@@ -9,7 +9,7 @@ import 'package:venera/foundation/db/favorites_store.dart';
 import 'package:venera/foundation/db/remote_comic_sync.dart';
 import 'package:venera/foundation/db/unified_comics_store.dart';
 import 'package:venera/foundation/image_provider/local_favorite_image.dart';
-import 'package:venera/foundation/local.dart';
+import 'package:venera/foundation/local_comics_legacy_bridge.dart';
 import 'package:venera/foundation/log.dart';
 import 'package:venera/foundation/source_identity/source_identity.dart';
 import 'package:venera/pages/follow_updates_page.dart';
@@ -336,7 +336,9 @@ class LocalFavoritesManager with ChangeNotifier {
     return canonicalRemoteComicId(sourceKey: type.sourceKey, comicId: comicId);
   }
 
-  void _runCanonicalSync(Future<void> Function(UnifiedComicsStore store) action) {
+  void _runCanonicalSync(
+    Future<void> Function(UnifiedComicsStore store) action,
+  ) {
     final store = App.unifiedComicsStoreOrNull;
     if (store == null) {
       return;
@@ -388,10 +390,7 @@ class LocalFavoritesManager with ChangeNotifier {
     required String after,
   }) {
     _runCanonicalSync((store) async {
-      await store.renameFavoriteFolder(
-        before: before,
-        after: after,
-      );
+      await store.renameFavoriteFolder(before: before, after: after);
     });
   }
 
@@ -1103,7 +1102,7 @@ class LocalFavoritesManager with ChangeNotifier {
       for (var c in all) {
         var comicSource = c.type.comicSource;
         if ((c.type == ComicType.local &&
-                LocalManager().find(c.id, c.type) == null) ||
+                legacyFindLocalComicByIdAndType(c.id, c.type) == null) ||
             (c.type != ComicType.local && comicSource == null)) {
           deleteComicWithId(c.folder, c.id, c.type);
           count++;

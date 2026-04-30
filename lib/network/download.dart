@@ -7,7 +7,9 @@ import 'package:venera/foundation/app.dart';
 import 'package:venera/foundation/appdata.dart';
 import 'package:venera/features/sources/comic_source/comic_source.dart';
 import 'package:venera/foundation/comic_type.dart';
+import 'package:venera/foundation/download_queue_legacy_bridge.dart';
 import 'package:venera/foundation/local.dart';
+import 'package:venera/foundation/local_comics_legacy_bridge.dart';
 import 'package:venera/foundation/log.dart';
 import 'package:venera/foundation/res.dart';
 import 'package:venera/network/images.dart';
@@ -103,8 +105,8 @@ class ImagesDownloadTask extends DownloadTask with _TransferSpeedMixin {
   @override
   void cancel() {
     _isRunning = false;
-    LocalManager().removeTask(this);
-    var local = LocalManager().find(id, comicType);
+    legacyRemoveDownloadQueueTask(this);
+    var local = legacyFindLocalComicForDownload(id, comicType);
     if (path != null) {
       if (local == null) {
         Future.sync(() async {
@@ -272,7 +274,7 @@ class ImagesDownloadTask extends DownloadTask with _TransferSpeedMixin {
 
     if (path == null) {
       try {
-        var dir = await LocalManager().findValidDirectory(
+        var dir = await legacyFindValidLocalComicDirectory(
           comicId,
           comicType,
           comic!.title,
@@ -288,7 +290,7 @@ class ImagesDownloadTask extends DownloadTask with _TransferSpeedMixin {
       }
     }
 
-    await LocalManager().saveCurrentDownloadingTasks();
+    await legacySaveCurrentDownloadQueueState();
 
     if (_cover == null) {
       _message = "Downloading cover...";
@@ -319,7 +321,7 @@ class ImagesDownloadTask extends DownloadTask with _TransferSpeedMixin {
         _cover = res.data;
         notifyListeners();
       }
-      await LocalManager().saveCurrentDownloadingTasks();
+      await legacySaveCurrentDownloadQueueState();
     }
 
     if (_images == null) {
@@ -384,7 +386,7 @@ class ImagesDownloadTask extends DownloadTask with _TransferSpeedMixin {
       }
       _message = "$_downloadedCount/$_totalCount";
       notifyListeners();
-      await LocalManager().saveCurrentDownloadingTasks();
+      await legacySaveCurrentDownloadQueueState();
     }
 
     while (_chapter < _images!.length) {
@@ -405,13 +407,13 @@ class ImagesDownloadTask extends DownloadTask with _TransferSpeedMixin {
         _index++;
         _downloadedCount++;
         _message = "$_downloadedCount/$_totalCount";
-        await LocalManager().saveCurrentDownloadingTasks();
+        await legacySaveCurrentDownloadQueueState();
       }
       _index = 0;
       _chapter++;
     }
 
-    LocalManager().completeTask(this);
+    legacyCompleteDownloadQueueTask(this);
     stopRecorder();
   }
 
@@ -701,7 +703,7 @@ class ArchiveDownloadTask extends DownloadTask {
       Directory(path!).deleteIgnoreError(recursive: true);
     }
     path = null;
-    LocalManager().removeTask(this);
+    legacyRemoveDownloadQueueTask(this);
   }
 
   @override
@@ -751,7 +753,7 @@ class ArchiveDownloadTask extends DownloadTask {
     _message = "Downloading...";
 
     if (path == null) {
-      var dir = await LocalManager().findValidDirectory(
+      var dir = await legacyFindValidLocalComicDirectory(
         comic.id,
         comicType,
         comic.title,
@@ -810,7 +812,7 @@ class ArchiveDownloadTask extends DownloadTask {
 
     await archiveFile.deleteIgnoreError();
 
-    LocalManager().completeTask(this);
+    legacyCompleteDownloadQueueTask(this);
   }
 
   static Future<void> _extractArchive(String archive, String outDir) async {

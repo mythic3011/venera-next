@@ -14,7 +14,7 @@ import 'package:venera/foundation/debug_log_exporter.dart';
 import 'package:venera/foundation/diagnostics/diagnostics.dart';
 import 'package:venera/foundation/favorites.dart';
 import 'package:venera/foundation/js_engine.dart';
-import 'package:venera/foundation/local.dart';
+import 'package:venera/foundation/local_storage_legacy_bridge.dart';
 import 'package:venera/foundation/log.dart';
 import 'package:venera/network/app_dio.dart';
 import 'package:venera/utils/data.dart';

@@ -3,7 +3,9 @@ import 'package:venera/foundation/comic_type.dart';
 import 'package:venera/foundation/app.dart';
 import 'package:venera/foundation/db/local_comic_sync.dart';
 import 'package:venera/foundation/db/unified_comics_store.dart';
+import 'package:venera/foundation/download_queue_legacy_bridge.dart';
 import 'package:venera/foundation/favorites.dart';
+import 'package:venera/foundation/local_comics_legacy_bridge.dart';
 import 'package:venera/foundation/local.dart';
 import 'package:venera/network/download.dart';
 
@@ -42,19 +44,19 @@ void legacyDeleteLocalFavorite(String folder, String comicId, ComicType type) {
 }
 
 bool legacyIsDownloading(String comicId, ComicType type) {
-  return LocalManager().isDownloading(comicId, type);
+  return legacyIsLocalComicDownloading(comicId, type);
 }
 
 bool legacyIsDownloaded(String comicId, ComicType type, int ep) {
-  return LocalManager().isDownloaded(comicId, type, ep);
+  return legacyIsLocalComicDownloaded(comicId, type, ep);
 }
 
 LocalComic? legacyFindLocalComic(String comicId, ComicType type) {
-  return LocalManager().find(comicId, type);
+  return legacyFindLocalComicByIdAndType(comicId, type);
 }
 
 void legacyAddDownloadTask(DownloadTask task) {
-  LocalManager().addTask(task);
+  legacyAddDownloadQueueTask(task);
 }
 
 Future<CanonicalLocalDetailRecord?> loadCanonicalLocalDetailRecord({

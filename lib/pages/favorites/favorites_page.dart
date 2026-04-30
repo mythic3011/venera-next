@@ -13,7 +13,7 @@ import 'package:venera/foundation/comic_type.dart';
 import 'package:venera/foundation/consts.dart';
 import 'package:venera/foundation/favorites.dart';
 import 'package:venera/features/favorites/data/favorites_runtime_repository.dart';
-import 'package:venera/foundation/local.dart';
+import 'package:venera/foundation/download_queue_legacy_bridge.dart';
 import 'package:venera/foundation/log.dart';
 import 'package:venera/features/reader/data/reader_status_repository.dart';
 import 'package:venera/foundation/res.dart';

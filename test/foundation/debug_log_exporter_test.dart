@@ -194,6 +194,12 @@ void main() {
     expect(json['paths'], isA<Map>());
     expect(json['logs'], isA<Map>());
     expect(json['structuredDiagnostics'], isA<Map>());
+    final runtime = (json['runtime'] as Map).cast<String, dynamic>();
+    final paths = (json['paths'] as Map).cast<String, dynamic>();
+    expect(runtime['runtimeRoot'], isA<String?>());
+    expect(runtime['runtimeRootOverrideActive'], isA<bool>());
+    expect(paths['runtimeRoot'], isA<String?>());
+    expect(paths['runtimeRootOverrideActive'], isA<bool>());
 
     final encoded = jsonEncode(json);
     expect(encoded.contains(exporter.token!), isFalse);

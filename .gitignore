@@ -50,6 +50,9 @@ add_translation.py
 */*/generated_*
 */*/Generated*
 docs/
+!docs/
+!docs/plans/
+!docs/plans/**
 dist/
 macos/Podfile.lock
 .gitignore

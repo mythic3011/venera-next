@@ -16,4 +16,9 @@ class UnifiedLocalLibraryBrowseStoreAdapter
   Future<LocalLibraryItemRecord?> loadPrimaryLocalLibraryItem(String comicId) {
     return store.loadPrimaryLocalLibraryItem(comicId);
   }
+
+  @override
+  Future<List<String>> loadChapterIdsForComic(String comicId) {
+    return store.loadChapterIdsForComic(comicId);
+  }
 }

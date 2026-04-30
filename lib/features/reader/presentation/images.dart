@@ -115,6 +115,29 @@ String readerLocalTypeKeyForTesting({
   );
 }
 
+Future<bool> _isReaderDownloadedFromCanonical({
+  required String comicId,
+  required int? chapterIndex,
+  required ComicChapters? chapters,
+}) async {
+  final localLibrary = App.repositories.localLibrary;
+  final hasLocal = await localLibrary.hasPrimaryLocalLibraryItem(comicId);
+  if (!hasLocal) {
+    return false;
+  }
+  if (chapters == null || chapterIndex == null) {
+    return true;
+  }
+  final targetChapterId = chapters.ids.elementAtOrNull(chapterIndex - 1);
+  if (targetChapterId == null || targetChapterId.isEmpty) {
+    return false;
+  }
+  final downloadedChapterIds = await localLibrary.loadDownloadedChapterIds(
+    comicId,
+  );
+  return downloadedChapterIds.contains(targetChapterId);
+}
+
 @visibleForTesting
 String buildReaderLoadDiagnostic({
   required String code,
@@ -216,24 +239,24 @@ class _ReaderImagesState extends State<_ReaderImages> {
   void load() async {
     if (inProgress) return;
     inProgress = true;
+    final hasLocalComic = await App.repositories.localLibrary
+        .hasPrimaryLocalLibraryItem(reader.cid);
+    final isDownloaded = await _isReaderDownloadedFromCanonical(
+      comicId: reader.cid,
+      chapterIndex: reader.chapter,
+      chapters: reader.widget.chapters,
+    );
     final loadMode =
         _shouldLoadReaderPagesLocally(
           type: reader.type,
           comicId: reader.cid,
-          isDownloaded: (comicId, type) =>
-              LocalManager().isDownloadedBySourceKey(
-                comicId,
-                type.sourceKey,
-                reader.chapter,
-                reader.widget.chapters,
-              ),
-          hasLocalComic: (comicId) =>
-              LocalManager().findBySourceKey(comicId, localSourceKey) != null,
+          isDownloaded: (_, __) => isDownloaded,
+          hasLocalComic: (_) => hasLocalComic,
         )
         ? 'local'
         : 'remote';
     final callId = reader.beginPageListDiagnostics(loadMode);
-    final sourceRef = _buildSourceRef(loadMode);
+    final sourceRef = _buildSourceRef(loadMode, hasLocalComic: hasLocalComic);
     Future<Res<List<String>>> legacyLoadPages() async {
       if (loadMode == 'local') {
         final targetChapterId =
@@ -376,7 +399,7 @@ class _ReaderImagesState extends State<_ReaderImages> {
     context.readerScaffold.update();
   }
 
-  SourceRef _buildSourceRef(String loadMode) {
+  SourceRef _buildSourceRef(String loadMode, {required bool hasLocalComic}) {
     final chapterId =
         reader.widget.chapters?.ids.elementAtOrNull(reader.chapter - 1) ??
         (loadMode == 'local' ? null : reader.chapter.toString());
@@ -407,8 +430,7 @@ class _ReaderImagesState extends State<_ReaderImages> {
         localType: _readerLocalTypeKey(
           type: reader.type,
           comicId: reader.cid,
-          hasLocalComic: (comicId) =>
-              LocalManager().findBySourceKey(comicId, localSourceKey) != null,
+          hasLocalComic: (_) => hasLocalComic,
         ),
         localComicId: reader.cid,
         chapterId: chapterId,

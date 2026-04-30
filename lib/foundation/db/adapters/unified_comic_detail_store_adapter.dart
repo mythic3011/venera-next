@@ -2,8 +2,10 @@ import 'package:venera/features/sources/comic_source/comic_source.dart';
 import 'package:venera/foundation/db/remote_comic_sync.dart';
 import 'package:venera/foundation/db/unified_comics_store.dart';
 import 'package:venera/foundation/ports/comic_detail_store_port.dart';
+import 'package:venera/foundation/ports/reader_session_store_port.dart';
 
-class UnifiedComicDetailStoreAdapter implements ComicDetailStorePort {
+class UnifiedComicDetailStoreAdapter
+    implements ComicDetailStorePort, ReaderSessionStorePort {
   const UnifiedComicDetailStoreAdapter(this.store);
 
   final UnifiedComicsStore store;
@@ -96,5 +98,41 @@ class UnifiedComicDetailStoreAdapter implements ComicDetailStorePort {
       chapterId: chapterId,
       pageKeys: pageKeys,
     );
+  }
+
+  @override
+  Future<void> deleteReaderSession(String sessionId) {
+    return store.deleteReaderSession(sessionId);
+  }
+
+  @override
+  Future<ReaderSessionRecord?> loadReaderSessionByComic(String comicId) {
+    return store.loadReaderSessionByComic(comicId);
+  }
+
+  @override
+  Future<List<ReaderTabRecord>> loadReaderTabsForSession(String sessionId) {
+    return store.loadReaderTabsForSession(sessionId);
+  }
+
+  @override
+  Future<void> setReaderSessionActiveTab({
+    required String sessionId,
+    required String activeTabId,
+  }) {
+    return store.setReaderSessionActiveTab(
+      sessionId: sessionId,
+      activeTabId: activeTabId,
+    );
+  }
+
+  @override
+  Future<void> upsertReaderSession(ReaderSessionRecord record) {
+    return store.upsertReaderSession(record);
+  }
+
+  @override
+  Future<void> upsertReaderTab(ReaderTabRecord record) {
+    return store.upsertReaderTab(record);
   }
 }

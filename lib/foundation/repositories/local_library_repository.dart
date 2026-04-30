@@ -58,4 +58,12 @@ class LocalLibraryRepository {
       localRootPath: row.localRootPath,
     );
   }
+
+  Future<bool> hasPrimaryLocalLibraryItem(String comicId) async {
+    return (await loadPrimaryLocalLibraryItem(comicId)) != null;
+  }
+
+  Future<List<String>> loadDownloadedChapterIds(String comicId) {
+    return store.loadChapterIdsForComic(comicId);
+  }
 }

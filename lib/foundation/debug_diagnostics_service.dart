@@ -68,7 +68,13 @@ class DebugDiagnosticsService {
     );
     return {
       'platform': {'os': platform, 'isDesktop': App.isDesktop},
-      'runtime': {'appVersion': App.version},
+      'runtime': {
+        'appVersion': App.version,
+        'runtimeRoot': App.isInitialized ? App.dataPath : null,
+        'runtimeRootBase': App.runtimeRootBasePath,
+        'runtimeRootOverrideActive': App.runtimeRootOverrideActive,
+        'runtimeRootOverridePath': App.runtimeRootOverridePath,
+      },
       'debugServer': {'running': serverRunning, 'baseUrl': baseUrl},
       'structuredDiagnostics': {
         'enabled': DevDiagnosticsApi.isEnabled,
@@ -84,6 +90,10 @@ class DebugDiagnosticsService {
             : DevDiagnosticsApi.exportNdjson().split('\n').length,
       },
       'paths': {
+        'runtimeRoot': App.isInitialized ? App.dataPath : null,
+        'runtimeRootBase': App.runtimeRootBasePath,
+        'runtimeRootOverrideActive': App.runtimeRootOverrideActive,
+        'runtimeRootOverridePath': App.runtimeRootOverridePath,
         'dataPath': App.isInitialized ? App.dataPath : null,
         'cachePath': App.isInitialized ? App.cachePath : null,
         'logFilePath': Log.logFilePath,
