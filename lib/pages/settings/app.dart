@@ -1,13 +1,15 @@
 part of 'settings_page.dart';
 
 class _AppSettingsGateway {
-  LocalManager get _localManager => LocalManager();
+  // Legacy compatibility only: settings still delegates local path migration
+  // to LocalManager until LocalLibraryRepository owns storage-root changes.
+  LocalManager get _legacyLocalManager => LocalManager();
   CacheManager get _cacheManager => CacheManager();
 
-  String get localComicsPath => _localManager.path;
+  String get localComicsPath => _legacyLocalManager.path;
 
   Future<String?> setLocalComicsPath(String path) =>
-      _localManager.setNewPath(path);
+      _legacyLocalManager.setNewPath(path);
 
   int get currentCacheSizeBytes => _cacheManager.currentSize;
 
@@ -122,12 +124,11 @@ class _AppSettingsState extends State<AppSettings> {
               barrierDismissible: false,
               allowCancel: false,
             );
-            var res = await _gateway.setLocalComicsPath(result);
+            final res = await _gateway.setLocalComicsPath(result);
             loadingDialog.close();
-            if (res != null) {
-              context.showMessage(message: res);
-            } else {
-              context.showMessage(message: "Path set successfully".tl);
+            if (!mounted) return;
+            context.showMessage(message: res ?? "Path set successfully".tl);
+            if (res == null) {
               setState(() {});
             }
           },
@@ -147,6 +148,7 @@ class _AppSettingsState extends State<AppSettings> {
             );
             await _gateway.clearCache();
             loadingDialog.close();
+            if (!mounted) return;
             context.showMessage(message: "Cache cleared".tl);
             setState(() {});
           },
@@ -183,10 +185,12 @@ class _AppSettingsState extends State<AppSettings> {
         _CallbackSetting(
           title: "Import App Data".tl,
           callback: () async {
+            final file = await selectFile(ext: ['venera', 'picadata']);
+            if (file == null) return;
+            if (!mounted) return;
             var controller = showLoadingDialog(context);
-            var file = await selectFile(ext: ['venera', 'picadata']);
-            if (file != null) {
-              var cacheFile = File(
+            try {
+              final cacheFile = File(
                 FilePath.join(App.cachePath, "import_data_temp"),
               );
               await file.saveTo(cacheFile.path);
@@ -196,15 +200,19 @@ class _AppSettingsState extends State<AppSettings> {
                 } else {
                   await importAppData(cacheFile);
                 }
-              } catch (e, s) {
-                Log.error("Import data", e.toString(), s);
-                context.showMessage(message: "Failed to import data".tl);
               } finally {
                 cacheFile.deleteIgnoreError();
-                App.forceRebuild();
               }
+              if (!mounted) return;
+              App.forceRebuild();
+            } catch (e, s) {
+              Log.error("Import data", e.toString(), s);
+              if (mounted) {
+                context.showMessage(message: "Failed to import data".tl);
+              }
+            } finally {
+              controller.close();
             }
-            controller.close();
           },
           actionTitle: 'Import'.tl,
         ).toSliver(),
@@ -277,7 +285,7 @@ class _LogsPageState extends State<LogsPage> {
         title: Text("Logs".tl),
         actions: [
           IconButton(
-            onPressed: () => setState(() {
+            onPressed: () {
               final RelativeRect position = RelativeRect.fromLTRB(
                 MediaQuery.of(context).size.width,
                 MediaQuery.of(context).padding.top + kToolbarHeight,
@@ -306,11 +314,11 @@ class _LogsPageState extends State<LogsPage> {
                   ),
                 ],
               );
-            }),
+            },
             icon: const Icon(Icons.filter_list_outlined),
           ),
           IconButton(
-            onPressed: () => setState(() {
+            onPressed: () {
               final RelativeRect position = RelativeRect.fromLTRB(
                 MediaQuery.of(context).size.width,
                 MediaQuery.of(context).padding.top + kToolbarHeight,
@@ -340,14 +348,13 @@ class _LogsPageState extends State<LogsPage> {
                   ),
                 ],
               );
-            }),
+            },
             icon: const Icon(Icons.more_horiz),
           ),
         ],
       ),
       body: ListView.builder(
         reverse: true,
-        controller: ScrollController(),
         itemCount: logToShow.length,
         itemBuilder: (context, index) {
           index = logToShow.length - index - 1;
@@ -376,11 +383,10 @@ class _LogsPageState extends State<LogsPage> {
                       const SizedBox(width: 3),
                       Container(
                         decoration: BoxDecoration(
-                          color: [
-                            Theme.of(context).colorScheme.error,
-                            Theme.of(context).colorScheme.errorContainer,
-                            Theme.of(context).colorScheme.primaryContainer,
-                          ][logToShow[index].level.index],
+                          color: _logLevelColor(
+                            context,
+                            logToShow[index].level.name,
+                          ),
                           borderRadius: const BorderRadius.all(
                             Radius.circular(16),
                           ),
@@ -427,6 +433,15 @@ class _LogsPageState extends State<LogsPage> {
   void saveLog(String log) async {
     saveFile(data: utf8.encode(log), filename: Log.buildExportFileName());
   }
+
+  Color _logLevelColor(BuildContext context, String levelName) {
+    final scheme = Theme.of(context).colorScheme;
+    return switch (levelName) {
+      "error" => scheme.error,
+      "warning" => scheme.errorContainer,
+      _ => scheme.primaryContainer,
+    };
+  }
 }
 
 class _WebdavSetting extends StatefulWidget {
@@ -439,10 +454,10 @@ class _WebdavSetting extends StatefulWidget {
 class _WebdavSettingState extends State<_WebdavSetting> {
   final _gateway = _AppSettingsGateway();
 
-  String url = "";
-  String user = "";
-  String pass = "";
-  String disableSync = "";
+  late final TextEditingController _urlController;
+  late final TextEditingController _userController;
+  late final TextEditingController _passController;
+  late final TextEditingController _disableSyncController;
 
   bool autoSync = true;
 
@@ -452,17 +467,36 @@ class _WebdavSettingState extends State<_WebdavSetting> {
   @override
   void initState() {
     super.initState();
+    var url = "";
+    var user = "";
+    var pass = "";
+    var disableSync = "";
     if (_gateway.disableSyncFields.trim().isNotEmpty) {
       disableSync = _gateway.disableSyncFields;
     }
-    var configs = _gateway.webdavConfigRaw;
-    if (configs.whereType<String>().length != 3) {
-      return;
+    final configs = _gateway.webdavConfigRaw;
+    if (configs.length >= 3 &&
+        configs[0] is String &&
+        configs[1] is String &&
+        configs[2] is String) {
+      url = configs[0] as String;
+      user = configs[1] as String;
+      pass = configs[2] as String;
     }
-    url = configs[0];
-    user = configs[1];
-    pass = configs[2];
     autoSync = _gateway.webdavAutoSync;
+    _urlController = TextEditingController(text: url);
+    _userController = TextEditingController(text: user);
+    _passController = TextEditingController(text: pass);
+    _disableSyncController = TextEditingController(text: disableSync);
+  }
+
+  @override
+  void dispose() {
+    _urlController.dispose();
+    _userController.dispose();
+    _passController.dispose();
+    _disableSyncController.dispose();
+    super.dispose();
   }
 
   void onAutoSyncChanged(bool value) {
@@ -484,10 +518,9 @@ class _WebdavSettingState extends State<_WebdavSetting> {
               decoration: InputDecoration(
                 labelText: "URL",
                 hintText: "A valid WebDav directory URL".tl,
-                border: OutlineInputBorder(),
+                border: const OutlineInputBorder(),
               ),
-              controller: TextEditingController(text: url),
-              onChanged: (value) => url = value,
+              controller: _urlController,
             ),
             const SizedBox(height: 12),
             TextField(
@@ -495,17 +528,16 @@ class _WebdavSettingState extends State<_WebdavSetting> {
                 labelText: "Username".tl,
                 border: const OutlineInputBorder(),
               ),
-              controller: TextEditingController(text: user),
-              onChanged: (value) => user = value,
+              controller: _userController,
             ),
             const SizedBox(height: 12),
             TextField(
+              obscureText: true,
               decoration: InputDecoration(
                 labelText: "Password".tl,
                 border: const OutlineInputBorder(),
               ),
-              controller: TextEditingController(text: pass),
-              onChanged: (value) => pass = value,
+              controller: _passController,
             ),
             const SizedBox(height: 12),
             TextField(
@@ -555,8 +587,7 @@ class _WebdavSettingState extends State<_WebdavSetting> {
                   },
                 ),
               ),
-              controller: TextEditingController(text: disableSync),
-              onChanged: (value) => disableSync = value,
+              controller: _disableSyncController,
             ),
             const SizedBox(height: 12),
             ListTile(
@@ -613,28 +644,38 @@ class _WebdavSettingState extends State<_WebdavSetting> {
               child: Button.filled(
                 isLoading: isTesting,
                 onPressed: () async {
+                  final nextUrl = _urlController.text.trim();
+                  final nextUser = _userController.text.trim();
+                  final nextPass = _passController.text;
+                  final nextDisableSync = _disableSyncController.text.trim();
                   var oldConfig = List.of(_gateway.webdavConfigRaw);
                   var oldAutoSync = _gateway.webdavAutoSync;
                   var oldDisableSync = _gateway.disableSyncFields;
 
-                  if (url.trim().isEmpty &&
-                      user.trim().isEmpty &&
-                      pass.trim().isEmpty) {
+                  if (nextUrl.isEmpty &&
+                      nextUser.isEmpty &&
+                      nextPass.trim().isEmpty) {
                     _gateway.clearWebdavConfig();
-                    _gateway.setDisableSyncFields(disableSync);
+                    _gateway.setDisableSyncFields(nextDisableSync);
                     _gateway.setWebdavAutoSync(false);
                     _gateway.saveAppData();
+                    if (!mounted) return;
                     context.showMessage(message: "Saved".tl);
                     App.rootPop();
                     return;
                   }
 
-                  _gateway.setWebdavConfig(url: url, user: user, pass: pass);
-                  _gateway.setDisableSyncFields(disableSync);
+                  _gateway.setWebdavConfig(
+                    url: nextUrl,
+                    user: nextUser,
+                    pass: nextPass,
+                  );
+                  _gateway.setDisableSyncFields(nextDisableSync);
                   _gateway.setWebdavAutoSync(autoSync);
 
                   if (!autoSync) {
                     _gateway.saveAppData();
+                    if (!mounted) return;
                     context.showMessage(message: "Saved".tl);
                     App.rootPop();
                     return;
@@ -646,6 +687,7 @@ class _WebdavSettingState extends State<_WebdavSetting> {
                   var testResult = upload
                       ? await DataSync().uploadData()
                       : await DataSync().downloadData();
+                  if (!mounted) return;
                   if (testResult.error) {
                     setState(() {
                       isTesting = false;
