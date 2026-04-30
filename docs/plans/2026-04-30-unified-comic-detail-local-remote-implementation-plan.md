@@ -9,6 +9,13 @@
 - This plan assumes the fork is allowed to make a deliberate breaking change.
 - Legacy fragmented storage is not a runtime compatibility target.
 
+Implemented truth snapshot (2026-04-30):
+
+- remote comic provenance is canonicalized at detail sync
+- remote chapter/page provenance is canonicalized during reader page sync
+- remote reader page loading now prefers canonical remote page state and
+  falls back to live source loading when canonical remote state is missing
+
 Related source-of-truth docs:
 
 - `docs/plans/2026-04-30-unified-comic-detail-local-remote-architecture.md`

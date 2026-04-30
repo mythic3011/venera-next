@@ -17,6 +17,14 @@ The active execution model is:
 
 Everything else must move toward the new canonical core.
 
+Current implementation note (2026-04-30):
+
+- remote detail and reader flows now canonicalize remote provenance into
+  canonical comic/chapter/page records
+- remote reader dispatch prefers canonical remote page state first, with
+  deterministic fallback to live source page loading when canonical remote
+  state is absent
+
 ## Rewrite Model
 
 Keep:
