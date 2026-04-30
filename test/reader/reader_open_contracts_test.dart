@@ -1,6 +1,35 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:venera/foundation/comic_detail/models.dart';
+import 'package:venera/foundation/comic_source/comic_source.dart';
+import 'package:venera/foundation/comic_type.dart';
+import 'package:venera/foundation/history.dart';
 import 'package:venera/pages/reader/reader.dart';
 import 'package:venera/foundation/source_ref.dart';
+
+class _TestHistoryModel with HistoryMixin {
+  _TestHistoryModel({
+    required this.title,
+    required this.subTitle,
+    required this.cover,
+    required this.id,
+    required this.historyType,
+  });
+
+  @override
+  final String title;
+
+  @override
+  final String? subTitle;
+
+  @override
+  final String cover;
+
+  @override
+  final String id;
+
+  @override
+  final ComicType historyType;
+}
 
 void main() {
   test('resolve_reader_open_source_ref_handles_missing_source_key_fail_closed', () {
@@ -118,5 +147,54 @@ void main() {
 
     expect(result.error, isTrue);
     expect(result.errorMessage, 'SOURCE_NOT_AVAILABLE:unknown-remote');
+  });
+
+  test('canonical active tab seeds compatibility history without legacy lookup', () {
+    final history = buildReaderCompatibilityHistory(
+      model: _TestHistoryModel(
+        title: 'Comic 1',
+        subTitle: '',
+        cover: '',
+        id: 'comic-1',
+        historyType: ComicType.local,
+      ),
+      chapters: const ComicChapters({
+        'chapter-1': 'Episode 1',
+        'chapter-2': 'Episode 2',
+      }),
+      canonicalActiveTab: ReaderTabVm(
+        tabId: 'tab-1',
+        currentChapterId: 'chapter-2',
+        currentPageIndex: 9,
+        sourceRef: SourceRef.fromLegacyLocal(
+          localType: 'local',
+          localComicId: 'comic-1',
+          chapterId: 'chapter-2',
+        ),
+        loadMode: ReaderTabLoadMode.localLibrary,
+        isActive: true,
+      ),
+    );
+
+    expect(history.ep, 2);
+    expect(history.page, 9);
+    expect(history.group, isNull);
+  });
+
+  test('missing canonical active tab falls back to empty compatibility history', () {
+    final history = buildReaderCompatibilityHistory(
+      model: _TestHistoryModel(
+        title: 'Comic 1',
+        subTitle: '',
+        cover: '',
+        id: 'comic-1',
+        historyType: ComicType.local,
+      ),
+      chapters: const ComicChapters({'chapter-1': 'Episode 1'}),
+      canonicalActiveTab: null,
+    );
+
+    expect(history.ep, 0);
+    expect(history.page, 0);
   });
 }

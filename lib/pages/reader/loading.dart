@@ -28,10 +28,7 @@ SourceRef? resolveReaderOpenSourceRef({
   if (key == null || key.isEmpty) {
     return null;
   }
-  return SourceRef.fromLegacy(
-    comicId: comicId,
-    sourceKey: key,
-  );
+  return SourceRef.fromLegacy(comicId: comicId, sourceKey: key);
 }
 
 ReaderInitialPosition resolveReaderInitialPosition({
@@ -46,6 +43,26 @@ ReaderInitialPosition resolveReaderInitialPosition({
     chapter: requestedEp ?? historyEp,
     page: requestedPage ?? historyPage,
     group: requestedGroup ?? historyGroup,
+  );
+}
+
+History buildReaderCompatibilityHistory({
+  required HistoryMixin model,
+  required ComicChapters? chapters,
+  required ReaderTabVm? canonicalActiveTab,
+}) {
+  final chapterId = canonicalActiveTab?.currentChapterId;
+  final chapterIds = chapters?.ids.toList(growable: false);
+  final chapterIndex = switch (chapterId) {
+    null => 0,
+    _ when chapterIds == null => 0,
+    _ => chapterIds.indexOf(chapterId) + 1,
+  };
+  final resolvedChapterIndex = chapterIndex < 1 ? 0 : chapterIndex;
+  return History.fromModel(
+    model: model,
+    ep: resolvedChapterIndex,
+    page: canonicalActiveTab?.currentPageIndex ?? 0,
   );
 }
 
@@ -65,7 +82,8 @@ Res<SourceRef> resolveReaderLoadSourceRef({
   if (resolved == null) {
     return const Res.error("SOURCE_REF_NOT_FOUND");
   }
-  if (resolved.type == SourceRefType.remote && !sourceExists(resolved.sourceKey)) {
+  if (resolved.type == SourceRefType.remote &&
+      !sourceExists(resolved.sourceKey)) {
     return Res.error("SOURCE_NOT_AVAILABLE:${resolved.sourceKey}");
   }
   return Res(resolved);
@@ -130,7 +148,11 @@ class _ReaderWithLoadingState
     final sourceKey = widget.sourceKey;
     final resumeSourceRef = sourceKey == null
         ? null
-        : await HistoryManager().loadPreferredResumeSourceRef(
+        : await ReaderResumeService(
+            readerSessions: ReaderSessionRepository(
+              store: App.unifiedComicsStore,
+            ),
+          ).loadPreferredResumeSourceRef(
             widget.id,
             ComicType.fromKey(sourceKey),
           );
@@ -146,16 +168,23 @@ class _ReaderWithLoadingState
     }
     final resolvedSourceRef = resolvedRefResult.data;
     final type = ComicType.fromKey(resolvedSourceRef.sourceKey);
-    final history = HistoryManager().find(
-      widget.id,
-      type,
+    final readerSessions = ReaderSessionRepository(
+      store: App.unifiedComicsStore,
+    );
+    final canonicalComicId = buildReaderRuntimeContext(
+      comicId: widget.id,
+      type: type,
+      chapterIndex: 0,
+      page: 0,
+      chapterId: null,
+      sourceRef: resolvedSourceRef,
+    ).canonicalComicId;
+    final canonicalActiveTab = await readerSessions.loadActiveReaderTab(
+      canonicalComicId,
     );
 
     if (resolvedSourceRef.type == SourceRefType.local) {
-      final localComic = LocalManager().find(
-        widget.id,
-        type,
-      );
+      final localComic = LocalManager().find(widget.id, type);
       if (localComic == null) {
         return Res.error("LOCAL_ASSET_MISSING");
       }
@@ -165,12 +194,11 @@ class _ReaderWithLoadingState
           cid: widget.id,
           name: localComic.title,
           chapters: localComic.chapters,
-          history: history ??
-              History.fromModel(
-                model: localComic,
-                ep: 0,
-                page: 0,
-              ),
+          history: buildReaderCompatibilityHistory(
+            model: localComic,
+            chapters: localComic.chapters,
+            canonicalActiveTab: canonicalActiveTab,
+          ),
           sourceRef: resolvedSourceRef,
           author: localComic.subtitle,
           tags: localComic.tags,
@@ -193,12 +221,11 @@ class _ReaderWithLoadingState
         cid: widget.id,
         name: comic.data.title,
         chapters: comic.data.chapters,
-        history: history ??
-            History.fromModel(
-              model: comic.data,
-              ep: 0,
-              page: 0,
-            ),
+        history: buildReaderCompatibilityHistory(
+          model: comic.data,
+          chapters: comic.data.chapters,
+          canonicalActiveTab: canonicalActiveTab,
+        ),
         sourceRef: resolvedSourceRef,
         author: comic.data.findAuthor() ?? "",
         tags: comic.data.plainTags,

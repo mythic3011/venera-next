@@ -1,8 +1,16 @@
+import 'dart:io';
+
 import 'package:flutter_test/flutter_test.dart';
+import 'package:path/path.dart' as p;
 import 'package:venera/foundation/comic_detail/comic_detail.dart';
 import 'package:venera/foundation/comic_source/comic_source.dart';
-import 'package:venera/foundation/history.dart';
+import 'package:venera/foundation/comic_type.dart';
+import 'package:venera/foundation/db/unified_comics_store.dart';
 import 'package:venera/foundation/reader/page_provider.dart';
+import 'package:venera/foundation/reader/reader_resume_service.dart';
+import 'package:venera/foundation/reader/reader_runtime_context.dart';
+import 'package:venera/foundation/reader/reader_session_persistence.dart';
+import 'package:venera/foundation/reader/reader_session_repository.dart';
 import 'package:venera/foundation/reader/source_ref_resolver.dart';
 import 'package:venera/foundation/res.dart';
 import 'package:venera/foundation/source_ref.dart';
@@ -113,11 +121,6 @@ void main() {
   });
 
   test('canonical active tab wins over legacy resume source ref', () {
-    final legacyResumeRef = SourceRef.fromLegacyLocal(
-      localType: 'local',
-      localComicId: 'series-3',
-      chapterId: 'chapter-1',
-    );
     final canonicalActiveTab = ReaderTabVm(
       tabId: 'tab-1',
       currentChapterId: 'chapter-5',
@@ -133,11 +136,86 @@ void main() {
 
     final preferred = choosePreferredResumeSourceRefForTesting(
       canonicalActiveTab: canonicalActiveTab,
-      legacyResumeSourceRef: legacyResumeRef,
     );
 
     expect(preferred, isNotNull);
     expect(preferred!.type, SourceRefType.remote);
     expect(preferred.params['chapterId'], 'chapter-5');
+  });
+
+  test(
+    'resume service returns null when no canonical active tab exists',
+    () async {
+      final tempDir = await Directory.systemTemp.createTemp(
+        'venera-reader-resume-empty-',
+      );
+      final store = UnifiedComicsStore(p.join(tempDir.path, 'venera.db'));
+      await store.init();
+      try {
+        final service = ReaderResumeService(
+          readerSessions: ReaderSessionRepository(store: store),
+        );
+
+        final preferred = await service.loadPreferredResumeSourceRef(
+          'series-4',
+          ComicType.local,
+        );
+
+        expect(preferred, isNull);
+      } finally {
+        await store.close();
+        if (tempDir.existsSync()) {
+          tempDir.deleteSync(recursive: true);
+        }
+      }
+    },
+  );
+
+  test('resume service loads canonical active tab source ref only', () async {
+    final tempDir = await Directory.systemTemp.createTemp(
+      'venera-reader-resume-hit-',
+    );
+    final store = UnifiedComicsStore(p.join(tempDir.path, 'venera.db'));
+    await store.init();
+    try {
+      await store.upsertComic(
+        const ComicRecord(
+          id: 'series-5',
+          title: 'Series 5',
+          normalizedTitle: 'series 5',
+        ),
+      );
+      final repository = ReaderSessionRepository(store: store);
+      final localRef = SourceRef.fromLegacyLocal(
+        localType: 'local',
+        localComicId: 'series-5',
+        chapterId: 'chapter-6',
+      );
+      await persistReaderSessionContextForTesting(
+        repository: repository,
+        context: buildReaderRuntimeContextForTesting(
+          comicId: 'series-5',
+          type: ComicType.local,
+          chapterIndex: 6,
+          page: 11,
+          chapterId: 'chapter-6',
+          sourceRef: localRef,
+        ),
+      );
+
+      final preferred = await ReaderResumeService(
+        readerSessions: repository,
+      ).loadPreferredResumeSourceRef('series-5', ComicType.local);
+
+      expect(preferred, isNotNull);
+      expect(preferred!.type, SourceRefType.local);
+      expect(preferred.sourceKey, 'local');
+      expect(preferred.params['chapterId'], 'chapter-6');
+    } finally {
+      await store.close();
+      if (tempDir.existsSync()) {
+        tempDir.deleteSync(recursive: true);
+      }
+    }
   });
 }
