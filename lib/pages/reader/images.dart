@@ -361,6 +361,7 @@ class _ReaderImagesState extends State<_ReaderImages> {
         reader.isLoading = false;
         inProgress = false;
         _handleJumpToLastPage();
+        reader.cacheLoadedPaginationDiagnostics();
         Future.microtask(() {
           reader.updateHistory();
         });
@@ -377,13 +378,29 @@ class _ReaderImagesState extends State<_ReaderImages> {
   }
 
   SourceRef _buildSourceRef(String loadMode) {
-    final existingRef = reader.widget.sourceRef;
-    if (existingRef != null) {
-      return existingRef;
-    }
     final chapterId =
         reader.widget.chapters?.ids.elementAtOrNull(reader.chapter - 1) ??
-        reader.chapter.toString();
+        (loadMode == 'local' ? null : reader.chapter.toString());
+    final existingRef = reader.widget.sourceRef;
+    if (existingRef != null) {
+      final existingChapterId = existingRef.params['chapterId']?.toString();
+      if (existingChapterId == chapterId) {
+        return existingRef;
+      }
+      return switch (existingRef.type) {
+        SourceRefType.local => SourceRef.fromLegacyLocal(
+          localType: existingRef.params['localType']?.toString() ?? localSourceKey,
+          localComicId: existingRef.params['localComicId']?.toString() ?? reader.cid,
+          chapterId: chapterId,
+        ),
+        SourceRefType.remote => SourceRef.fromLegacyRemote(
+          sourceKey: existingRef.sourceKey,
+          comicId: existingRef.params['comicId']?.toString() ?? reader.cid,
+          chapterId: chapterId,
+          routeKey: existingRef.routeKey,
+        ),
+      };
+    }
     if (loadMode == 'local') {
       return SourceRef.fromLegacyLocal(
         localType: _readerLocalTypeKey(
@@ -1548,12 +1565,13 @@ ImageProvider _createImageProviderFromKey(
   int page,
 ) {
   var reader = context.reader;
+  final runtimeContext = reader.currentReaderContext(pageOverride: page);
   reader.recordImageProviderDiagnostics(imageKey: imageKey, imagePage: page);
   return buildReaderImageProvider(
     imageKey: imageKey,
-    sourceKey: reader.type.comicSource?.key,
+    sourceKey: runtimeContext.sourceKey,
     comicId: reader.cid,
-    chapterId: reader.eid,
+    chapterId: runtimeContext.chapterId,
     page: page,
     enableResize: reader.mode.isContinuous,
   );

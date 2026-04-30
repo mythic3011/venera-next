@@ -1,8 +1,10 @@
+import 'package:venera/foundation/history.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:venera/foundation/comic_type.dart';
 import 'package:venera/foundation/diagnostics/diagnostics.dart';
 import 'package:venera/foundation/reader/reader_diagnostics.dart';
 import 'package:venera/foundation/reader/reader_trace_recorder.dart';
+import 'package:venera/foundation/source_ref.dart';
 import 'package:venera/pages/reader/reader.dart';
 
 void main() {
@@ -182,4 +184,90 @@ void main() {
       expect(diagnosticEvent.data['page'], 4);
     },
   );
+
+  test('canonical session events serialize as structured diagnostics', () {
+    readerTraceRecorder.clear();
+    ReaderDiagnostics.recordCanonicalSessionEvent(
+      event: 'reader.session.upsert.success',
+      loadMode: 'local',
+      sourceKey: 'local',
+      comicId: 'comic-9',
+      chapterId: '0',
+      chapterIndex: 1,
+      page: 6,
+      sessionId: 'reader-session:comic-9',
+      tabId: 'local:local:comic-9:_',
+    );
+
+    final traceEvent =
+        (ReaderDiagnostics.toDiagnosticsJson()['readerTrace']
+                as Map<String, dynamic>)['events'][0]
+            as Map<String, dynamic>;
+    final structured = DevDiagnosticsApi.recent(channel: 'reader.session').single;
+
+    expect(traceEvent['event'], 'reader.session.upsert.success');
+    expect(traceEvent['sourceKey'], 'local');
+    expect(traceEvent['chapterId'], '0');
+    expect(traceEvent['resultSummary'], contains('sessionId='));
+    expect(structured.data['sessionId'], isNotNull);
+    expect(structured.data['tabId'], isNotNull);
+  });
+
+  test('normalized reader context stays stable across page list image provider and dispose', () {
+    readerTraceRecorder.clear();
+    final context = buildReaderRuntimeContextForTesting(
+      comicId: 'comic-10',
+      type: ComicType.local,
+      chapterIndex: 1,
+      page: 3,
+      chapterId: null,
+      sourceRef: SourceRef.fromLegacyLocal(
+        localType: 'local',
+        localComicId: 'comic-10',
+        chapterId: null,
+      ),
+    );
+
+    ReaderDiagnostics.beginPageListLoad(
+      loadMode: context.loadMode,
+      sourceKey: context.sourceKey,
+      comicId: context.comicId,
+      chapterId: context.chapterId,
+      chapterIndex: context.chapterIndex,
+      page: context.page,
+    );
+    ReaderDiagnostics.recordImageProviderCreated(
+      type: ComicType.local,
+      comicId: context.comicId,
+      chapterId: context.chapterId,
+      chapterIndex: context.chapterIndex,
+      page: context.page,
+      imageKey: 'file:///tmp/page-3.jpg',
+    );
+    ReaderDiagnostics.recordReaderLifecycle(
+      event: 'reader.dispose',
+      type: ComicType.local,
+      comicId: context.comicId,
+      chapterId: context.chapterId,
+      chapterIndex: context.chapterIndex,
+      page: context.page,
+      sourceKey: context.sourceKey,
+      loadMode: context.loadMode,
+    );
+
+    final events =
+        (ReaderDiagnostics.toDiagnosticsJson()['readerTrace']
+                as Map<String, dynamic>)['events']
+            as List<dynamic>;
+
+    expect(
+      events.every((event) => (event as Map<String, dynamic>)['sourceKey'] == 'local'),
+      isTrue,
+    );
+    expect(
+      events.every((event) => (event as Map<String, dynamic>)['chapterId'] == '0'),
+      isTrue,
+    );
+    expect(normalizeReaderChapterIdForTesting(null), '0');
+  });
 }

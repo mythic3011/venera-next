@@ -100,24 +100,6 @@ class ReaderWithLoading extends StatefulWidget {
 
 class _ReaderWithLoadingState
     extends LoadingState<ReaderWithLoading, ReaderProps> {
-  SourceRef? get _sourceRef {
-    final sourceKey = widget.sourceKey;
-    final resumeSourceRef = sourceKey == null
-        ? null
-        : HistoryManager().findResumeSourceRef(
-            widget.id,
-            ComicType.fromKey(sourceKey),
-          );
-    return resolveReaderOpenSourceRef(
-      comicId: widget.id,
-      explicitSourceRef: widget.sourceRef,
-      resumeSourceRef: resumeSourceRef,
-      sourceKey: sourceKey,
-    );
-  }
-
-  bool get _isLocalSourceRef => _sourceRef?.type == SourceRefType.local;
-
   @override
   Widget buildContent(BuildContext context, ReaderProps data) {
     final initialPosition = resolveReaderInitialPosition(
@@ -146,15 +128,16 @@ class _ReaderWithLoadingState
   @override
   Future<Res<ReaderProps>> loadData() async {
     final sourceKey = widget.sourceKey;
+    final resumeSourceRef = sourceKey == null
+        ? null
+        : await HistoryManager().loadPreferredResumeSourceRef(
+            widget.id,
+            ComicType.fromKey(sourceKey),
+          );
     final resolvedRefResult = resolveReaderLoadSourceRef(
       comicId: widget.id,
       explicitSourceRef: widget.sourceRef,
-      resumeSourceRef: sourceKey == null
-          ? null
-          : HistoryManager().findResumeSourceRef(
-              widget.id,
-              ComicType.fromKey(sourceKey),
-            ),
+      resumeSourceRef: resumeSourceRef,
       sourceKey: sourceKey,
       sourceExists: (sourceKey) => ComicSource.find(sourceKey) != null,
     );
@@ -168,7 +151,7 @@ class _ReaderWithLoadingState
       type,
     );
 
-    if (_isLocalSourceRef) {
+    if (resolvedSourceRef.type == SourceRefType.local) {
       final localComic = LocalManager().find(
         widget.id,
         type,

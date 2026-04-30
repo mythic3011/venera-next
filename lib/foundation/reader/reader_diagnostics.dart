@@ -216,12 +216,16 @@ class ReaderDiagnostics {
     required int? maxPage,
     required int? imagesPerPage,
     String? chapterId,
+    String? sourceKey,
+    String? loadMode,
     SourceRef? sourceRef,
   }) {
+    final resolvedLoadMode = loadMode ?? (type == ComicType.local ? 'local' : 'remote');
+    final resolvedSourceKey = sourceKey ?? type.sourceKey;
     readerTraceRecorder.updateReaderState(
       lifecycle: lifecycle,
-      loadMode: type == ComicType.local ? 'local' : 'remote',
-      sourceKey: type.sourceKey,
+      loadMode: resolvedLoadMode,
+      sourceKey: resolvedSourceKey,
       comicId: comicId,
       chapterId: chapterId,
       chapterIndex: chapterIndex,
@@ -246,8 +250,8 @@ class ReaderDiagnostics {
       'reader.lifecycle',
       lifecycle,
       data: {
-        'loadMode': type == ComicType.local ? 'local' : 'remote',
-        'sourceKey': type.sourceKey,
+        'loadMode': resolvedLoadMode,
+        'sourceKey': resolvedSourceKey,
         'comicId': comicId,
         'chapterId': chapterId,
         'chapterIndex': chapterIndex,
@@ -268,13 +272,17 @@ class ReaderDiagnostics {
     required int chapterIndex,
     required int page,
     String? chapterId,
+    String? sourceKey,
+    String? loadMode,
   }) {
+    final resolvedLoadMode = loadMode ?? (type == ComicType.local ? 'local' : 'remote');
+    final resolvedSourceKey = sourceKey ?? type.sourceKey;
     readerTraceRecorder.record(
       ReaderTraceEvent(
         event: event,
         timestamp: DateTime.now(),
-        loadMode: type == ComicType.local ? 'local' : 'remote',
-        sourceKey: type.sourceKey,
+        loadMode: resolvedLoadMode,
+        sourceKey: resolvedSourceKey,
         comicId: comicId,
         chapterId: chapterId,
         chapterIndex: chapterIndex,
@@ -286,12 +294,59 @@ class ReaderDiagnostics {
       'reader.lifecycle',
       event,
       data: {
-        'loadMode': type == ComicType.local ? 'local' : 'remote',
-        'sourceKey': type.sourceKey,
+        'loadMode': resolvedLoadMode,
+        'sourceKey': resolvedSourceKey,
         'comicId': comicId,
         'chapterId': chapterId,
         'chapterIndex': chapterIndex,
         'page': page,
+      },
+    );
+  }
+
+  static void recordCanonicalSessionEvent({
+    required String event,
+    required String loadMode,
+    required String sourceKey,
+    required String comicId,
+    required String chapterId,
+    required int chapterIndex,
+    required int page,
+    String? sessionId,
+    String? tabId,
+    String? pageOrderId,
+  }) {
+    readerTraceRecorder.record(
+      ReaderTraceEvent(
+        event: event,
+        timestamp: DateTime.now(),
+        loadMode: loadMode,
+        sourceKey: sourceKey,
+        comicId: comicId,
+        chapterId: chapterId,
+        chapterIndex: chapterIndex,
+        page: page,
+        resultSummary: [
+          if (sessionId != null) 'sessionId=$sessionId',
+          if (tabId != null) 'tabId=$tabId',
+          if (pageOrderId != null) 'pageOrderId=$pageOrderId',
+        ].join(' '),
+        phase: ReaderTracePhase.sourceResolution,
+      ),
+    );
+    AppDiagnostics.info(
+      'reader.session',
+      event,
+      data: {
+        'loadMode': loadMode,
+        'sourceKey': sourceKey,
+        'comicId': comicId,
+        'chapterId': chapterId,
+        'chapterIndex': chapterIndex,
+        'page': page,
+        'sessionId': sessionId,
+        'tabId': tabId,
+        'pageOrderId': pageOrderId,
       },
     );
   }
@@ -324,16 +379,18 @@ class ReaderDiagnostics {
     required int chapterIndex,
     required int page,
     required int pageCount,
+    required String sourceKey,
+    required String chapterId,
   }) {
     endCall(
       callId: callId,
       functionName: 'ReaderImages.loadPageList',
       phase: ReaderTracePhase.pageList,
       loadMode: loadMode,
-      sourceKey: sourceRef.sourceKey,
+      sourceKey: sourceKey,
       sourceRefId: sourceRef.id,
       comicId: comicId,
-      chapterId: sourceRef.params['chapterId']?.toString(),
+      chapterId: chapterId,
       chapterIndex: chapterIndex,
       page: page,
       resultSummary: pageCount == 0 ? 'emptyPageList' : 'pageCount=$pageCount',
@@ -345,6 +402,8 @@ class ReaderDiagnostics {
       comicId: comicId,
       chapterIndex: chapterIndex,
       page: page,
+      sourceKey: sourceKey,
+      chapterId: chapterId,
     );
   }
 
@@ -356,6 +415,8 @@ class ReaderDiagnostics {
     required int chapterIndex,
     required int page,
     required String errorMessage,
+    required String sourceKey,
+    required String chapterId,
     String? errorCode,
   }) {
     failCall(
@@ -365,10 +426,10 @@ class ReaderDiagnostics {
       errorMessage: errorMessage,
       errorCode: errorCode,
       loadMode: loadMode,
-      sourceKey: sourceRef.sourceKey,
+      sourceKey: sourceKey,
       sourceRefId: sourceRef.id,
       comicId: comicId,
-      chapterId: sourceRef.params['chapterId']?.toString(),
+      chapterId: chapterId,
       chapterIndex: chapterIndex,
       page: page,
     );
@@ -381,6 +442,8 @@ class ReaderDiagnostics {
       comicId: comicId,
       chapterIndex: chapterIndex,
       page: page,
+      sourceKey: sourceKey,
+      chapterId: chapterId,
       errorCode: errorCode,
       errorMessage: errorMessage,
     );
@@ -393,6 +456,8 @@ class ReaderDiagnostics {
     required String comicId,
     required int chapterIndex,
     required int page,
+    required String sourceKey,
+    required String chapterId,
     String? errorCode,
     String? errorMessage,
   }) {
@@ -401,9 +466,9 @@ class ReaderDiagnostics {
         event: event,
         timestamp: DateTime.now(),
         loadMode: loadMode,
-        sourceKey: sourceRef.sourceKey,
+        sourceKey: sourceKey,
         comicId: comicId,
-        chapterId: sourceRef.params['chapterId']?.toString(),
+        chapterId: chapterId,
         chapterIndex: chapterIndex,
         page: page,
         errorCode: errorCode,
@@ -419,9 +484,9 @@ class ReaderDiagnostics {
     final data = {
       'event': event,
       'loadMode': loadMode,
-      'sourceKey': sourceRef.sourceKey,
+      'sourceKey': sourceKey,
       'comicId': comicId,
-      'chapterId': sourceRef.params['chapterId']?.toString(),
+      'chapterId': chapterId,
       'chapterIndex': chapterIndex,
       'page': page,
       'errorCode': errorCode,

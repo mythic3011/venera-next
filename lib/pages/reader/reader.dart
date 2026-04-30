@@ -275,12 +275,67 @@ class _ReaderState extends State<Reader>
 
   bool _isInitialized = false;
   bool _traceOpened = false;
+  ReaderPaginationDiagnostics? _lastLoadedPaginationDiagnostics;
+
+  SourceRef _currentSessionSourceRef() {
+    final chapterId = widget.chapters?.ids.elementAtOrNull(chapter - 1);
+    final existingRef = widget.sourceRef;
+    if (existingRef == null) {
+      return SourceRef.fromLegacy(
+        comicId: cid,
+        sourceKey: type.sourceKey,
+        chapterId: chapterId,
+      );
+    }
+    final existingChapterId = existingRef.params['chapterId']?.toString();
+    if (existingChapterId == chapterId) {
+      return existingRef;
+    }
+    return switch (existingRef.type) {
+      SourceRefType.local => SourceRef.fromLegacyLocal(
+        localType: existingRef.params['localType']?.toString() ?? localSourceKey,
+        localComicId: existingRef.params['localComicId']?.toString() ?? cid,
+        chapterId: chapterId,
+      ),
+      SourceRefType.remote => SourceRef.fromLegacyRemote(
+        sourceKey: existingRef.sourceKey,
+        comicId: existingRef.params['comicId']?.toString() ?? cid,
+        chapterId: chapterId,
+        routeKey: existingRef.routeKey,
+      ),
+    };
+  }
+
+  ReaderRuntimeContext currentReaderContext({int? pageOverride}) {
+    return buildReaderRuntimeContext(
+      comicId: cid,
+      type: type,
+      chapterIndex: chapter,
+      page: pageOverride ?? page,
+      chapterId: widget.chapters?.ids.elementAtOrNull(chapter - 1),
+      sourceRef: _currentSessionSourceRef(),
+    );
+  }
+
+  void cacheLoadedPaginationDiagnostics() {
+    _lastLoadedPaginationDiagnostics = ReaderPaginationDiagnostics(
+      imageCount: images?.length,
+      maxPage: maxPage,
+      imagesPerPage: imagesPerPage,
+    );
+  }
+
+  void persistReaderSessionState({int? pageOverride}) {
+    final context = currentReaderContext(pageOverride: pageOverride);
+    unawaited(HistoryManager().persistCanonicalReaderLocation(context));
+  }
 
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
     if (!_traceOpened) {
       recordReaderOpenDiagnostics();
+      persistReaderSessionState();
       _traceOpened = true;
     }
     if (!_isInitialized) {
@@ -409,15 +464,16 @@ class _ReaderState extends State<Reader>
         history!.ep = chapter;
       }
       history!.time = DateTime.now();
-      final sourceRef = widget.sourceRef;
-      if (sourceRef != null) {
+      final context = currentReaderContext(pageOverride: history!.page);
+      persistReaderSessionState(pageOverride: history!.page);
+      if (widget.sourceRef != null) {
         HistoryManager().updateResumeSnapshot(
           comicId: history!.id,
           type: history!.type,
           chapter: history!.ep,
           group: history!.group,
           page: history!.page,
-          sourceRef: sourceRef,
+          sourceRef: context.sourceRef,
         );
       }
       _updateHistoryTimer?.cancel();

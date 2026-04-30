@@ -68,38 +68,44 @@ ReaderPaginationDiagnostics buildReaderPaginationDiagnosticsForTesting({
 
 extension _ReaderDiagnosticsState on _ReaderState {
   void recordReaderOpenDiagnostics() {
+    final context = currentReaderContext();
     ReaderDiagnostics.recordReaderLifecycle(
       event: 'reader.open',
       type: type,
       comicId: cid,
-      chapterId: widget.chapters?.ids.elementAtOrNull(chapter - 1),
-      chapterIndex: chapter,
-      page: page,
+      chapterId: context.chapterId,
+      chapterIndex: context.chapterIndex,
+      page: context.page,
+      sourceKey: context.sourceKey,
+      loadMode: context.loadMode,
     );
     updateReaderDiagnostics('open');
   }
 
   void recordReaderDisposeDiagnostics() {
-    final chapterId = widget.chapters?.ids.elementAtOrNull(chapter - 1);
+    final context = currentReaderContext();
     ReaderDiagnostics.recordReaderLifecycle(
       event: 'reader.dispose',
       type: type,
       comicId: cid,
-      chapterId: chapterId,
-      chapterIndex: chapter,
-      page: page,
+      chapterId: context.chapterId,
+      chapterIndex: context.chapterIndex,
+      page: context.page,
+      sourceKey: context.sourceKey,
+      loadMode: context.loadMode,
     );
     updateReaderDiagnostics('dispose', includePagination: false);
   }
 
   String beginPageListDiagnostics(String loadMode) {
+    final context = currentReaderContext();
     return ReaderDiagnostics.beginPageListLoad(
       loadMode: loadMode,
-      sourceKey: type.sourceKey,
+      sourceKey: context.sourceKey,
       comicId: cid,
-      chapterId: widget.chapters?.ids.elementAtOrNull(chapter - 1),
-      chapterIndex: chapter,
-      page: page,
+      chapterId: context.chapterId,
+      chapterIndex: context.chapterIndex,
+      page: context.page,
     );
   }
 
@@ -110,14 +116,17 @@ extension _ReaderDiagnosticsState on _ReaderState {
     required String errorMessage,
     String? errorCode,
   }) {
+    final context = currentReaderContext();
     ReaderDiagnostics.failPageListLoad(
       callId: callId,
       loadMode: loadMode,
       sourceRef: sourceRef,
       comicId: cid,
-      chapterIndex: chapter,
-      page: page,
+      chapterIndex: context.chapterIndex,
+      page: context.page,
       errorMessage: errorMessage,
+      sourceKey: context.sourceKey,
+      chapterId: context.chapterId,
       errorCode: errorCode,
     );
   }
@@ -128,14 +137,17 @@ extension _ReaderDiagnosticsState on _ReaderState {
     required SourceRef sourceRef,
     required int pageCount,
   }) {
+    final context = currentReaderContext();
     ReaderDiagnostics.endPageListLoad(
       callId: callId,
       loadMode: loadMode,
       sourceRef: sourceRef,
       comicId: cid,
-      chapterIndex: chapter,
-      page: page,
+      chapterIndex: context.chapterIndex,
+      page: context.page,
       pageCount: pageCount,
+      sourceKey: context.sourceKey,
+      chapterId: context.chapterId,
     );
     updateReaderDiagnostics('pageList.loaded');
   }
@@ -144,12 +156,13 @@ extension _ReaderDiagnosticsState on _ReaderState {
     required String imageKey,
     required int imagePage,
   }) {
+    final context = currentReaderContext(pageOverride: imagePage);
     ReaderDiagnostics.recordImageProviderCreated(
       type: type,
       comicId: cid,
-      chapterId: eid,
-      chapterIndex: chapter,
-      page: imagePage,
+      chapterId: context.chapterId,
+      chapterIndex: context.chapterIndex,
+      page: context.page,
       imageKey: imageKey,
     );
   }
@@ -158,25 +171,36 @@ extension _ReaderDiagnosticsState on _ReaderState {
     String lifecycle, {
     bool includePagination = true,
   }) {
-    final pagination = _buildReaderPaginationDiagnostics(
-      includePagination: includePagination,
-      imageCount: images?.length,
-      maxPage: () => maxPage,
-      imagesPerPage: () => imagesPerPage,
-    );
+    final context = currentReaderContext();
+    final pagination = includePagination
+        ? _buildReaderPaginationDiagnostics(
+            includePagination: true,
+            imageCount: images?.length,
+            maxPage: () => maxPage,
+            imagesPerPage: () => imagesPerPage,
+          )
+        : (_lastLoadedPaginationDiagnostics ??
+              _buildReaderPaginationDiagnostics(
+                includePagination: false,
+                imageCount: images?.length,
+                maxPage: () => maxPage,
+                imagesPerPage: () => imagesPerPage,
+              ));
     ReaderDiagnostics.updateReaderState(
       lifecycle: lifecycle,
       type: type,
       comicId: cid,
-      chapterId: widget.chapters?.ids.elementAtOrNull(chapter - 1),
-      chapterIndex: chapter,
-      page: page,
+      chapterId: context.chapterId,
+      chapterIndex: context.chapterIndex,
+      page: context.page,
       mode: mode.key,
       isLoading: isLoading,
       imageCount: pagination.imageCount,
       maxPage: pagination.maxPage,
       imagesPerPage: pagination.imagesPerPage,
-      sourceRef: widget.sourceRef,
+      sourceKey: context.sourceKey,
+      loadMode: context.loadMode,
+      sourceRef: context.sourceRef,
     );
   }
 }

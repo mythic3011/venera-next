@@ -1,5 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:venera/foundation/comic_detail/comic_detail.dart';
 import 'package:venera/foundation/comic_source/comic_source.dart';
+import 'package:venera/foundation/history.dart';
 import 'package:venera/foundation/reader/page_provider.dart';
 import 'package:venera/foundation/reader/source_ref_resolver.dart';
 import 'package:venera/foundation/res.dart';
@@ -108,5 +110,34 @@ void main() {
 
     expect(identical(resolved, resumeRef), isTrue);
     expect(resolved.params['chapterId'], 'ch-2');
+  });
+
+  test('canonical active tab wins over legacy resume source ref', () {
+    final legacyResumeRef = SourceRef.fromLegacyLocal(
+      localType: 'local',
+      localComicId: 'series-3',
+      chapterId: 'chapter-1',
+    );
+    final canonicalActiveTab = ReaderTabVm(
+      tabId: 'tab-1',
+      currentChapterId: 'chapter-5',
+      currentPageIndex: 12,
+      sourceRef: SourceRef.fromLegacyRemote(
+        sourceKey: 'copymanga',
+        comicId: 'series-3',
+        chapterId: 'chapter-5',
+      ),
+      loadMode: ReaderTabLoadMode.remoteSource,
+      isActive: true,
+    );
+
+    final preferred = choosePreferredResumeSourceRefForTesting(
+      canonicalActiveTab: canonicalActiveTab,
+      legacyResumeSourceRef: legacyResumeRef,
+    );
+
+    expect(preferred, isNotNull);
+    expect(preferred!.type, SourceRefType.remote);
+    expect(preferred.params['chapterId'], 'chapter-5');
   });
 }

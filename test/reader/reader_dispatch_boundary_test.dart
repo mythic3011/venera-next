@@ -3,11 +3,14 @@ import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:path/path.dart' as p;
 import 'package:venera/foundation/comic_source/comic_source.dart';
+import 'package:venera/foundation/comic_type.dart';
 import 'package:venera/foundation/db/unified_comics_store.dart';
+import 'package:venera/foundation/history.dart';
 import 'package:venera/foundation/reader/canonical_reader_pages.dart';
 import 'package:venera/foundation/reader/canonical_remote_page_provider.dart';
 import 'package:venera/foundation/reader/page_provider.dart';
 import 'package:venera/foundation/reader/reader_page_loader.dart';
+import 'package:venera/foundation/reader/reader_session_repository.dart';
 import 'package:venera/foundation/res.dart';
 import 'package:venera/foundation/source_ref.dart';
 import 'package:venera/pages/comic_details_page/comic_page.dart';
@@ -307,6 +310,112 @@ void main() {
       }
     },
   );
+
+  test('persisted local reader context writes session and active tab', () async {
+    final tempDir = await Directory.systemTemp.createTemp(
+      'venera-reader-session-local-',
+    );
+    final store = UnifiedComicsStore(p.join(tempDir.path, 'venera.db'));
+    await store.init();
+    try {
+      await store.upsertComic(
+        const ComicRecord(
+          id: 'comic-local',
+          title: 'Local Comic',
+          normalizedTitle: 'local comic',
+        ),
+      );
+      final repository = ReaderSessionRepository(store: store);
+      final localRef = SourceRef.fromLegacyLocal(
+        localType: 'local',
+        localComicId: 'comic-local',
+        chapterId: null,
+      );
+
+      await persistReaderSessionContextForTesting(
+        repository: repository,
+        context: buildReaderRuntimeContextForTesting(
+          comicId: 'comic-local',
+          type: ComicType.local,
+          chapterIndex: 1,
+          page: 4,
+          chapterId: null,
+          sourceRef: localRef,
+        ),
+      );
+
+      final session = await store.loadReaderSessionByComic('comic-local');
+      final tabs = await store.loadReaderTabsForSession(session!.id);
+      expect(session.activeTabId, localRef.id);
+      expect(tabs.single.pageIndex, 4);
+      expect(tabs.single.chapterId, '0');
+      expect(tabs.single.sourceRefJson, contains('"sourceKey":"local"'));
+    } finally {
+      await store.close();
+      if (tempDir.existsSync()) {
+        tempDir.deleteSync(recursive: true);
+      }
+    }
+  });
+
+  test('persisted remote reader context uses canonical remote comic id', () async {
+    final tempDir = await Directory.systemTemp.createTemp(
+      'venera-reader-session-remote-',
+    );
+    final store = UnifiedComicsStore(p.join(tempDir.path, 'venera.db'));
+    await store.init();
+    try {
+      await store.upsertComic(
+        const ComicRecord(
+          id: 'remote:copymanga:comic-remote',
+          title: 'Remote Comic',
+          normalizedTitle: 'remote comic',
+        ),
+      );
+      final repository = ReaderSessionRepository(store: store);
+      final remoteRef = SourceRef.fromLegacyRemote(
+        sourceKey: 'copymanga',
+        comicId: 'comic-remote',
+        chapterId: 'chapter-2',
+      );
+
+      await persistReaderSessionContextForTesting(
+        repository: repository,
+        context: buildReaderRuntimeContextForTesting(
+          comicId: 'comic-remote',
+          type: ComicType.fromKey('copymanga'),
+          chapterIndex: 2,
+          page: 7,
+          chapterId: 'chapter-2',
+          sourceRef: remoteRef,
+        ),
+      );
+      await persistReaderSessionContextForTesting(
+        repository: repository,
+        context: buildReaderRuntimeContextForTesting(
+          comicId: 'comic-remote',
+          type: ComicType.fromKey('copymanga'),
+          chapterIndex: 2,
+          page: 9,
+          chapterId: 'chapter-2',
+          sourceRef: remoteRef,
+        ),
+      );
+
+      final session = await store.loadReaderSessionByComic(
+        'remote:copymanga:comic-remote',
+      );
+      final tabs = await store.loadReaderTabsForSession(session!.id);
+      expect(session.activeTabId, remoteRef.id);
+      expect(tabs.single.pageIndex, 9);
+      expect(tabs.single.comicId, 'remote:copymanga:comic-remote');
+    } finally {
+      await store.close();
+      if (tempDir.existsSync()) {
+        tempDir.deleteSync(recursive: true);
+      }
+    }
+  });
 }
 
 Future<void> _insertCanonicalRemoteFixture(UnifiedComicsStore store) async {
