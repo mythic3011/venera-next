@@ -236,14 +236,26 @@ class ImageFavoriteManager with ChangeNotifier {
   List<ImageFavoritesComic> get comics => _comics.values.toList();
 
   static ImageFavoriteManager? _cache;
+  Future<void>? _loadFuture;
 
   ImageFavoriteManager._();
 
-  factory ImageFavoriteManager() => (_cache ??= ImageFavoriteManager._());
+  factory ImageFavoriteManager() =>
+      (_cache ??= ImageFavoriteManager._())..init();
 
   /// 检查表image_favorites是否存在, 不存在则创建
   void init() {
-    unawaited(_loadCache());
+    _loadFuture ??= _ensureInitialized();
+  }
+
+  Future<void> ensureInitialized() async {
+    init();
+    await _loadFuture;
+  }
+
+  Future<void> _ensureInitialized() async {
+    await HistoryManager().init();
+    await _loadCache();
   }
 
   Future<void> _loadCache() async {
@@ -404,8 +416,14 @@ class ImageFavoriteManager with ChangeNotifier {
   }
 
   static Future<ImageFavoritesComputed> computeImageFavorites() {
+    return _computeImageFavoritesWithInit();
+  }
+
+  static Future<ImageFavoritesComputed> _computeImageFavoritesWithInit() async {
+    final manager = ImageFavoriteManager();
+    await manager.ensureInitialized();
     var token = ServicesBinding.rootIsolateToken!;
-    var count = ImageFavoriteManager().length;
+    var count = manager.length;
     if (count == 0) {
       return Future.value(ImageFavoritesComputed([], [], [], 0));
     } else if (count > 100) {

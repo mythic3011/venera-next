@@ -4,11 +4,8 @@ import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:venera/foundation/db/unified_comics_store.dart';
-import 'package:venera/foundation/history.dart';
 
 import 'appdata.dart';
-import 'favorites.dart';
-import 'local.dart';
 
 export "widget_utils.dart";
 export "context.dart";
@@ -62,12 +59,6 @@ class _App {
 
   final Appdata data = appdata;
 
-  final HistoryManager history = HistoryManager();
-
-  final LocalFavoritesManager favorites = LocalFavoritesManager();
-
-  final LocalManager local = LocalManager();
-
   late final UnifiedComicsStore unifiedComicsStore;
 
   void rootPop() {
@@ -93,14 +84,21 @@ class _App {
   }
 
   Future<void> initComponents() async {
+    await initRuntimeComponents();
+  }
+
+  Future<void> initRuntimeComponents({
+    Future<void> Function()? initAppData,
+    Future<void> Function()? initCanonicalStore,
+    Future<void> Function()? seedSourcePlatforms,
+  }) async {
     await Future.wait([
-      data.init(),
-      history.init(),
-      favorites.init(),
-      local.init(),
-      unifiedComicsStore.init().then((_) {
-        return unifiedComicsStore.seedDefaultSourcePlatforms();
-      }),
+      (initAppData ?? data.init)(),
+      () async {
+        await (initCanonicalStore ?? unifiedComicsStore.init)();
+        await (seedSourcePlatforms ??
+            unifiedComicsStore.seedDefaultSourcePlatforms)();
+      }(),
     ]);
   }
 

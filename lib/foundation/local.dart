@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:collection';
 import 'dart:convert';
 import 'dart:isolate';
@@ -70,21 +71,18 @@ class LocalComic with HistoryMixin implements Comic {
   });
 
   LocalComic.fromRow(Row row)
-      : id = row[0] as String,
-        title = row[1] as String,
-        subtitle = row[2] as String,
-        tags = List.from(jsonDecode(row[3] as String)),
-        directory = row[4] as String,
-        chapters = ComicChapters.fromJsonOrNull(jsonDecode(row[5] as String)),
-        cover = row[6] as String,
-        comicType = ComicType(row[7] as int),
-        downloadedChapters = List.from(jsonDecode(row[8] as String)),
-        createdAt = DateTime.fromMillisecondsSinceEpoch(row[9] as int);
+    : id = row[0] as String,
+      title = row[1] as String,
+      subtitle = row[2] as String,
+      tags = List.from(jsonDecode(row[3] as String)),
+      directory = row[4] as String,
+      chapters = ComicChapters.fromJsonOrNull(jsonDecode(row[5] as String)),
+      cover = row[6] as String,
+      comicType = ComicType(row[7] as int),
+      downloadedChapters = List.from(jsonDecode(row[8] as String)),
+      createdAt = DateTime.fromMillisecondsSinceEpoch(row[9] as int);
 
-  File get coverFile => File(FilePath.join(
-        baseDir,
-        cover,
-      ));
+  File get coverFile => File(FilePath.join(baseDir, cover));
 
   String get baseDir => (directory.contains('/') || directory.contains('\\'))
       ? directory
@@ -129,10 +127,10 @@ class LocalComic with HistoryMixin implements Comic {
     if (downloadedChapters.isNotEmpty && chapters != null) {
       final chapters = this.chapters!;
       if (chapters.isGrouped) {
-        for (int i=0; i<chapters.groupCount; i++) {
+        for (int i = 0; i < chapters.groupCount; i++) {
           var group = chapters.getGroupByIndex(i);
           var keys = group.keys.toList();
-          for (int j=0; j<keys.length; j++) {
+          for (int j = 0; j < keys.length; j++) {
             var chapterId = keys[j];
             if (downloadedChapters.contains(chapterId)) {
               firstDownloadedChapter = j + 1;
@@ -167,7 +165,7 @@ class LocalComic with HistoryMixin implements Comic {
         initialEp: history?.ep ?? firstDownloadedChapter,
         initialPage: history?.page,
         initialGroup: history?.group ?? firstDownloadedChapterGroup,
-      )
+      ),
     );
   }
 
@@ -198,6 +196,10 @@ class LocalManager with ChangeNotifier {
 
   late Database _db;
   late LocalMetadataRepository _metadataRepository;
+  bool _isInitialized = false;
+  Future<void>? _initializingFuture;
+
+  bool get isInitialized => _isInitialized;
 
   /// path to the directory where all the comics are stored
   late String path;
@@ -223,12 +225,10 @@ class LocalManager with ChangeNotifier {
       return "Directory is not empty";
     }
     try {
-      await copyDirectoryIsolate(
-        directory,
-        newDir,
-      );
-      await File(FilePath.join(App.dataPath, 'local_path'))
-          .writeAsString(newPath);
+      await copyDirectoryIsolate(directory, newDir);
+      await File(
+        FilePath.join(App.dataPath, 'local_path'),
+      ).writeAsString(newPath);
     } catch (e, s) {
       Log.error("IO", e, s);
       return e.toString();
@@ -267,16 +267,40 @@ class LocalManager with ChangeNotifier {
       testFile.createSync();
       testFile.deleteSync();
     } catch (e) {
-      Log.error("IO",
-          "Failed to create test file in local path: $e\nUsing default path instead.");
+      Log.error(
+        "IO",
+        "Failed to create test file in local path: $e\nUsing default path instead.",
+      );
       path = await findDefaultPath();
     }
   }
 
   Future<void> init({bool skipSourceInit = false}) async {
-    _db = sqlite3.open(
-      '${App.dataPath}/local.db',
-    );
+    if (_isInitialized) {
+      return;
+    }
+    final inFlight = _initializingFuture;
+    if (inFlight != null) {
+      await inFlight;
+      return;
+    }
+    final future = _doInit(skipSourceInit: skipSourceInit);
+    _initializingFuture = future;
+    try {
+      await future;
+    } finally {
+      if (identical(_initializingFuture, future)) {
+        _initializingFuture = null;
+      }
+    }
+  }
+
+  Future<void> ensureInitialized({bool skipSourceInit = false}) {
+    return init(skipSourceInit: skipSourceInit);
+  }
+
+  Future<void> _doInit({bool skipSourceInit = false}) async {
+    _db = sqlite3.open('${App.dataPath}/local.db');
     _db.execute('''
       CREATE TABLE IF NOT EXISTS comics (
         id TEXT NOT NULL,
@@ -317,8 +341,8 @@ class LocalManager with ChangeNotifier {
       await ComicSourceManager().ensureInit();
     }
     restoreDownloadingTasks();
+    _isInitialized = true;
   }
-
 
   String _metadataSeriesKey(LocalComic comic) {
     return '${comic.comicType.value}:${comic.id}';
@@ -365,8 +389,13 @@ class LocalManager with ChangeNotifier {
       throw Exception('Group label cannot be empty');
     }
     final seriesKey = _metadataSeriesKey(comic);
-    final existing = _metadataRepository.getSeries(seriesKey) ??
-        LocalSeriesMeta(seriesKey: seriesKey, groups: const [], chapters: const {});
+    final existing =
+        _metadataRepository.getSeries(seriesKey) ??
+        LocalSeriesMeta(
+          seriesKey: seriesKey,
+          groups: const [],
+          chapters: const {},
+        );
     final groups = existing.groups.toList();
     if (_metadataGroupLabelExists(groups, normalizedLabel)) {
       throw Exception("Group label already exists");
@@ -400,8 +429,13 @@ class LocalManager with ChangeNotifier {
       throw Exception('Group label cannot be empty');
     }
     final seriesKey = _metadataSeriesKey(comic);
-    final existing = _metadataRepository.getSeries(seriesKey) ??
-        LocalSeriesMeta(seriesKey: seriesKey, groups: const [], chapters: const {});
+    final existing =
+        _metadataRepository.getSeries(seriesKey) ??
+        LocalSeriesMeta(
+          seriesKey: seriesKey,
+          groups: const [],
+          chapters: const {},
+        );
     if (_metadataGroupLabelExists(
       existing.groups,
       normalizedLabel,
@@ -425,10 +459,18 @@ class LocalManager with ChangeNotifier {
     await _metadataRepository.upsertSeries(existing.copyWith(groups: groups));
   }
 
-  Future<void> reorderGroups(LocalComic comic, List<String> orderedGroupIds) async {
+  Future<void> reorderGroups(
+    LocalComic comic,
+    List<String> orderedGroupIds,
+  ) async {
     final seriesKey = _metadataSeriesKey(comic);
-    final existing = _metadataRepository.getSeries(seriesKey) ??
-        LocalSeriesMeta(seriesKey: seriesKey, groups: const [], chapters: const {});
+    final existing =
+        _metadataRepository.getSeries(seriesKey) ??
+        LocalSeriesMeta(
+          seriesKey: seriesKey,
+          groups: const [],
+          chapters: const {},
+        );
     final groupsById = {for (final group in existing.groups) group.id: group};
     if (orderedGroupIds.toSet().length != orderedGroupIds.length ||
         groupsById.length != orderedGroupIds.length ||
@@ -442,7 +484,9 @@ class LocalManager with ChangeNotifier {
         LocalChapterGroup(id: current.id, label: current.label, sortOrder: i),
       );
     }
-    await _metadataRepository.upsertSeries(existing.copyWith(groups: reordered));
+    await _metadataRepository.upsertSeries(
+      existing.copyWith(groups: reordered),
+    );
   }
 
   Future<void> assignChapterToGroup(
@@ -455,8 +499,13 @@ class LocalManager with ChangeNotifier {
       throw Exception('Chapter not found');
     }
     final seriesKey = _metadataSeriesKey(comic);
-    final existing = _metadataRepository.getSeries(seriesKey) ??
-        LocalSeriesMeta(seriesKey: seriesKey, groups: const [], chapters: const {});
+    final existing =
+        _metadataRepository.getSeries(seriesKey) ??
+        LocalSeriesMeta(
+          seriesKey: seriesKey,
+          groups: const [],
+          chapters: const {},
+        );
     final normalizedGroupId = _normalizeMetadataGroupId(groupId);
     if (!_metadataGroupExists(existing, normalizedGroupId)) {
       throw Exception('Group not found');
@@ -469,7 +518,9 @@ class LocalManager with ChangeNotifier {
       groupId: normalizedGroupId,
       sortOrder: current?.sortOrder,
     );
-    await _metadataRepository.upsertSeries(existing.copyWith(chapters: chapters));
+    await _metadataRepository.upsertSeries(
+      existing.copyWith(chapters: chapters),
+    );
   }
 
   Future<void> renameChapter(
@@ -486,8 +537,13 @@ class LocalManager with ChangeNotifier {
       throw Exception('Chapter not found');
     }
     final seriesKey = _metadataSeriesKey(comic);
-    final existing = _metadataRepository.getSeries(seriesKey) ??
-        LocalSeriesMeta(seriesKey: seriesKey, groups: const [], chapters: const {});
+    final existing =
+        _metadataRepository.getSeries(seriesKey) ??
+        LocalSeriesMeta(
+          seriesKey: seriesKey,
+          groups: const [],
+          chapters: const {},
+        );
     final chapters = Map<String, LocalChapterMeta>.from(existing.chapters);
     final current = chapters[chapterId];
     chapters[chapterId] = LocalChapterMeta(
@@ -496,7 +552,9 @@ class LocalManager with ChangeNotifier {
       groupId: current?.groupId,
       sortOrder: current?.sortOrder,
     );
-    await _metadataRepository.upsertSeries(existing.copyWith(chapters: chapters));
+    await _metadataRepository.upsertSeries(
+      existing.copyWith(chapters: chapters),
+    );
   }
 
   Future<void> reorderChapters(
@@ -514,8 +572,13 @@ class LocalManager with ChangeNotifier {
       throw Exception('Invalid chapter order');
     }
     final seriesKey = _metadataSeriesKey(comic);
-    final existing = _metadataRepository.getSeries(seriesKey) ??
-        LocalSeriesMeta(seriesKey: seriesKey, groups: const [], chapters: const {});
+    final existing =
+        _metadataRepository.getSeries(seriesKey) ??
+        LocalSeriesMeta(
+          seriesKey: seriesKey,
+          groups: const [],
+          chapters: const {},
+        );
     final normalizedGroupId = _normalizeMetadataGroupId(groupId);
     if (!_metadataGroupExists(existing, normalizedGroupId)) {
       throw Exception("Group not found");
@@ -531,7 +594,9 @@ class LocalManager with ChangeNotifier {
         sortOrder: i,
       );
     }
-    await _metadataRepository.upsertSeries(existing.copyWith(chapters: chapters));
+    await _metadataRepository.upsertSeries(
+      existing.copyWith(chapters: chapters),
+    );
   }
 
   EffectiveChaptersView? readEffectiveChapters(LocalComic comic) {
@@ -562,22 +627,27 @@ class LocalManager with ChangeNotifier {
       final effectiveTitle = meta?.displayTitle ?? chapterTitle;
       final sortOrder = meta?.sortOrder ?? fallbackOrder++;
       chaptersByGroup.putIfAbsent(targetGroupId, () => []);
-      chaptersByGroup[targetGroupId]!.add((chapterId, effectiveTitle, sortOrder));
+      chaptersByGroup[targetGroupId]!.add((
+        chapterId,
+        effectiveTitle,
+        sortOrder,
+      ));
     }
 
-    final availableGroups = <LocalChapterGroup>[
-      ...series.groups,
-      if (!series.groups.any((g) => g.id == LocalSeriesMeta.defaultGroupId))
-        const LocalChapterGroup(
-          id: LocalSeriesMeta.defaultGroupId,
-          label: LocalSeriesMeta.defaultGroupLabel,
-          sortOrder: -1,
-        ),
-    ]..sort((a, b) {
-        final byOrder = a.sortOrder.compareTo(b.sortOrder);
-        if (byOrder != 0) return byOrder;
-        return a.id.compareTo(b.id);
-      });
+    final availableGroups =
+        <LocalChapterGroup>[
+          ...series.groups,
+          if (!series.groups.any((g) => g.id == LocalSeriesMeta.defaultGroupId))
+            const LocalChapterGroup(
+              id: LocalSeriesMeta.defaultGroupId,
+              label: LocalSeriesMeta.defaultGroupLabel,
+              sortOrder: -1,
+            ),
+        ]..sort((a, b) {
+          final byOrder = a.sortOrder.compareTo(b.sortOrder);
+          if (byOrder != 0) return byOrder;
+          return a.id.compareTo(b.id);
+        });
 
     for (final group in availableGroups) {
       final rows = chaptersByGroup[group.id];
@@ -607,6 +677,7 @@ class LocalManager with ChangeNotifier {
     }
     return EffectiveChaptersView(groupedChapters: grouped);
   }
+
   String findValidId(ComicType type) {
     final res = _db.select(
       '''
@@ -647,10 +718,10 @@ class LocalManager with ChangeNotifier {
   }
 
   void remove(String id, ComicType comicType) async {
-    _db.execute(
-      'DELETE FROM comics WHERE id = ? AND comic_type = ?;',
-      [id, comicType.value],
-    );
+    _db.execute('DELETE FROM comics WHERE id = ? AND comic_type = ?;', [
+      id,
+      comicType.value,
+    ]);
     notifyListeners();
   }
 
@@ -685,6 +756,7 @@ class LocalManager with ChangeNotifier {
   void dispose() {
     super.dispose();
     _db.dispose();
+    _isInitialized = false;
   }
 
   List<LocalComic> getRecent() {
@@ -704,10 +776,13 @@ class LocalManager with ChangeNotifier {
   }
 
   LocalComic? findByName(String name) {
-    final res = _db.select('''
+    final res = _db.select(
+      '''
       SELECT * FROM comics
       WHERE title = ? OR directory = ?;
-    ''', [name, name]);
+    ''',
+      [name, name],
+    );
     if (res.isEmpty) {
       return null;
     }
@@ -715,11 +790,14 @@ class LocalManager with ChangeNotifier {
   }
 
   List<LocalComic> search(String keyword) {
-    final res = _db.select('''
+    final res = _db.select(
+      '''
       SELECT * FROM comics
       WHERE title LIKE ? OR tags LIKE ? OR subtitle LIKE ?
       ORDER BY created_at DESC;
-    ''', ['%$keyword%', '%$keyword%', '%$keyword%']);
+    ''',
+      ['%$keyword%', '%$keyword%', '%$keyword%'],
+    );
     return res.map((row) => LocalComic.fromRow(row)).toList();
   }
 
@@ -730,8 +808,9 @@ class LocalManager with ChangeNotifier {
     var comic = find(id, type) ?? (throw "Comic Not Found");
     var directory = Directory(comic.baseDir);
     if (comic.hasChapters) {
-      var cid =
-          ep is int ? comic.chapters!.ids.elementAt(ep - 1) : (ep as String);
+      var cid = ep is int
+          ? comic.chapters!.ids.elementAt(ep - 1)
+          : (ep as String);
       cid = getChapterDirectoryName(cid);
       directory = Directory(FilePath.join(directory.path, cid));
     }
@@ -757,7 +836,10 @@ class LocalManager with ChangeNotifier {
   }
 
   Future<void> reorderComicPages(
-      LocalComic comic, Object ep, List<String> orderedFileNames) async {
+    LocalComic comic,
+    Object ep,
+    List<String> orderedFileNames,
+  ) async {
     if (!comic.baseDir.startsWith(path)) {
       throw Exception("Only app-managed local comics support page reorder");
     }
@@ -780,10 +862,12 @@ class LocalManager with ChangeNotifier {
     final sourceFiles = chapterDir
         .listSync()
         .whereType<File>()
-        .where((f) =>
-            !f.name.startsWith('cover.') &&
-            !f.name.startsWith('.') &&
-            !isHiddenOrMacMetadataPath(f.name))
+        .where(
+          (f) =>
+              !f.name.startsWith('cover.') &&
+              !f.name.startsWith('.') &&
+              !isHiddenOrMacMetadataPath(f.name),
+        )
         .toList();
     if (sourceFiles.isEmpty) {
       return;
@@ -798,7 +882,9 @@ class LocalManager with ChangeNotifier {
 
     final tempFiles = <String>[];
     for (var i = 0; i < orderedFileNames.length; i++) {
-      final original = File(FilePath.join(chapterDir.path, orderedFileNames[i]));
+      final original = File(
+        FilePath.join(chapterDir.path, orderedFileNames[i]),
+      );
       final tempName = "__reorder_tmp__$i.${original.extension}";
       final tempPath = FilePath.join(chapterDir.path, tempName);
       await original.rename(tempPath);
@@ -806,46 +892,60 @@ class LocalManager with ChangeNotifier {
     }
     for (var i = 0; i < tempFiles.length; i++) {
       final temp = File(tempFiles[i]);
-      final targetPath = FilePath.join(chapterDir.path, "${i + 1}.${temp.extension}");
+      final targetPath = FilePath.join(
+        chapterDir.path,
+        "${i + 1}.${temp.extension}",
+      );
       await temp.rename(targetPath);
     }
   }
 
-  bool isDownloaded(String id, ComicType type,
-      [int? ep, ComicChapters? chapters]) {
+  bool isDownloaded(
+    String id,
+    ComicType type, [
+    int? ep,
+    ComicChapters? chapters,
+  ]) {
     var comic = find(id, type);
     if (comic == null) return false;
     if (comic.chapters == null || ep == null) return true;
     if (chapters != null) {
       if (comic.chapters?.length != chapters.length) {
         // update
-        add(LocalComic(
-          id: comic.id,
-          title: comic.title,
-          subtitle: comic.subtitle,
-          tags: comic.tags,
-          directory: comic.directory,
-          chapters: chapters,
-          cover: comic.cover,
-          comicType: comic.comicType,
-          downloadedChapters: comic.downloadedChapters,
-          createdAt: comic.createdAt,
-        ));
+        add(
+          LocalComic(
+            id: comic.id,
+            title: comic.title,
+            subtitle: comic.subtitle,
+            tags: comic.tags,
+            directory: comic.directory,
+            chapters: chapters,
+            cover: comic.cover,
+            comicType: comic.comicType,
+            downloadedChapters: comic.downloadedChapters,
+            createdAt: comic.createdAt,
+          ),
+        );
       }
     }
-    return comic.downloadedChapters
-        .contains((chapters ?? comic.chapters)!.ids.elementAtOrNull(ep - 1));
+    return comic.downloadedChapters.contains(
+      (chapters ?? comic.chapters)!.ids.elementAtOrNull(ep - 1),
+    );
   }
 
   List<DownloadTask> downloadingTasks = [];
 
   bool isDownloading(String id, ComicType type) {
-    return downloadingTasks
-        .any((element) => element.id == id && element.comicType == type);
+    return downloadingTasks.any(
+      (element) => element.id == id && element.comicType == type,
+    );
   }
 
   Future<Directory> findValidDirectory(
-      String id, ComicType type, String name) async {
+    String id,
+    ComicType type,
+    String name,
+  ) async {
     var comic = find(id, type);
     if (comic != null) {
       return Directory(FilePath.join(path, comic.directory));
@@ -888,8 +988,9 @@ class LocalManager with ChangeNotifier {
 
   Future<void> saveCurrentDownloadingTasks() async {
     var tasks = downloadingTasks.map((e) => e.toJson()).toList();
-    await File(FilePath.join(App.dataPath, 'downloading_tasks.json'))
-        .writeAsString(jsonEncode(tasks));
+    await File(
+      FilePath.join(App.dataPath, 'downloading_tasks.json'),
+    ).writeAsString(jsonEncode(tasks));
   }
 
   void restoreDownloadingTasks() {
@@ -994,18 +1095,17 @@ class LocalManager with ChangeNotifier {
       );
       _removeChapterMetadata(c, chapters);
     } else {
-      _db.execute(
-        'DELETE FROM comics WHERE id = ? AND comic_type = ?;',
-        [c.id, c.comicType.value],
-      );
+      _db.execute('DELETE FROM comics WHERE id = ? AND comic_type = ?;', [
+        c.id,
+        c.comicType.value,
+      ]);
       _metadataRepository.removeSeries(_metadataSeriesKey(c));
     }
     var shouldRemovedDirs = <Directory>[];
     for (var chapter in chapters) {
-      var dir = Directory(FilePath.join(
-        c.baseDir,
-        getChapterDirectoryName(chapter),
-      ));
+      var dir = Directory(
+        FilePath.join(c.baseDir, getChapterDirectoryName(chapter)),
+      );
       if (dir.existsSync()) {
         shouldRemovedDirs.add(dir);
       }
@@ -1122,7 +1222,10 @@ class LocalManager with ChangeNotifier {
       final source = find(sourceItem.id, sourceItem.comicType);
       if (source == null || source.id == target.id) continue;
 
-      Future<void> appendOneChapter(Directory sourceDir, String sourceTitle) async {
+      Future<void> appendOneChapter(
+        Directory sourceDir,
+        String sourceTitle,
+      ) async {
         final pages = await _listChapterImageFiles(sourceDir);
         if (pages.isEmpty) return;
         final chapterId = (nextId++).toString();
@@ -1215,7 +1318,11 @@ class LocalManager with ChangeNotifier {
     }
   }
 
-  void batchDeleteComics(List<LocalComic> comics, [bool removeFileOnDisk = true, bool removeFavoriteAndHistory = true]) {
+  void batchDeleteComics(
+    List<LocalComic> comics, [
+    bool removeFileOnDisk = true,
+    bool removeFavoriteAndHistory = true,
+  ]) {
     if (comics.isEmpty) {
       return;
     }
@@ -1230,13 +1337,12 @@ class LocalManager with ChangeNotifier {
             shouldRemovedDirs.add(dir);
           }
         }
-        _db.execute(
-          'DELETE FROM comics WHERE id = ? AND comic_type = ?;',
-          [c.id, c.comicType.value],
-        );
+        _db.execute('DELETE FROM comics WHERE id = ? AND comic_type = ?;', [
+          c.id,
+          c.comicType.value,
+        ]);
       }
-    }
-    catch(e, s) {
+    } catch (e, s) {
       Log.error("LocalManager", "Failed to batch delete comics: $e", s);
       _db.execute('ROLLBACK;');
       return;
@@ -1277,9 +1383,15 @@ class LocalManager with ChangeNotifier {
     var builder = StringBuffer();
     for (var i = 0; i < name.length; i++) {
       var char = name[i];
-      if (char == '/' || char == '\\' || char == ':' || char == '*' ||
-          char == '?'
-          || char == '"' || char == '<' || char == '>' || char == '|') {
+      if (char == '/' ||
+          char == '\\' ||
+          char == ':' ||
+          char == '*' ||
+          char == '?' ||
+          char == '"' ||
+          char == '<' ||
+          char == '>' ||
+          char == '|') {
         builder.write('_');
       } else {
         builder.write(char);

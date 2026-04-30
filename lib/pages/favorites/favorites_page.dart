@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:math';
 
@@ -46,6 +47,7 @@ class _FavoritesPageState extends State<FavoritesPage> {
   String? folder;
 
   bool isNetwork = false;
+  bool _isReady = false;
 
   FolderList? folderList;
 
@@ -64,21 +66,35 @@ class _FavoritesPageState extends State<FavoritesPage> {
 
   @override
   void initState() {
+    super.initState();
+    unawaited(_initialize());
+  }
+
+  Future<void> _initialize() async {
+    await LocalFavoritesManager().init();
     var data = appdata.implicitData['favoriteFolder'];
     if (data != null) {
       folder = data['name'];
       isNetwork = data['isNetwork'] ?? false;
     }
-    if (folder != null
-        && !isNetwork
-        && !LocalFavoritesManager().existsFolder(folder!)) {
+    if (folder != null &&
+        !isNetwork &&
+        !LocalFavoritesManager().existsFolder(folder!)) {
       folder = null;
     }
-    super.initState();
+    if (!mounted) {
+      return;
+    }
+    setState(() {
+      _isReady = true;
+    });
   }
 
   @override
   Widget build(BuildContext context) {
+    if (!_isReady) {
+      return const SizedBox.shrink();
+    }
     return IconTheme(
       data: IconThemeData(color: Theme.of(context).colorScheme.secondary),
       child: Stack(
@@ -103,40 +119,43 @@ class _FavoritesPageState extends State<FavoritesPage> {
   }
 
   void showFolderSelector() {
-    Navigator.of(App.rootContext).push(PageRouteBuilder(
-      barrierDismissible: true,
-      fullscreenDialog: true,
-      opaque: false,
-      barrierColor: Colors.black.toOpacity(0.36),
-      pageBuilder: (context, animation, secondary) {
-        return Align(
-          alignment: Alignment.centerLeft,
-          child: Material(
-            child: SizedBox(
-              width: min(300, context.width - 16),
-              child: _LeftBar(
-                withAppbar: true,
-                favPage: this,
-                onSelected: () {
-                  context.pop();
-                },
+    Navigator.of(App.rootContext).push(
+      PageRouteBuilder(
+        barrierDismissible: true,
+        fullscreenDialog: true,
+        opaque: false,
+        barrierColor: Colors.black.toOpacity(0.36),
+        pageBuilder: (context, animation, secondary) {
+          return Align(
+            alignment: Alignment.centerLeft,
+            child: Material(
+              child: SizedBox(
+                width: min(300, context.width - 16),
+                child: _LeftBar(
+                  withAppbar: true,
+                  favPage: this,
+                  onSelected: () {
+                    context.pop();
+                  },
+                ),
               ),
             ),
-          ),
-        );
-      },
-      transitionsBuilder: (context, animation, secondary, child) {
-        var offset =
-            Tween<Offset>(begin: const Offset(-1, 0), end: const Offset(0, 0));
-        return SlideTransition(
-          position: offset.animate(CurvedAnimation(
-            parent: animation,
-            curve: Curves.fastOutSlowIn,
-          )),
-          child: child,
-        );
-      },
-    ));
+          );
+        },
+        transitionsBuilder: (context, animation, secondary, child) {
+          var offset = Tween<Offset>(
+            begin: const Offset(-1, 0),
+            end: const Offset(0, 0),
+          );
+          return SlideTransition(
+            position: offset.animate(
+              CurvedAnimation(parent: animation, curve: Curves.fastOutSlowIn),
+            ),
+            child: child,
+          );
+        },
+      ),
+    );
   }
 
   Widget buildBody() {
@@ -166,15 +185,19 @@ class _FavoritesPageState extends State<FavoritesPage> {
     }
     if (!isNetwork) {
       return _LocalFavoritesPage(
-          folder: folder!, key: PageStorageKey("local_$folder"));
+        folder: folder!,
+        key: PageStorageKey("local_$folder"),
+      );
     } else {
       var favoriteData = getFavoriteDataOrNull(folder!);
       if (favoriteData == null) {
         folder = null;
         return buildBody();
       } else {
-        return NetworkFavoritePage(favoriteData,
-            key: PageStorageKey("network_$folder"));
+        return NetworkFavoritePage(
+          favoriteData,
+          key: PageStorageKey("network_$folder"),
+        );
       }
     }
   }

@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:venera/components/components.dart';
 import 'package:venera/foundation/app.dart';
@@ -256,14 +258,24 @@ class _LocalComicsPageState extends State<LocalComicsPage> {
   void initState() {
     var sort = appdata.implicitData["local_sort"] ?? "name";
     sortType = LocalSortType.fromString(sort);
-    _gateway.addListener(_handleManagerUpdate);
-    update();
     super.initState();
+    unawaited(_initialize());
+  }
+
+  Future<void> _initialize() async {
+    await LocalManager().ensureInitialized();
+    if (!mounted) {
+      return;
+    }
+    _gateway.addListener(_handleManagerUpdate);
+    await update();
   }
 
   @override
   void dispose() {
-    _gateway.removeListener(_handleManagerUpdate);
+    if (LocalManager().isInitialized) {
+      _gateway.removeListener(_handleManagerUpdate);
+    }
     super.dispose();
   }
 

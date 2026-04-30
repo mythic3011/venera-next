@@ -6,15 +6,11 @@ import 'dart:math';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:venera/foundation/comic_source/comic_source.dart';
-import 'package:venera/foundation/comic_detail/models.dart';
 import 'package:venera/foundation/comic_type.dart';
 import 'package:venera/foundation/db/history_store.dart';
-import 'package:venera/foundation/db/remote_comic_sync.dart';
 import 'package:venera/foundation/favorites.dart';
 import 'package:venera/foundation/image_provider/image_favorites_provider.dart';
 import 'package:venera/foundation/log.dart';
-import 'package:venera/foundation/reader/reader_session_repository.dart';
-import 'package:venera/foundation/reader/reader_diagnostics.dart';
 import 'package:venera/foundation/source_ref.dart';
 import 'package:venera/foundation/source_identity/source_identity.dart';
 import 'package:venera/foundation/reader/resume_target_store.dart';
@@ -29,166 +25,6 @@ import 'consts.dart';
 part "image_favorites.dart";
 
 typedef HistoryType = ComicType;
-
-String _normalizeReaderChapterId(String? chapterId) {
-  if (chapterId == null || chapterId.isEmpty) {
-    return '0';
-  }
-  return chapterId;
-}
-
-String _canonicalReaderComicId({
-  required String comicId,
-  required SourceRef sourceRef,
-}) {
-  if (sourceRef.type == SourceRefType.local) {
-    return comicId;
-  }
-  return canonicalRemoteComicId(
-    sourceKey: sourceRef.sourceKey,
-    comicId: sourceRef.params['comicId']?.toString() ?? comicId,
-  );
-}
-
-@visibleForTesting
-String normalizeReaderChapterIdForTesting(String? chapterId) {
-  return _normalizeReaderChapterId(chapterId);
-}
-
-class ReaderRuntimeContext {
-  const ReaderRuntimeContext({
-    required this.comicId,
-    required this.canonicalComicId,
-    required this.sourceKey,
-    required this.chapterId,
-    required this.chapterIndex,
-    required this.page,
-    required this.loadMode,
-    required this.sourceRef,
-  });
-
-  final String comicId;
-  final String canonicalComicId;
-  final String sourceKey;
-  final String chapterId;
-  final int chapterIndex;
-  final int page;
-  final String loadMode;
-  final SourceRef sourceRef;
-}
-
-typedef ReaderSessionEventRecorder =
-    void Function(
-      String event, {
-      required ReaderRuntimeContext context,
-      String? sessionId,
-      String? tabId,
-      String? pageOrderId,
-    });
-
-ReaderRuntimeContext _buildReaderRuntimeContext({
-  required String comicId,
-  required ComicType type,
-  required int chapterIndex,
-  required int page,
-  required String? chapterId,
-  required SourceRef sourceRef,
-}) {
-  final normalizedChapterId = _normalizeReaderChapterId(chapterId);
-  final sourceKey = sourceRef.sourceKey.isNotEmpty
-      ? sourceRef.sourceKey
-      : (type == ComicType.local ? localSourceKey : type.sourceKey);
-  return ReaderRuntimeContext(
-    comicId: comicId,
-    canonicalComicId: _canonicalReaderComicId(comicId: comicId, sourceRef: sourceRef),
-    sourceKey: sourceKey,
-    chapterId: normalizedChapterId,
-    chapterIndex: chapterIndex,
-    page: page,
-    loadMode: sourceRef.type == SourceRefType.local ? 'local' : 'remote',
-    sourceRef: sourceRef,
-  );
-}
-
-ReaderRuntimeContext buildReaderRuntimeContext({
-  required String comicId,
-  required ComicType type,
-  required int chapterIndex,
-  required int page,
-  required String? chapterId,
-  required SourceRef sourceRef,
-}) {
-  return _buildReaderRuntimeContext(
-    comicId: comicId,
-    type: type,
-    chapterIndex: chapterIndex,
-    page: page,
-    chapterId: chapterId,
-    sourceRef: sourceRef,
-  );
-}
-
-@visibleForTesting
-ReaderRuntimeContext buildReaderRuntimeContextForTesting({
-  required String comicId,
-  required ComicType type,
-  required int chapterIndex,
-  required int page,
-  required String? chapterId,
-  required SourceRef sourceRef,
-}) {
-  return buildReaderRuntimeContext(
-    comicId: comicId,
-    type: type,
-    chapterIndex: chapterIndex,
-    page: page,
-    chapterId: chapterId,
-    sourceRef: sourceRef,
-  );
-}
-
-@visibleForTesting
-SourceRef? choosePreferredResumeSourceRefForTesting({
-  required ReaderTabVm? canonicalActiveTab,
-  required SourceRef? legacyResumeSourceRef,
-}) {
-  return canonicalActiveTab?.sourceRef ?? legacyResumeSourceRef;
-}
-
-Future<void> persistReaderSessionContextForTesting({
-  required ReaderSessionRepository repository,
-  required ReaderRuntimeContext context,
-  String? pageOrderId,
-  ReaderSessionEventRecorder? recordEvent,
-}) async {
-  final sessionId = ReaderSessionRepository.sessionIdForComic(
-    context.canonicalComicId,
-  );
-  final tabId = ReaderSessionRepository.defaultTabIdForSourceRef(
-    context.sourceRef,
-  );
-  recordEvent?.call(
-    'reader.session.upsert.start',
-    context: context,
-    sessionId: sessionId,
-    tabId: tabId,
-    pageOrderId: pageOrderId,
-  );
-  await repository.upsertCurrentLocation(
-    comicId: context.canonicalComicId,
-    chapterId: context.chapterId,
-    pageIndex: context.page,
-    sourceRef: context.sourceRef,
-    pageOrderId: pageOrderId,
-  );
-  recordEvent?.call(
-    'reader.session.upsert.success',
-    context: context,
-    sessionId: sessionId,
-    tabId: tabId,
-    pageOrderId: pageOrderId,
-  );
-}
 
 abstract mixin class HistoryMixin {
   String get title;
@@ -350,8 +186,6 @@ class HistoryManager with ChangeNotifier {
   late final ResumeTargetStore _resumeStore = ResumeTargetStore(
     appdata.implicitData,
   );
-  ReaderSessionRepository get _readerSessions =>
-      ReaderSessionRepository(store: App.unifiedComicsStore);
 
   static const _snapshotFlag = 'reader_use_resume_source_ref_snapshot';
 
@@ -364,11 +198,29 @@ class HistoryManager with ChangeNotifier {
   final cachedHistories = <String, History>{};
 
   bool isInitialized = false;
+  Future<void>? _initializingFuture;
 
   Future<void> init() async {
     if (isInitialized) {
       return;
     }
+    final inFlight = _initializingFuture;
+    if (inFlight != null) {
+      await inFlight;
+      return;
+    }
+    final future = _doInit();
+    _initializingFuture = future;
+    try {
+      await future;
+    } finally {
+      if (identical(_initializingFuture, future)) {
+        _initializingFuture = null;
+      }
+    }
+  }
+
+  Future<void> _doInit() async {
     _store = HistoryStore("${App.dataPath}/history.db");
     await _store.init();
     final rows = await _store.loadAllHistory();
@@ -450,80 +302,6 @@ class HistoryManager with ChangeNotifier {
       Log.info("History", _mapSnapshotDiagnostic(result.diagnostic!));
     }
     return result.snapshot?.sourceRef;
-  }
-
-  Future<ReaderTabVm?> loadCanonicalActiveReaderTab(
-    String comicId,
-    ComicType type,
-  ) {
-    final canonicalComicId = type == ComicType.local
-        ? comicId
-        : canonicalRemoteComicId(sourceKey: type.sourceKey, comicId: comicId);
-    return _readerSessions.loadActiveReaderTab(canonicalComicId);
-  }
-
-  Future<SourceRef?> loadPreferredResumeSourceRef(
-    String comicId,
-    ComicType type,
-  ) async {
-    final canonicalActiveTab = await loadCanonicalActiveReaderTab(comicId, type);
-    if (canonicalActiveTab != null) {
-      final context = _buildReaderRuntimeContext(
-        comicId: comicId,
-        type: type,
-        chapterIndex: 0,
-        page: canonicalActiveTab.currentPageIndex,
-        chapterId: canonicalActiveTab.currentChapterId,
-        sourceRef: canonicalActiveTab.sourceRef,
-      );
-      ReaderDiagnostics.recordCanonicalSessionEvent(
-        event: 'reader.session.load.hit',
-        loadMode: context.loadMode,
-        sourceKey: context.sourceKey,
-        comicId: context.canonicalComicId,
-        chapterId: context.chapterId,
-        chapterIndex: context.chapterIndex,
-        page: context.page,
-        sessionId: ReaderSessionRepository.sessionIdForComic(
-          context.canonicalComicId,
-        ),
-        tabId: canonicalActiveTab.tabId,
-        pageOrderId: canonicalActiveTab.pageOrderId,
-      );
-      return canonicalActiveTab.sourceRef;
-    }
-    return findResumeSourceRef(comicId, type);
-  }
-
-  Future<void> persistCanonicalReaderLocation(
-    ReaderRuntimeContext context, {
-    String? pageOrderId,
-  }) async {
-    await persistReaderSessionContextForTesting(
-      repository: _readerSessions,
-      context: context,
-      pageOrderId: pageOrderId,
-      recordEvent: (
-        event, {
-        required ReaderRuntimeContext context,
-        String? sessionId,
-        String? tabId,
-        String? pageOrderId,
-      }) {
-        ReaderDiagnostics.recordCanonicalSessionEvent(
-          event: event,
-          loadMode: context.loadMode,
-          sourceKey: context.sourceKey,
-          comicId: context.canonicalComicId,
-          chapterId: context.chapterId,
-          chapterIndex: context.chapterIndex,
-          page: context.page,
-          sessionId: sessionId,
-          tabId: tabId,
-          pageOrderId: pageOrderId,
-        );
-      },
-    );
   }
 
   bool _isResumeSnapshotEnabled() {

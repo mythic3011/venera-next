@@ -411,7 +411,8 @@ class LocalFavoritesManager with ChangeNotifier {
     """).first["c"];
   }
 
-  List<String> get folderNames => _getFolderNamesWithDB();
+  List<String> get folderNames =>
+      _isInitialized ? _getFolderNamesWithDB() : const [];
 
   int maxValue(String folder) {
     return _db.select("""

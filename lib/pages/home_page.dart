@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:sliver_tools/sliver_tools.dart';
 import 'package:url_launcher/url_launcher_string.dart';
@@ -55,9 +57,7 @@ int countAvailableComicSourceUpdates() {
 }
 
 Future<({List<ReaderActivityItem> recent, int count})>
-loadHomeReaderActivitySnapshot(
-  ReaderActivityRepository repository,
-) async {
+loadHomeReaderActivitySnapshot(ReaderActivityRepository repository) async {
   final recent = await repository.loadRecent();
   final count = await repository.count();
   return (recent: recent, count: count);
@@ -276,7 +276,6 @@ class _HistoryState extends State<_History> {
     _refreshHistoryActivity();
   }
 
-  @override
   Future<void> _refreshHistoryActivity() async {
     final snapshot = await loadHomeReaderActivitySnapshot(_repository);
     if (!mounted) {
@@ -379,9 +378,10 @@ class _LocalState extends State<_Local> {
   late int count;
   late int downloadingTaskCount;
   late bool firstDownloadingTaskPaused;
+  bool _isReady = false;
 
   ({List<LocalComic> recent, int count, int taskCount, bool firstTaskPaused})
-      _readLocalSnapshot() {
+  _readLocalSnapshot() {
     final manager = LocalManager();
     final tasks = manager.downloadingTasks;
     return (
@@ -407,19 +407,35 @@ class _LocalState extends State<_Local> {
 
   @override
   void initState() {
+    super.initState();
+    unawaited(_initialize());
+  }
+
+  Future<void> _initialize() async {
+    await LocalManager().ensureInitialized();
+    if (!mounted) {
+      return;
+    }
     _applyLocalSnapshot();
     LocalManager().addListener(onLocalComicsChange);
-    super.initState();
+    setState(() {
+      _isReady = true;
+    });
   }
 
   @override
   void dispose() {
-    LocalManager().removeListener(onLocalComicsChange);
+    if (_isReady) {
+      LocalManager().removeListener(onLocalComicsChange);
+    }
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
+    if (!_isReady) {
+      return const SliverToBoxAdapter(child: SizedBox.shrink());
+    }
     return SliverToBoxAdapter(
       child: Container(
         margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
@@ -498,9 +514,7 @@ class _LocalState extends State<_Local> {
                             const _AnimatedDownloadingIcon(),
                           const SizedBox(width: 8),
                           Text(
-                            "@a Tasks".tlParams({
-                              'a': downloadingTaskCount,
-                            }),
+                            "@a Tasks".tlParams({'a': downloadingTaskCount}),
                           ),
                         ],
                       ),

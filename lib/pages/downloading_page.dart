@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:venera/components/components.dart';
 import 'package:venera/foundation/app.dart';
@@ -16,23 +18,42 @@ class DownloadingPage extends StatefulWidget {
 
 class _DownloadingPageState extends State<DownloadingPage> {
   DownloadTask? firstTask;
+  bool _isReady = false;
 
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
+    if (!_isReady) {
+      return;
+    }
     firstTask = LocalManager().downloadingTasks.firstOrNull;
     firstTask?.addListener(update);
   }
 
   @override
   void initState() {
-    LocalManager().addListener(update);
     super.initState();
+    unawaited(_initialize());
+  }
+
+  Future<void> _initialize() async {
+    await LocalManager().ensureInitialized();
+    if (!mounted) {
+      return;
+    }
+    LocalManager().addListener(update);
+    firstTask = LocalManager().downloadingTasks.firstOrNull;
+    firstTask?.addListener(update);
+    setState(() {
+      _isReady = true;
+    });
   }
 
   @override
   void dispose() {
-    LocalManager().removeListener(update);
+    if (_isReady) {
+      LocalManager().removeListener(update);
+    }
     firstTask?.removeListener(update);
     super.dispose();
   }
@@ -44,13 +65,16 @@ class _DownloadingPageState extends State<DownloadingPage> {
       firstTask = currentFirstTask;
       firstTask?.addListener(update);
     }
-    if(mounted) {
+    if (mounted) {
       setState(() {});
     }
   }
 
   @override
   Widget build(BuildContext context) {
+    if (!_isReady) {
+      return PopUpWidgetScaffold(title: "", body: const SizedBox.shrink());
+    }
     return PopUpWidgetScaffold(
       title: "",
       body: ListView.builder(
@@ -89,20 +113,11 @@ class _DownloadingPageState extends State<DownloadingPage> {
       child: Row(
         children: [
           if (first?.isPaused == true)
-            Text(
-              "Paused".tl,
-              style: ts.s18.bold,
-            )
+            Text("Paused".tl, style: ts.s18.bold)
           else if (first?.isError == true)
-            Text(
-              "Error".tl,
-              style: ts.s18.bold,
-            )
+            Text("Error".tl, style: ts.s18.bold)
           else
-            Text(
-              "${bytesToReadableString(speed)}/s",
-              style: ts.s18.bold,
-            ),
+            Text("${bytesToReadableString(speed)}/s", style: ts.s18.bold),
           const Spacer(),
           if (first?.isPaused == true || first?.isError == true)
             OutlinedButton(
@@ -234,15 +249,9 @@ class _DownloadTaskTileState extends State<_DownloadTaskTile> {
                 ),
                 const Spacer(),
                 if (!widget.task.isPaused || widget.task.isError)
-                  Text(
-                    widget.task.message,
-                    style: ts.s12,
-                    maxLines: 3,
-                  ),
+                  Text(widget.task.message, style: ts.s12, maxLines: 3),
                 const SizedBox(height: 4),
-                LinearProgressIndicator(
-                  value: widget.task.progress,
-                ),
+                LinearProgressIndicator(value: widget.task.progress),
                 const SizedBox(height: 8),
               ],
             ),
