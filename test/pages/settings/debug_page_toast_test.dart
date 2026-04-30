@@ -83,6 +83,17 @@ void main() {
     expect(find.text('Disabled'), findsNothing);
   });
 
+  testWidgets('debug page shows merged export action and app data opener', (
+    tester,
+  ) async {
+    await pumpDebugRoute(tester);
+
+    expect(find.text('Open App Data Directory'), findsOneWidget);
+    expect(find.text('Export Logs'), findsOneWidget);
+    expect(find.text('Export Logs Snapshot'), findsNothing);
+    expect(find.text('Save Logs File'), findsNothing);
+  });
+
   testWidgets(
     'shows running toast when leaving debug page and diagnostics api is active',
     (tester) async {

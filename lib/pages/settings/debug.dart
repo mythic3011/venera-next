@@ -66,7 +66,7 @@ class DebugPageState extends State<DebugPage> {
     }
   }
 
-  Future<void> _exportLogsSnapshot() async {
+  Future<void> _exportLogs() async {
     final file = await Log.exportToFile();
     if (!mounted) {
       return;
@@ -75,17 +75,39 @@ class DebugPageState extends State<DebugPage> {
       context.showMessage(message: "App is not initialized".tl);
       return;
     }
-    await Clipboard.setData(ClipboardData(text: file.path));
+    await saveFile(file: file, filename: file.name);
     if (mounted) {
-      context.showMessage(message: "Exported: ${file.path}");
+      context.showMessage(message: "Exported".tl);
     }
   }
 
-  Future<void> _saveLogsFile() async {
-    final data = utf8.encode(await Log.buildExportText());
-    await saveFile(data: data, filename: Log.buildExportFileName());
-    if (mounted) {
-      context.showMessage(message: "Saved".tl);
+  Future<void> _openAppDataDirectory() async {
+    if (!App.isInitialized) {
+      if (mounted) {
+        context.showMessage(message: "App is not initialized".tl);
+      }
+      return;
+    }
+    final folderPath = App.dataPath;
+    try {
+      if (App.isWindows) {
+        await Process.run('explorer', [folderPath]);
+      } else if (App.isMacOS) {
+        await Process.run('open', [folderPath]);
+      } else if (App.isLinux) {
+        try {
+          await Process.run('xdg-open', [folderPath]);
+        } catch (_) {
+          await launchUrlString('file://$folderPath');
+        }
+      } else {
+        await launchUrlString('file://$folderPath');
+      }
+    } catch (e, s) {
+      Log.error("Open App Data Directory", e, s);
+      if (mounted) {
+        context.showMessage(message: "Failed to open folder: $e");
+      }
     }
   }
 
@@ -189,18 +211,19 @@ class DebugPageState extends State<DebugPage> {
                   ],
                 ).paddingHorizontal(8),
               ],
+              const SizedBox(height: 8),
+              TextButton(
+                onPressed: _openAppDataDirectory,
+                child: Text("Open App Data Directory".tl),
+              ).paddingHorizontal(8),
               if (Log.logFilePath != null) ...[
                 const SizedBox(height: 8),
                 Text("Log File: ${Log.logFilePath}").paddingHorizontal(16),
               ],
               const SizedBox(height: 8),
               TextButton(
-                onPressed: _exportLogsSnapshot,
-                child: Text("Export Logs Snapshot".tl),
-              ).paddingHorizontal(8),
-              TextButton(
-                onPressed: _saveLogsFile,
-                child: Text("Save Logs File".tl),
+                onPressed: _exportLogs,
+                child: Text("Export Logs".tl),
               ).paddingHorizontal(8),
             ],
           ),
