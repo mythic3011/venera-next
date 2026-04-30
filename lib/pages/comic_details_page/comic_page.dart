@@ -85,76 +85,85 @@ class ComicDetailPage extends ComicPage {
   String get comicId => id;
 }
 
+@visibleForTesting
+ComicDetails buildLocalDetailsFromCanonicalForTesting(
+  ComicDetailViewModel detail,
+  LocalComic localComic,
+) {
+  final tags = <String, List<String>>{};
+  for (final tag in detail.sourceTags) {
+    final key = tag.namespace.isEmpty ? 'Source Tags' : tag.namespace;
+    tags.putIfAbsent(key, () => <String>[]).add(tag.name);
+  }
+  if (detail.userTags.isNotEmpty) {
+    tags['User Tags'] = detail.userTags.map((tag) => tag.name).toList();
+  }
+  if (tags.isEmpty) {
+    for (final raw in localComic.tags) {
+      final index = raw.indexOf(':');
+      if (index > 0 && index < raw.length - 1) {
+        final namespace = raw.substring(0, index).trim();
+        final tag = raw.substring(index + 1).trim();
+        tags.putIfAbsent(namespace, () => <String>[]).add(tag);
+      } else {
+        tags.putIfAbsent("Tags", () => <String>[]).add(raw);
+      }
+    }
+  }
+  final sourceLabel = detail.primarySource == null
+      ? 'Remote source: Not linked'
+      : 'Remote source: ${detail.primarySource!.platformName}';
+  final subtitleParts = <String>[
+    if (localComic.subtitle.isNotEmpty) localComic.subtitle,
+    sourceLabel,
+  ];
+  final chapters = detail.chapters.isEmpty
+      ? null
+      : ComicChapters({
+          for (final chapter in detail.chapters) chapter.chapterId: chapter.title,
+        });
+  return ComicDetails.fromJson({
+    "title": detail.title,
+    "subtitle": subtitleParts.join(' | '),
+    "cover": (detail.coverLocalPath != null
+        ? File(detail.coverLocalPath!).uri.toString()
+        : localComic.coverFile.uri.toString()),
+    "description": detail.primarySource?.sourceTitle ?? "",
+    "tags": tags,
+    "chapters": chapters?.toJson(),
+    "sourceKey": localSourceKey,
+    "comicId": detail.comicId,
+    "thumbnails": null,
+    "recommend": null,
+    "isFavorite": null,
+    "subId": null,
+    "likesCount": null,
+    "isLiked": null,
+    "commentCount": null,
+    "uploader": null,
+    "uploadTime": null,
+    "updateTime": (detail.updatedAt ?? localComic.createdAt).toIso8601String(),
+    "url": detail.primarySource?.comicUrl,
+    "stars": null,
+    "maxPage": null,
+    "comments": null,
+  });
+}
+
+@visibleForTesting
+bool comicPageHasContinueActionForTesting({
+  required ComicDetailViewModel? canonicalDetail,
+  required History? history,
+}) {
+  return canonicalDetail?.availableActions.canContinueReading == true ||
+      (history != null && (history.ep > 1 || history.page > 1));
+}
+
 class _ComicPageState extends LoadingState<ComicPage, ComicDetails>
     with _ComicPageActions {
   bool get _isLocalSource => isLocalSourceKey(widget.sourceKey);
   String? _canonicalComicId;
-
-  ComicDetails _buildLocalDetailsFromCanonical(
-    ComicDetailViewModel detail,
-    LocalComic localComic,
-  ) {
-    final tags = <String, List<String>>{};
-    for (final tag in detail.sourceTags) {
-      final key = tag.namespace.isEmpty ? 'Source Tags' : tag.namespace;
-      tags.putIfAbsent(key, () => <String>[]).add(tag.name);
-    }
-    if (detail.userTags.isNotEmpty) {
-      tags['User Tags'] = detail.userTags.map((tag) => tag.name).toList();
-    }
-    if (tags.isEmpty) {
-      for (final raw in localComic.tags) {
-        final index = raw.indexOf(':');
-        if (index > 0 && index < raw.length - 1) {
-          final namespace = raw.substring(0, index).trim();
-          final tag = raw.substring(index + 1).trim();
-          tags.putIfAbsent(namespace, () => <String>[]).add(tag);
-        } else {
-          tags.putIfAbsent("Tags", () => <String>[]).add(raw);
-        }
-      }
-    }
-    final sourceLabel = detail.primarySource == null
-        ? 'Remote source: Not linked'
-        : 'Remote source: ${detail.primarySource!.platformName}';
-    final subtitleParts = <String>[
-      if (localComic.subtitle.isNotEmpty) localComic.subtitle,
-      sourceLabel,
-    ];
-    final chapters = detail.chapters.isEmpty
-        ? null
-        : ComicChapters({
-            for (final chapter in detail.chapters)
-              chapter.chapterId: chapter.title,
-          });
-    return ComicDetails.fromJson({
-      "title": detail.title,
-      "subtitle": subtitleParts.join(' | '),
-      "cover": (detail.coverLocalPath != null
-          ? File(detail.coverLocalPath!).uri.toString()
-          : localComic.coverFile.uri.toString()),
-      "description": detail.primarySource?.sourceTitle ?? "",
-      "tags": tags,
-      "chapters": chapters?.toJson(),
-      "sourceKey": localSourceKey,
-      "comicId": detail.comicId,
-      "thumbnails": null,
-      "recommend": null,
-      "isFavorite": null,
-      "subId": null,
-      "likesCount": null,
-      "isLiked": null,
-      "commentCount": null,
-      "uploader": null,
-      "uploadTime": null,
-      "updateTime": (detail.updatedAt ?? localComic.createdAt)
-          .toIso8601String(),
-      "url": detail.primarySource?.comicUrl,
-      "stars": null,
-      "maxPage": null,
-      "comments": null,
-    });
-  }
+  ComicDetailViewModel? _canonicalDetailVm;
 
   @override
   History? history;
@@ -329,13 +338,14 @@ class _ComicPageState extends LoadingState<ComicPage, ComicDetails>
       if (detail == null) {
         return const Res.error('Canonical local comic not found');
       }
+      _canonicalDetailVm = detail;
       isAddToLocalFav = LocalFavoritesManager().isExist(
         widget.id,
         ComicType.local,
       );
       history = HistoryManager().find(widget.id, ComicType.local);
       _canonicalComicId = widget.id;
-      return Res(_buildLocalDetailsFromCanonical(detail, localComic));
+      return Res(buildLocalDetailsFromCanonicalForTesting(detail, localComic));
     }
     var comicSource = ComicSource.find(widget.sourceKey);
     if (comicSource == null) {
@@ -360,6 +370,9 @@ class _ComicPageState extends LoadingState<ComicPage, ComicDetails>
       return Res.fromErrorRes(remoteDetail, subData: remoteDetail.subData);
     }
     _canonicalComicId = remoteDetail.data.canonicalComicId;
+    _canonicalDetailVm = await UnifiedCanonicalComicDetailRepository(
+      store: App.unifiedComicsStore,
+    ).getComicDetail(_canonicalComicId!);
     return Res(remoteDetail.data.detail, subData: remoteDetail.subData);
   }
 
@@ -465,7 +478,13 @@ class _ComicPageState extends LoadingState<ComicPage, ComicDetails>
 
   Widget buildActions() {
     bool isMobile = context.width < changePoint;
-    bool hasHistory = history != null && (history!.ep > 1 || history!.page > 1);
+    final detailActions = _canonicalDetailVm?.availableActions;
+    final hasContinueAction = comicPageHasContinueActionForTesting(
+      canonicalDetail: _canonicalDetailVm,
+      history: history,
+    );
+    final canStartReading = detailActions?.canStartReading ?? true;
+    final canFavorite = detailActions?.canFavorite ?? true;
     return SliverLazyToBoxAdapter(
       child: Column(
         children: [
@@ -473,14 +492,14 @@ class _ComicPageState extends LoadingState<ComicPage, ComicDetails>
             scrollDirection: Axis.horizontal,
             padding: const EdgeInsets.symmetric(horizontal: 8),
             children: [
-              if (hasHistory && !isMobile)
+              if (hasContinueAction && !isMobile)
                 _ActionButton(
                   icon: const Icon(Icons.menu_book),
                   text: 'Continue'.tl,
                   onPressed: continueRead,
                   iconColor: context.useTextColor(Colors.yellow),
                 ),
-              if (!isMobile || hasHistory)
+              if (canStartReading && (!isMobile || hasContinueAction))
                 _ActionButton(
                   icon: const Icon(Icons.play_circle_outline),
                   text: 'Start'.tl,
@@ -509,15 +528,16 @@ class _ComicPageState extends LoadingState<ComicPage, ComicDetails>
                   onPressed: likeOrUnlike,
                   iconColor: context.useTextColor(Colors.red),
                 ),
-              _ActionButton(
-                icon: const Icon(Icons.bookmark_outline_outlined),
-                activeIcon: const Icon(Icons.bookmark),
-                isActive: isFavorite || isAddToLocalFav,
-                text: 'Favorite'.tl,
-                onPressed: openFavPanel,
-                onLongPressed: quickFavorite,
-                iconColor: context.useTextColor(Colors.purple),
-              ),
+              if (canFavorite)
+                _ActionButton(
+                  icon: const Icon(Icons.bookmark_outline_outlined),
+                  activeIcon: const Icon(Icons.bookmark),
+                  isActive: isFavorite || isAddToLocalFav,
+                  text: 'Favorite'.tl,
+                  onPressed: openFavPanel,
+                  onLongPressed: quickFavorite,
+                  iconColor: context.useTextColor(Colors.purple),
+                ),
               if (!_isLocalSource && comicSource.commentsLoader != null)
                 _ActionButton(
                   icon: const Icon(Icons.comment),
@@ -544,14 +564,15 @@ class _ComicPageState extends LoadingState<ComicPage, ComicDetails>
                     ),
                   ),
                 if (!_isLocalSource) const SizedBox(width: 16),
-                Expanded(
-                  child: hasHistory
-                      ? FilledButton(
-                          onPressed: continueRead,
-                          child: Text("Continue".tl),
-                        )
-                      : FilledButton(onPressed: read, child: Text("Read".tl)),
-                ),
+                if (canStartReading)
+                  Expanded(
+                    child: hasContinueAction
+                        ? FilledButton(
+                            onPressed: continueRead,
+                            child: Text("Continue".tl),
+                          )
+                        : FilledButton(onPressed: read, child: Text("Read".tl)),
+                  ),
               ],
             ).paddingHorizontal(16).paddingVertical(8),
           if (history != null)
