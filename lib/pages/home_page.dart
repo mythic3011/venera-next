@@ -1,14 +1,18 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:sliver_tools/sliver_tools.dart';
 import 'package:url_launcher/url_launcher_string.dart';
 import 'package:venera/components/components.dart';
 import 'package:venera/foundation/app.dart';
-import 'package:venera/foundation/comic_source/comic_source.dart';
+import 'package:venera/features/sources/comic_source/comic_source.dart';
 import 'package:venera/foundation/consts.dart';
 import 'package:venera/foundation/favorites.dart';
 import 'package:venera/foundation/history.dart';
 import 'package:venera/foundation/local.dart';
 import 'package:venera/foundation/log.dart';
+import 'package:venera/features/reader/data/reader_activity_models.dart';
+import 'package:venera/features/reader/data/reader_activity_repository.dart';
 import 'package:venera/pages/comic_details_page/comic_page.dart';
 import 'package:venera/pages/comic_source_page.dart';
 import 'package:venera/pages/downloading_page.dart';
@@ -23,9 +27,7 @@ import 'package:venera/utils/translations.dart';
 
 import 'local_comics_page.dart';
 
-List<String> readLocalFavoriteFolderNames() {
-  return LocalFavoritesManager().folderNames;
-}
+part 'home_page_legacy_sections.dart';
 
 List<String> readComicSourceNames() {
   return ComicSource.all().map((e) => e.name).toList();
@@ -50,6 +52,13 @@ int countAvailableComicSourceUpdates() {
     availableUpdates: ComicSourceManager().availableUpdates,
     findSourceByKey: ComicSource.find,
   );
+}
+
+Future<({List<ReaderActivityItem> recent, int count})>
+loadHomeReaderActivitySnapshot(ReaderActivityRepository repository) async {
+  final recent = await repository.loadRecent();
+  final count = await repository.count();
+  return (recent: recent, count: count);
 }
 
 class HomePage extends StatelessWidget {
@@ -254,37 +263,26 @@ class _History extends StatefulWidget {
 }
 
 class _HistoryState extends State<_History> {
-  late List<History> history;
-  late int count;
-
-  (List<History>, int) _readHistorySnapshot() {
-    final manager = HistoryManager();
-    return (manager.getRecent(), manager.count());
-  }
-
-  void onHistoryChange() {
-    if (mounted) {
-      setState(() {
-        final snapshot = _readHistorySnapshot();
-        history = snapshot.$1;
-        count = snapshot.$2;
-      });
-    }
-  }
+  List<ReaderActivityItem> history = const [];
+  int count = 0;
+  late final ReaderActivityRepository _repository;
 
   @override
   void initState() {
-    final snapshot = _readHistorySnapshot();
-    history = snapshot.$1;
-    count = snapshot.$2;
-    HistoryManager().addListener(onHistoryChange);
     super.initState();
+    _repository = App.repositories.readerActivity;
+    _refreshHistoryActivity();
   }
 
-  @override
-  void dispose() {
-    HistoryManager().removeListener(onHistoryChange);
-    super.dispose();
+  Future<void> _refreshHistoryActivity() async {
+    final snapshot = await loadHomeReaderActivitySnapshot(_repository);
+    if (!mounted) {
+      return;
+    }
+    setState(() {
+      history = snapshot.recent;
+      count = snapshot.count;
+    });
   }
 
   @override
@@ -301,8 +299,11 @@ class _HistoryState extends State<_History> {
         ),
         child: InkWell(
           borderRadius: BorderRadius.circular(8),
-          onTap: () {
-            context.to(() => const HistoryPage());
+          onTap: () async {
+            await context.to(() => const HistoryPage());
+            if (mounted) {
+              await _refreshHistoryActivity();
+            }
           },
           child: Column(
             mainAxisSize: MainAxisSize.min,
@@ -344,7 +345,7 @@ class _HistoryState extends State<_History> {
                           context.to(
                             () => ComicPage(
                               id: history[index].id,
-                              sourceKey: history[index].type.sourceKey,
+                              sourceKey: history[index].sourceKey,
                               cover: history[index].cover,
                               title: history[index].title,
                               heroID: heroID,
@@ -359,169 +360,6 @@ class _HistoryState extends State<_History> {
           ),
         ),
       ),
-    );
-  }
-}
-
-class _Local extends StatefulWidget {
-  const _Local();
-
-  @override
-  State<_Local> createState() => _LocalState();
-}
-
-class _LocalState extends State<_Local> {
-  late List<LocalComic> local;
-  late int count;
-  late int downloadingTaskCount;
-  late bool firstDownloadingTaskPaused;
-
-  ({List<LocalComic> recent, int count, int taskCount, bool firstTaskPaused})
-      _readLocalSnapshot() {
-    final manager = LocalManager();
-    final tasks = manager.downloadingTasks;
-    return (
-      recent: manager.getRecent(),
-      count: manager.count,
-      taskCount: tasks.length,
-      firstTaskPaused: tasks.isNotEmpty && tasks.first.isPaused,
-    );
-  }
-
-  void onLocalComicsChange() {
-    if (!mounted) return;
-    setState(_applyLocalSnapshot);
-  }
-
-  void _applyLocalSnapshot() {
-    final snapshot = _readLocalSnapshot();
-    local = snapshot.recent;
-    count = snapshot.count;
-    downloadingTaskCount = snapshot.taskCount;
-    firstDownloadingTaskPaused = snapshot.firstTaskPaused;
-  }
-
-  @override
-  void initState() {
-    _applyLocalSnapshot();
-    LocalManager().addListener(onLocalComicsChange);
-    super.initState();
-  }
-
-  @override
-  void dispose() {
-    LocalManager().removeListener(onLocalComicsChange);
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return SliverToBoxAdapter(
-      child: Container(
-        margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
-        decoration: BoxDecoration(
-          border: Border.all(
-            color: Theme.of(context).colorScheme.outlineVariant,
-            width: 0.6,
-          ),
-          borderRadius: BorderRadius.circular(8),
-        ),
-        child: InkWell(
-          borderRadius: BorderRadius.circular(8),
-          onTap: () {
-            context.to(() => const LocalComicsPage());
-          },
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              SizedBox(
-                height: 56,
-                child: Row(
-                  children: [
-                    Center(child: Text('Local'.tl, style: ts.s18)),
-                    Container(
-                      margin: const EdgeInsets.symmetric(horizontal: 8),
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 8,
-                        vertical: 2,
-                      ),
-                      decoration: BoxDecoration(
-                        color: Theme.of(context).colorScheme.secondaryContainer,
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                      child: Text(count.toString(), style: ts.s12),
-                    ),
-                    const Spacer(),
-                    const Icon(Icons.arrow_right),
-                  ],
-                ),
-              ).paddingHorizontal(16),
-              if (local.isNotEmpty)
-                SizedBox(
-                  height: 136,
-                  child: ListView.builder(
-                    scrollDirection: Axis.horizontal,
-                    itemCount: local.length,
-                    itemBuilder: (context, index) {
-                      final heroID = local[index].id.hashCode;
-                      return SimpleComicTile(
-                        comic: local[index],
-                        heroID: heroID,
-                        onTap: () {
-                          context.to(
-                            () => ComicPage(
-                              id: local[index].id,
-                              sourceKey: local[index].sourceKey,
-                              cover: local[index].cover,
-                              title: local[index].title,
-                              heroID: heroID,
-                            ),
-                          );
-                        },
-                      ).paddingHorizontal(8).paddingVertical(2);
-                    },
-                  ),
-                ).paddingHorizontal(8),
-              Row(
-                children: [
-                  if (downloadingTaskCount > 0)
-                    Button.outlined(
-                      child: Row(
-                        children: [
-                          if (firstDownloadingTaskPaused)
-                            const Icon(Icons.pause_circle_outline, size: 18)
-                          else
-                            const _AnimatedDownloadingIcon(),
-                          const SizedBox(width: 8),
-                          Text(
-                            "@a Tasks".tlParams({
-                              'a': downloadingTaskCount,
-                            }),
-                          ),
-                        ],
-                      ),
-                      onPressed: () {
-                        showPopUpWidget(context, const DownloadingPage());
-                      },
-                    ),
-                  const Spacer(),
-                  Button.filled(onPressed: import, child: Text("Import".tl)),
-                ],
-              ).paddingHorizontal(16).paddingVertical(8),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
-  void import() {
-    showDialog(
-      barrierDismissible: false,
-      context: App.rootContext,
-      builder: (context) {
-        return const _ImportComicsWidget();
-      },
     );
   }
 }

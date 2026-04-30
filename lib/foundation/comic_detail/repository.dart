@@ -1,10 +1,11 @@
-import 'package:venera/foundation/comic_source/comic_source.dart';
-import 'package:venera/foundation/db/remote_comic_sync.dart';
+import 'package:venera/features/sources/comic_source/comic_source.dart';
 import 'package:venera/foundation/res.dart';
-import 'package:venera/foundation/db/unified_comics_store.dart';
-import 'package:venera/foundation/reader/reader_session_repository.dart';
+import 'package:venera/foundation/db/store_records.dart';
+import 'package:venera/foundation/ports/comic_detail_store_port.dart';
+import 'package:venera/foundation/ports/reader_session_store_port.dart';
+import 'package:venera/features/reader/data/reader_session_repository.dart';
 
-import 'models.dart';
+import 'package:venera/features/comic_detail/data/comic_detail_models.dart';
 
 typedef ComicDetailLoader =
     Future<ComicDetailViewModel?> Function(String comicId);
@@ -79,10 +80,21 @@ class UnifiedCanonicalComicDetailRepository implements ComicDetailRepository {
     ReaderSessionRepository? readerSessions,
   }) : _readerSessions = readerSessions;
 
-  final UnifiedComicsStore store;
+  final ComicDetailStorePort store;
   final bool requireLocalLibraryItems;
-  ReaderSessionRepository get readerSessions =>
-      _readerSessions ?? ReaderSessionRepository(store: store);
+  ReaderSessionRepository get readerSessions {
+    final configured = _readerSessions;
+    if (configured != null) {
+      return configured;
+    }
+    if (store is ReaderSessionStorePort) {
+      return ReaderSessionRepository(store: store as ReaderSessionStorePort);
+    }
+    throw StateError(
+      'ReaderSessionRepository must be provided when comic detail store does not implement ReaderSessionStorePort.',
+    );
+  }
+
   final ReaderSessionRepository? _readerSessions;
 
   @override
@@ -206,7 +218,7 @@ class UnifiedCanonicalComicDetailRepository implements ComicDetailRepository {
 class CanonicalRemoteComicDetailRepository {
   const CanonicalRemoteComicDetailRepository({required this.store});
 
-  final UnifiedComicsStore store;
+  final ComicDetailStorePort store;
 
   Future<Res<RemoteComicDetailRecord>> getRemoteComicDetail({
     required String comicId,
@@ -217,9 +229,7 @@ class CanonicalRemoteComicDetailRepository {
       return Res.fromErrorRes(remoteRes, subData: remoteRes.subData);
     }
     final remoteDetail = remoteRes.data;
-    final canonicalComicId = await RemoteComicCanonicalSyncService(
-      store: store,
-    ).syncComic(remoteDetail);
+    final canonicalComicId = await store.syncRemoteComic(remoteDetail);
     final canonicalDetail = await UnifiedCanonicalComicDetailRepository(
       store: store,
     ).getComicDetail(canonicalComicId);

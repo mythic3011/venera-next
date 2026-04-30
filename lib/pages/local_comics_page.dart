@@ -3,9 +3,9 @@ import 'package:venera/components/components.dart';
 import 'package:venera/foundation/app.dart';
 import 'package:venera/foundation/appdata.dart';
 import 'package:venera/foundation/comic_type.dart';
-import 'package:venera/foundation/db/unified_comics_store.dart';
 import 'package:venera/foundation/local.dart';
 import 'package:venera/foundation/log.dart';
+import 'package:venera/foundation/repositories/local_library_repository.dart';
 import 'package:venera/pages/comic_details_page/comic_page.dart';
 import 'package:venera/pages/downloading_page.dart';
 import 'package:venera/pages/favorites/favorites_page.dart';
@@ -76,7 +76,7 @@ String localImageUriToPath(String imageUri) {
 
 List<LocalComic> applyCanonicalLocalLibraryView({
   required List<LocalComic> comics,
-  required List<LocalLibraryBrowseRecord> browseRecords,
+  required List<LocalLibraryBrowseItem> browseRecords,
   required LocalSortType sortType,
   String keyword = '',
 }) {
@@ -152,8 +152,8 @@ class _LocalComicsGateway {
     String keyword = '',
   }) async {
     final comics = _manager.getComics(LocalSortType.name);
-    final browseRecords = await App.unifiedComicsStore
-        .loadLocalLibraryBrowseRecords();
+    final browseRecords = await App.repositories.localLibrary
+        .loadBrowseRecords();
     return applyCanonicalLocalLibraryView(
       comics: comics,
       browseRecords: browseRecords,

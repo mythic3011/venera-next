@@ -1,11 +1,28 @@
 import 'package:flutter/material.dart';
 import 'package:venera/components/components.dart';
 import 'package:venera/foundation/app.dart';
-import 'package:venera/foundation/comic_source/comic_source.dart';
-import 'package:venera/foundation/comic_type.dart';
-import 'package:venera/foundation/history.dart';
+import 'package:venera/features/sources/comic_source/comic_source.dart';
+import 'package:venera/features/reader/data/reader_activity_models.dart';
+import 'package:venera/features/reader/data/reader_activity_repository.dart';
 import 'package:venera/foundation/source_identity/source_identity.dart';
 import 'package:venera/utils/translations.dart';
+
+Future<List<ReaderActivityItem>> loadHistoryPageActivity(
+  ReaderActivityRepository repository,
+) {
+  return repository.loadAll();
+}
+
+Future<void> removeHistoryPageActivity(
+  ReaderActivityRepository repository,
+  String comicId,
+) {
+  return repository.remove(comicId);
+}
+
+Future<void> clearHistoryPageActivity(ReaderActivityRepository repository) {
+  return repository.clear();
+}
 
 class HistoryPage extends StatefulWidget {
   const HistoryPage({super.key});
@@ -15,21 +32,26 @@ class HistoryPage extends StatefulWidget {
 }
 
 class _HistoryPageState extends State<HistoryPage> {
+  final controller = FlyoutController();
+  late final ReaderActivityRepository _repository;
+  List<ReaderActivityItem> comics = const [];
+  bool multiSelectMode = false;
+  Map<ReaderActivityItem, bool> selectedComics = {};
+
   @override
   void initState() {
-    HistoryManager().addListener(onUpdate);
     super.initState();
+    _repository = App.repositories.readerActivity;
+    _refreshActivity();
   }
 
-  @override
-  void dispose() {
-    HistoryManager().removeListener(onUpdate);
-    super.dispose();
-  }
-
-  void onUpdate() {
+  Future<void> _refreshActivity() async {
+    final nextComics = await loadHistoryPageActivity(_repository);
+    if (!mounted) {
+      return;
+    }
     setState(() {
-      comics = HistoryManager().getAll();
+      comics = nextComics;
       if (multiSelectMode) {
         selectedComics.removeWhere((comic, _) => !comics.contains(comic));
         if (selectedComics.isEmpty) {
@@ -38,12 +60,6 @@ class _HistoryPageState extends State<HistoryPage> {
       }
     });
   }
-
-  var comics = HistoryManager().getAll();
-  var controller = FlyoutController();
-
-  bool multiSelectMode = false;
-  Map<History, bool> selectedComics = {};
 
   void selectAll() {
     setState(() {
@@ -66,66 +82,9 @@ class _HistoryPageState extends State<HistoryPage> {
     });
   }
 
-  void _removeHistory(History comic) {
-    HistoryManager().remove(comic.id, ComicType.fromKey(comic.sourceKey));
-  }
-
-  void _refreshHistory(History comic) async {
-    var result = await HistoryManager().refreshHistoryInfo(comic);
-    if (result) {
-      if (mounted) {
-        App.rootContext.showMessage(message: "Refresh Success".tl);
-      }
-    } else {
-      if (mounted) {
-        App.rootContext.showMessage(message: "Refresh Failed".tl);
-      }
-    }
-  }
-
-  void _refreshAllHistories() async {
-    bool isCanceled = false;
-    void onCancel() {
-      isCanceled = true;
-    }
-
-    var loadingController = showLoadingDialog(
-      App.rootContext,
-      withProgress: true,
-      cancelButtonText: "Cancel".tl,
-      onCancel: onCancel,
-      message: "Refreshing Histories".tl,
-    );
-
-    int success = 0;
-    int failed = 0;
-    int skipped = 0;
-
-    await for (var progress in HistoryManager().refreshAllHistoriesStream()) {
-      if (isCanceled) {
-        return;
-      }
-      if (progress.total > 0) {
-        loadingController.setProgress(progress.current / progress.total);
-      }
-      success = progress.success;
-      failed = progress.failed;
-      skipped = progress.skipped;
-    }
-
-    loadingController.close();
-
-    if (mounted) {
-      App.rootContext.showMessage(
-        message:
-            "Refresh Completed: Success @success, Failed @failed, Skipped @skipped"
-                .tlParams({
-                  'success': success,
-                  'failed': failed,
-                  'skipped': skipped,
-                }),
-      );
-    }
+  Future<void> _removeHistory(ReaderActivityItem comic) async {
+    await removeHistoryPageActivity(_repository, comic.id);
+    await _refreshActivity();
   }
 
   @override
@@ -151,26 +110,24 @@ class _HistoryPageState extends State<HistoryPage> {
         tooltip: "Delete".tl,
         onPressed: selectedComics.isEmpty
             ? null
-            : () {
-                final comicsToDelete = List<History>.from(selectedComics.keys);
+            : () async {
+                final comicsToDelete = List<ReaderActivityItem>.from(
+                  selectedComics.keys,
+                );
                 setState(() {
                   multiSelectMode = false;
                   selectedComics.clear();
                 });
 
                 for (final comic in comicsToDelete) {
-                  _removeHistory(comic);
+                  await removeHistoryPageActivity(_repository, comic.id);
                 }
+                await _refreshActivity();
               },
       ),
     ];
 
     List<Widget> normalActions = [
-      IconButton(
-        icon: const Icon(Icons.refresh),
-        tooltip: 'Refresh All Histories'.tl,
-        onPressed: _refreshAllHistories,
-      ),
       IconButton(
         icon: const Icon(Icons.checklist),
         tooltip: multiSelectMode ? "Exit Multi-Select".tl : "Multi-Select".tl,
@@ -189,19 +146,12 @@ class _HistoryPageState extends State<HistoryPage> {
               title: 'Clear History'.tl,
               content: Text('Are you sure you want to clear your history?'.tl),
               actions: [
-                Button.outlined(
-                  onPressed: () {
-                    HistoryManager().clearUnfavoritedHistory();
-                    context.pop();
-                  },
-                  child: Text('Clear Unfavorited'.tl),
-                ),
-                const SizedBox(width: 4),
                 Button.filled(
                   color: context.colorScheme.error,
-                  onPressed: () {
-                    HistoryManager().clearHistory();
+                  onPressed: () async {
+                    await clearHistoryPageActivity(_repository);
                     context.pop();
+                    await _refreshActivity();
                   },
                   child: Text('Clear'.tl),
                 ),
@@ -261,11 +211,12 @@ class _HistoryPageState extends State<HistoryPage> {
               onLongPressed: null,
               onTap: multiSelectMode
                   ? (c, heroID) {
+                      final item = c as ReaderActivityItem;
                       setState(() {
-                        if (selectedComics.containsKey(c as History)) {
-                          selectedComics.remove(c);
+                        if (selectedComics.containsKey(item)) {
+                          selectedComics.remove(item);
                         } else {
-                          selectedComics[c] = true;
+                          selectedComics[item] = true;
                         }
                         if (selectedComics.isEmpty) {
                           multiSelectMode = false;
@@ -282,18 +233,11 @@ class _HistoryPageState extends State<HistoryPage> {
               menuBuilder: (c) {
                 return [
                   MenuEntry(
-                    icon: Icons.refresh,
-                    text: 'Refresh Info'.tl,
-                    onClick: () {
-                      _refreshHistory(c as History);
-                    },
-                  ),
-                  MenuEntry(
                     icon: Icons.remove,
                     text: 'Remove'.tl,
                     color: context.colorScheme.error,
-                    onClick: () {
-                      _removeHistory(c as History);
+                    onClick: () async {
+                      await _removeHistory(c as ReaderActivityItem);
                     },
                   ),
                 ];
@@ -303,19 +247,5 @@ class _HistoryPageState extends State<HistoryPage> {
         ),
       ),
     );
-  }
-
-  String getDescription(History h) {
-    var res = "";
-    if (h.ep >= 1) {
-      res += "Chapter @ep".tlParams({"ep": h.ep});
-    }
-    if (h.page >= 1) {
-      if (h.ep >= 1) {
-        res += " - ";
-      }
-      res += "Page @page".tlParams({"page": h.page});
-    }
-    return res;
   }
 }

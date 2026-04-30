@@ -1,7 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:venera/foundation/comic_type.dart';
-import 'package:venera/foundation/db/unified_comics_store.dart';
 import 'package:venera/foundation/local.dart';
+import 'package:venera/foundation/repositories/local_library_repository.dart';
 import 'package:venera/foundation/source_identity/source_identity.dart';
 import 'package:venera/pages/comic_details_page/comic_page.dart';
 import 'package:venera/pages/local_comics_page.dart';
@@ -36,17 +36,19 @@ void main() {
     final visible = applyCanonicalLocalLibraryView(
       comics: [comicA, comicB],
       browseRecords: const [
-        LocalLibraryBrowseRecord(
+        LocalLibraryBrowseItem(
           comicId: 'comic-a',
           title: 'Legacy Alpha',
-          normalizedTitle: 'legacy alpha',
           updatedAt: '2026-04-29T09:00:00.000Z',
+          userTags: <String>[],
+          sourceTags: <String>[],
         ),
-        LocalLibraryBrowseRecord(
+        LocalLibraryBrowseItem(
           comicId: 'comic-b',
           title: 'Legacy Beta',
-          normalizedTitle: 'legacy beta',
           updatedAt: '2026-04-30T09:00:00.000Z',
+          userTags: <String>[],
+          sourceTags: <String>[],
         ),
       ],
       sortType: LocalSortType.timeDesc,
@@ -61,16 +63,16 @@ void main() {
       final visible = applyCanonicalLocalLibraryView(
         comics: [comicA, comicB],
         browseRecords: const [
-          LocalLibraryBrowseRecord(
+          LocalLibraryBrowseItem(
             comicId: 'comic-a',
             title: 'Legacy Alpha',
-            normalizedTitle: 'legacy alpha',
             userTags: <String>['queued'],
+            sourceTags: <String>[],
           ),
-          LocalLibraryBrowseRecord(
+          LocalLibraryBrowseItem(
             comicId: 'comic-b',
             title: 'Legacy Beta',
-            normalizedTitle: 'legacy beta',
+            userTags: <String>[],
             sourceTags: <String>['female:glasses'],
           ),
         ],

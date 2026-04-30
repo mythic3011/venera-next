@@ -1,9 +1,11 @@
-import 'package:venera/foundation/db/unified_comics_store.dart';
+import 'package:venera/foundation/db/store_records.dart'
+    show UnifiedComicSnapshot;
+import 'package:venera/foundation/ports/comic_detail_store_port.dart';
 
 class CanonicalReaderPages {
   const CanonicalReaderPages({required this.store});
 
-  final UnifiedComicsStore store;
+  final ComicDetailStorePort store;
 
   Future<List<String>> loadLocalPages({
     required String localComicId,

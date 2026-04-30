@@ -20,23 +20,25 @@ import 'package:venera/components/window_frame.dart';
 import 'package:venera/foundation/app.dart';
 import 'package:venera/foundation/appdata.dart';
 import 'package:venera/foundation/cache_manager.dart';
-import 'package:venera/foundation/comic_source/comic_source.dart';
+import 'package:venera/foundation/comic_detail/comic_detail.dart';
+import 'package:venera/features/sources/comic_source/comic_source.dart';
 import 'package:venera/foundation/comic_type.dart';
 import 'package:venera/foundation/comments/comment_filter.dart';
 import 'package:venera/foundation/consts.dart';
-import 'package:venera/foundation/favorites.dart';
 import 'package:venera/foundation/global_state.dart';
 import 'package:venera/foundation/history.dart';
 import 'package:venera/foundation/image_provider/cached_image.dart';
 import 'package:venera/foundation/image_provider/reader_image.dart';
 import 'package:venera/foundation/local.dart';
 import 'package:venera/foundation/log.dart';
-import 'package:venera/foundation/db/remote_comic_sync.dart';
 import 'package:venera/foundation/res.dart';
 import 'package:venera/foundation/reader/reader_diagnostics.dart';
 import 'package:venera/foundation/reader/canonical_reader_pages.dart';
 import 'package:venera/foundation/reader/canonical_remote_page_provider.dart';
 import 'package:venera/foundation/reader/reader_page_loader.dart';
+import 'package:venera/features/reader/data/reader_resume_service.dart';
+import 'package:venera/features/reader/data/reader_runtime_context.dart';
+import 'package:venera/features/reader/data/reader_session_persistence.dart';
 import 'package:venera/foundation/source_ref.dart';
 import 'package:venera/foundation/source_identity/source_identity.dart';
 import 'package:venera/network/images.dart';
@@ -255,9 +257,6 @@ class _ReaderState extends State<Reader>
       handleVolumeEvent();
     }
     setImageCacheSize();
-    Future.delayed(const Duration(milliseconds: 200), () {
-      LocalFavoritesManager().onRead(cid, type);
-    });
     super.initState();
     panelState = ReaderPanelState();
     autoTurnController = AutoTurnController(
@@ -293,7 +292,8 @@ class _ReaderState extends State<Reader>
     }
     return switch (existingRef.type) {
       SourceRefType.local => SourceRef.fromLegacyLocal(
-        localType: existingRef.params['localType']?.toString() ?? localSourceKey,
+        localType:
+            existingRef.params['localType']?.toString() ?? localSourceKey,
         localComicId: existingRef.params['localComicId']?.toString() ?? cid,
         chapterId: chapterId,
       ),
@@ -327,7 +327,12 @@ class _ReaderState extends State<Reader>
 
   void persistReaderSessionState({int? pageOverride}) {
     final context = currentReaderContext(pageOverride: pageOverride);
-    unawaited(HistoryManager().persistCanonicalReaderLocation(context));
+    unawaited(
+      ReaderSessionPersistenceService(
+        repository: App.repositories.readerSession,
+        recordEvent: recordReaderSessionDiagnosticEvent,
+      ).persistCurrentLocation(context),
+    );
   }
 
   @override
@@ -426,10 +431,6 @@ class _ReaderState extends State<Reader>
     updateHistory();
   }
 
-  /// Prevent multiple history updates in a short time.
-  /// `HistoryManager().addHistoryAsync` is a high-cost operation because it creates a new isolate.
-  Timer? _updateHistoryTimer;
-
   void updateHistory() {
     if (history != null) {
       // page >= maxPage handles both last image page and chapter comments page
@@ -464,23 +465,7 @@ class _ReaderState extends State<Reader>
         history!.ep = chapter;
       }
       history!.time = DateTime.now();
-      final context = currentReaderContext(pageOverride: history!.page);
       persistReaderSessionState(pageOverride: history!.page);
-      if (widget.sourceRef != null) {
-        HistoryManager().updateResumeSnapshot(
-          comicId: history!.id,
-          type: history!.type,
-          chapter: history!.ep,
-          group: history!.group,
-          page: history!.page,
-          sourceRef: context.sourceRef,
-        );
-      }
-      _updateHistoryTimer?.cancel();
-      _updateHistoryTimer = Timer(const Duration(seconds: 1), () {
-        HistoryManager().addHistoryAsync(history!);
-        _updateHistoryTimer = null;
-      });
     }
   }
 

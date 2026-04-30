@@ -1,4 +1,5 @@
-import 'package:venera/foundation/db/unified_comics_store.dart';
+import 'package:venera/foundation/ports/comic_detail_store_port.dart';
+import 'package:venera/foundation/ports/local_library_browse_store_port.dart';
 
 class ReaderDebugSnapshot {
   const ReaderDebugSnapshot({
@@ -48,9 +49,13 @@ class ReaderDebugSnapshot {
 }
 
 class ReaderDebugSnapshotService {
-  const ReaderDebugSnapshotService({required this.store});
+  const ReaderDebugSnapshotService({
+    required this.localLibraryStore,
+    required this.comicDetailStore,
+  });
 
-  final UnifiedComicsStore store;
+  final LocalLibraryBrowseStorePort localLibraryStore;
+  final ComicDetailStorePort comicDetailStore;
 
   Future<ReaderDebugSnapshot> build({
     required String comicId,
@@ -60,7 +65,7 @@ class ReaderDebugSnapshotService {
   }) async {
     final isLocal = loadMode == 'local';
     final localItem = isLocal
-        ? await store.loadPrimaryLocalLibraryItem(comicId)
+        ? await localLibraryStore.loadPrimaryLocalLibraryItem(comicId)
         : null;
     if (isLocal && localItem == null) {
       throw StateError('CANONICAL_LOCAL_COMIC_NOT_FOUND:$comicId');
@@ -68,11 +73,13 @@ class ReaderDebugSnapshotService {
 
     final pageOrder = chapterId == null
         ? null
-        : await store.loadActivePageOrderForChapter(chapterId);
+        : await comicDetailStore.loadActivePageOrderForChapter(chapterId);
     if (isLocal && chapterId != null && pageOrder == null) {
       throw StateError('CANONICAL_PAGE_ORDER_NOT_FOUND:$chapterId');
     }
-    final sourceLink = await store.loadPrimaryComicSourceLink(comicId);
+    final sourceLink = await comicDetailStore.loadPrimaryComicSourceLink(
+      comicId,
+    );
 
     return ReaderDebugSnapshot(
       generatedAt: DateTime.now(),

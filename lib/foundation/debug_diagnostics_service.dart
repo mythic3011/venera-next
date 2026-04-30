@@ -128,7 +128,10 @@ class DebugDiagnosticsService {
     final lifecycle = currentReader['lifecycle'];
     try {
       final snapshot =
-          await ReaderDebugSnapshotService(store: App.unifiedComicsStore).build(
+          await ReaderDebugSnapshotService(
+            localLibraryStore: App.repositories.localLibrary.store,
+            comicDetailStore: App.repositories.comicDetailStore,
+          ).build(
             comicId: comicId,
             chapterId: chapterId is String && chapterId.isNotEmpty
                 ? chapterId

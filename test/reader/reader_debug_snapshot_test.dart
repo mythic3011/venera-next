@@ -32,12 +32,16 @@ void main() {
   test('snapshot exposes canonical local reader identifiers', () async {
     await _insertCanonicalReaderFixture(store);
 
-    final snapshot = await ReaderDebugSnapshotService(store: store).build(
-      comicId: 'comic-1',
-      chapterId: 'chapter-1',
-      loadMode: 'local',
-      controllerLifecycle: 'open',
-    );
+    final snapshot =
+        await ReaderDebugSnapshotService(
+          localLibraryStore: store,
+          comicDetailStore: store,
+        ).build(
+          comicId: 'comic-1',
+          chapterId: 'chapter-1',
+          loadMode: 'local',
+          controllerLifecycle: 'open',
+        );
 
     expect(snapshot.comicId, 'comic-1');
     expect(snapshot.localLibraryItemId, 'local_item:comic-1');
@@ -56,7 +60,10 @@ void main() {
 
   test('snapshot fails loudly when canonical comic is missing', () async {
     await expectLater(
-      ReaderDebugSnapshotService(store: store).build(
+      ReaderDebugSnapshotService(
+        localLibraryStore: store,
+        comicDetailStore: store,
+      ).build(
         comicId: 'missing',
         chapterId: 'chapter-1',
         loadMode: 'local',
@@ -70,7 +77,10 @@ void main() {
     await _insertCanonicalReaderFixture(store, includePageOrder: false);
 
     await expectLater(
-      ReaderDebugSnapshotService(store: store).build(
+      ReaderDebugSnapshotService(
+        localLibraryStore: store,
+        comicDetailStore: store,
+      ).build(
         comicId: 'comic-1',
         chapterId: 'chapter-1',
         loadMode: 'local',

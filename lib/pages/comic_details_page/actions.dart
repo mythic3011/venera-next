@@ -98,12 +98,7 @@ abstract mixin class _ComicPageActions {
     if (folder is! String) {
       return;
     }
-    LocalFavoritesManager().addComic(
-      folder,
-      _toFavoriteItem(),
-      null,
-      comic.findUpdateTime(),
-    );
+    legacyAddLocalFavorite(folder, _toFavoriteItem(), comic.findUpdateTime());
     isAddToLocalFav = true;
     update();
     App.rootContext.showMessage(message: "Added".tl);
@@ -125,10 +120,9 @@ abstract mixin class _ComicPageActions {
   ///
   /// [group] the chapter group number, start from 1
   Future<void> read([int? ep, int? page, int? group]) async {
-    final resumeSourceRef = await HistoryManager().loadPreferredResumeSourceRef(
-      comic.id,
-      comic.comicType,
-    );
+    final resumeSourceRef = await ReaderResumeService(
+      readerSessions: App.repositories.readerSession,
+    ).loadPreferredResumeSourceRef(comic.id, comic.comicType);
     final sourceRef = resolveReaderTargetSourceRef(
       comicId: comic.id,
       sourceKey: comic.comicType.sourceKey,
@@ -156,19 +150,19 @@ abstract mixin class _ComicPageActions {
   void continueRead() {
     var ep = history?.ep ?? 1;
     var page = history?.page ?? 1;
-    var group = history?.group ?? 1;
+    var group = history?.group;
     read(ep, page, group);
   }
 
   void onReadEnd();
 
   void download() async {
-    if (LocalManager().isDownloading(comic.id, comic.comicType)) {
+    if (legacyIsDownloading(comic.id, comic.comicType)) {
       App.rootContext.showMessage(message: "The comic is downloading".tl);
       return;
     }
     if (comic.chapters == null &&
-        LocalManager().isDownloaded(comic.id, comic.comicType, 0)) {
+        legacyIsDownloaded(comic.id, comic.comicType, 0)) {
       App.rootContext.showMessage(message: "The comic is downloaded".tl);
       return;
     }
@@ -260,7 +254,7 @@ abstract mixin class _ComicPageActions {
                         });
                       } else if (context.mounted) {
                         if (res.data.isNotEmpty) {
-                          LocalManager().addTask(
+                          legacyAddDownloadTask(
                             ArchiveDownloadTask(res.data, comic),
                           );
                           App.rootContext.showMessage(
@@ -284,7 +278,7 @@ abstract mixin class _ComicPageActions {
     }
 
     if (comic.chapters == null) {
-      LocalManager().addTask(
+      legacyAddDownloadTask(
         ImagesDownloadTask(
           source: comicSource,
           comicId: comic.id,
@@ -294,7 +288,7 @@ abstract mixin class _ComicPageActions {
     } else {
       List<int>? selected;
       var downloaded = <int>[];
-      var localComic = LocalManager().find(comic.id, comic.comicType);
+      var localComic = legacyFindLocalComic(comic.id, comic.comicType);
       if (localComic != null) {
         for (int i = 0; i < comic.chapters!.length; i++) {
           if (localComic.downloadedChapters.contains(
@@ -313,7 +307,7 @@ abstract mixin class _ComicPageActions {
         ),
       );
       if (selected == null) return;
-      LocalManager().addTask(
+      legacyAddDownloadTask(
         ImagesDownloadTask(
           source: comicSource,
           comicId: comic.id,
@@ -339,7 +333,7 @@ abstract mixin class _ComicPageActions {
     if (targetComicId == null) {
       return;
     }
-    final existing = await App.unifiedComicsStore.loadUserTagsForComic(
+    final existing = await App.repositories.comicUserTags.loadUserTagsForComic(
       targetComicId,
     );
     final tags = existing.map((tag) => tag.name).toList(growable: true);
@@ -440,36 +434,10 @@ abstract mixin class _ComicPageActions {
     String targetComicId,
     List<String> tags,
   ) async {
-    final existing = await App.unifiedComicsStore.loadUserTagsForComic(
-      targetComicId,
+    await App.repositories.comicUserTags.saveComicTags(
+      comicId: targetComicId,
+      tags: tags,
     );
-    final existingByNormalized = {
-      for (final tag in existing) _normalizeUserTag(tag.name): tag,
-    };
-    final nextByNormalized = {
-      for (final tag in tags)
-        if (_normalizeUserTag(tag).isNotEmpty)
-          _normalizeUserTag(tag): tag.trim(),
-    };
-
-    for (final entry in existingByNormalized.entries) {
-      if (!nextByNormalized.containsKey(entry.key)) {
-        await App.unifiedComicsStore.removeUserTagFromComic(
-          comicId: targetComicId,
-          userTagId: entry.value.id,
-        );
-      }
-    }
-
-    for (final entry in nextByNormalized.entries) {
-      final id = existingByNormalized[entry.key]?.id ?? 'user_tag:${entry.key}';
-      await App.unifiedComicsStore.upsertUserTag(
-        UserTagRecord(id: id, name: entry.value, normalizedName: entry.key),
-      );
-      await App.unifiedComicsStore.attachUserTagToComic(
-        ComicUserTagRecord(comicId: targetComicId, userTagId: id),
-      );
-    }
   }
 
   void showMoreActions() {
@@ -592,5 +560,3 @@ abstract mixin class _ComicPageActions {
     );
   }
 }
-
-String _normalizeUserTag(String value) => value.trim().toLowerCase();

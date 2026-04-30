@@ -1,13 +1,15 @@
 import 'dart:convert';
 
-import 'package:venera/foundation/comic_detail/models.dart';
-import 'package:venera/foundation/db/unified_comics_store.dart';
+import 'package:venera/features/comic_detail/data/comic_detail_models.dart';
+import 'package:venera/foundation/db/store_records.dart'
+    show ReaderSessionRecord, ReaderTabRecord;
+import 'package:venera/foundation/ports/reader_session_store_port.dart';
 import 'package:venera/foundation/source_ref.dart';
 
 class ReaderSessionRepository {
   const ReaderSessionRepository({required this.store});
 
-  final UnifiedComicsStore store;
+  final ReaderSessionStorePort store;
 
   static String sessionIdForComic(String comicId) {
     return 'reader-session:${Uri.encodeComponent(comicId)}';
@@ -79,7 +81,10 @@ class ReaderSessionRepository {
     if (session == null) {
       throw StateError('No reader session exists for comic $comicId.');
     }
-    await store.setReaderSessionActiveTab(sessionId: session.id, activeTabId: tabId);
+    await store.setReaderSessionActiveTab(
+      sessionId: session.id,
+      activeTabId: tabId,
+    );
   }
 
   Future<void> deleteSession(String comicId) async {
@@ -90,10 +95,7 @@ class ReaderSessionRepository {
     await store.deleteReaderSession(session.id);
   }
 
-  ReaderTabVm _mapTab(
-    ReaderTabRecord tab, {
-    required String? activeTabId,
-  }) {
+  ReaderTabVm _mapTab(ReaderTabRecord tab, {required String? activeTabId}) {
     final sourceRef = SourceRef.fromJson(
       Map<String, dynamic>.from(jsonDecode(tab.sourceRefJson) as Map),
     );

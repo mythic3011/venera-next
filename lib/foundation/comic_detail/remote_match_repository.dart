@@ -1,6 +1,7 @@
 import 'dart:convert';
 
-import 'package:venera/foundation/db/unified_comics_store.dart';
+import 'package:venera/foundation/db/store_records.dart';
+import 'package:venera/foundation/ports/remote_match_store_port.dart';
 
 String buildPromotedComicSourceLinkId({
   required String comicId,
@@ -13,7 +14,7 @@ String buildPromotedComicSourceLinkId({
 class RemoteMatchRepository {
   const RemoteMatchRepository({required this.store});
 
-  final UnifiedComicsStore store;
+  final RemoteMatchStorePort store;
 
   Future<List<RemoteMatchCandidateRecord>> listCandidates(String comicId) {
     return store.loadRemoteMatchCandidates(comicId);
@@ -27,9 +28,14 @@ class RemoteMatchRepository {
     required String comicId,
     required String candidateId,
   }) async {
-    final candidate = await _loadCandidate(comicId: comicId, candidateId: candidateId);
+    final candidate = await _loadCandidate(
+      comicId: comicId,
+      candidateId: candidateId,
+    );
     if (candidate == null) {
-      throw StateError('Remote match candidate $candidateId not found for comic $comicId.');
+      throw StateError(
+        'Remote match candidate $candidateId not found for comic $comicId.',
+      );
     }
     await store.upsertRemoteMatchCandidate(
       RemoteMatchCandidateRecord(
@@ -53,9 +59,14 @@ class RemoteMatchRepository {
     required String candidateId,
     bool makePrimary = false,
   }) async {
-    final candidate = await _loadCandidate(comicId: comicId, candidateId: candidateId);
+    final candidate = await _loadCandidate(
+      comicId: comicId,
+      candidateId: candidateId,
+    );
     if (candidate == null) {
-      throw StateError('Remote match candidate $candidateId not found for comic $comicId.');
+      throw StateError(
+        'Remote match candidate $candidateId not found for comic $comicId.',
+      );
     }
     final primaryLink = await store.loadPrimaryComicSourceLink(comicId);
     final metadata = _CandidateMetadata.fromJson(candidate.metadataJson);
