@@ -13,12 +13,12 @@ import 'package:venera/foundation/appdata.dart';
 import 'package:venera/foundation/comic_source/comic_source.dart';
 import 'package:venera/foundation/comic_type.dart';
 import 'package:venera/foundation/comments/comment_filter.dart';
+import 'package:venera/foundation/comic_detail_legacy_bridge.dart';
 import 'package:venera/foundation/consts.dart';
 import 'package:venera/foundation/favorites.dart';
 import 'package:venera/foundation/history.dart';
 import 'package:venera/foundation/image_provider/cached_image.dart';
 import 'package:venera/foundation/local.dart';
-import 'package:venera/foundation/db/local_comic_sync.dart';
 import 'package:venera/foundation/db/unified_comics_store.dart';
 import 'package:venera/foundation/comic_detail/comic_detail.dart';
 import 'package:venera/foundation/source_ref.dart';
@@ -210,16 +210,17 @@ class _ComicPageState extends LoadingState<ComicPage, ComicDetails>
 
   @override
   Widget buildError() {
-    final isDownloaded = LocalManager().isDownloaded(
+    final isDownloaded = legacyIsDownloaded(
       widget.id,
       ComicType.fromKey(widget.sourceKey),
+      0,
     );
     Widget? action;
     if (isDownloaded) {
       action = FilledButton.tonal(
         child: Text("Read".tl),
         onPressed: () {
-          final localComic = LocalManager().find(
+          final localComic = legacyFindLocalComic(
             widget.id,
             ComicType.fromKey(widget.sourceKey),
           );
@@ -359,24 +360,17 @@ class _ComicPageState extends LoadingState<ComicPage, ComicDetails>
   @override
   Future<Res<ComicDetails>> loadData() async {
     if (_isLocalSource) {
-      final localComic = LocalManager().find(widget.id, ComicType.local);
-      if (localComic == null) {
+      final localRecord = await loadCanonicalLocalDetailRecord(
+        comicId: widget.id,
+        store: App.unifiedComicsStore,
+      );
+      if (localRecord == null) {
         return const Res.error('Local comic not found');
       }
-      await LocalComicCanonicalSyncService(
-        store: App.unifiedComicsStore,
-      ).syncComic(localComic);
-      final detail = await UnifiedLocalComicDetailRepository(
-        store: App.unifiedComicsStore,
-      ).getComicDetail(widget.id);
-      if (detail == null) {
-        return const Res.error('Canonical local comic not found');
-      }
+      final localComic = localRecord.localComic;
+      final detail = localRecord.detail;
       _canonicalDetailVm = detail;
-      isAddToLocalFav = LocalFavoritesManager().isExist(
-        widget.id,
-        ComicType.local,
-      );
+      isAddToLocalFav = legacyLocalFavoriteExists(widget.id, ComicType.local);
       _canonicalComicId = widget.id;
       history = buildComicDetailCompatibilityHistoryForTesting(
         model: localComic,
@@ -391,7 +385,7 @@ class _ComicPageState extends LoadingState<ComicPage, ComicDetails>
     if (comicSource == null) {
       return const Res.error('Comic source not found');
     }
-    isAddToLocalFav = LocalFavoritesManager().isExist(
+    isAddToLocalFav = legacyLocalFavoriteExists(
       widget.id,
       ComicType.fromKey(widget.sourceKey),
     );
@@ -439,7 +433,7 @@ class _ComicPageState extends LoadingState<ComicPage, ComicDetails>
       }
     }
     if (comic.chapters == null) {
-      isDownloaded = LocalManager().isDownloaded(comic.id, comic.comicType, 0);
+      isDownloaded = legacyIsDownloaded(comic.id, comic.comicType, 0);
     }
   }
 
@@ -1248,7 +1242,7 @@ class _ComicPageLoadingPlaceHolder extends StatelessWidget {
 
   ImageProvider? _imageProvider() {
     if (isLocalSourceKey(sourceKey)) {
-      final localComic = LocalManager().find(cid, ComicType.local);
+      final localComic = legacyFindLocalComic(cid, ComicType.local);
       if (localComic != null) {
         return FileImage(localComic.coverFile);
       }

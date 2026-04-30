@@ -20,12 +20,11 @@ import 'package:venera/components/window_frame.dart';
 import 'package:venera/foundation/app.dart';
 import 'package:venera/foundation/appdata.dart';
 import 'package:venera/foundation/cache_manager.dart';
-import 'package:venera/foundation/comic_detail/models.dart';
+import 'package:venera/foundation/comic_detail/comic_detail.dart';
 import 'package:venera/foundation/comic_source/comic_source.dart';
 import 'package:venera/foundation/comic_type.dart';
 import 'package:venera/foundation/comments/comment_filter.dart';
 import 'package:venera/foundation/consts.dart';
-import 'package:venera/foundation/favorites.dart';
 import 'package:venera/foundation/global_state.dart';
 import 'package:venera/foundation/history.dart';
 import 'package:venera/foundation/image_provider/cached_image.dart';
@@ -260,9 +259,6 @@ class _ReaderState extends State<Reader>
       handleVolumeEvent();
     }
     setImageCacheSize();
-    Future.delayed(const Duration(milliseconds: 200), () {
-      LocalFavoritesManager().onRead(cid, type);
-    });
     super.initState();
     panelState = ReaderPanelState();
     autoTurnController = AutoTurnController(

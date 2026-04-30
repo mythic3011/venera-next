@@ -1,5 +1,49 @@
 part of 'reader.dart';
 
+ComicChapters? buildCanonicalReaderChapters(List<ChapterVm> chapters) {
+  if (chapters.isEmpty) {
+    return null;
+  }
+  return ComicChapters({
+    for (final chapter in chapters) chapter.chapterId: chapter.title,
+  });
+}
+
+List<String> buildCanonicalReaderTags(ComicDetailViewModel detail) {
+  return [
+    ...detail.userTags.map((tag) => tag.name),
+    ...detail.sourceTags.map(
+      (tag) =>
+          tag.namespace.isEmpty ? tag.name : '${tag.namespace}:${tag.name}',
+    ),
+  ];
+}
+
+class _CanonicalReaderHistoryModel with HistoryMixin {
+  _CanonicalReaderHistoryModel({
+    required this.title,
+    required this.cover,
+    required this.id,
+    required this.historyType,
+    this.subTitle,
+  });
+
+  @override
+  final String title;
+
+  @override
+  final String? subTitle;
+
+  @override
+  final String cover;
+
+  @override
+  final String id;
+
+  @override
+  final ComicType historyType;
+}
+
 class ReaderInitialPosition {
   final int chapter;
   final int page;
@@ -184,24 +228,33 @@ class _ReaderWithLoadingState
     );
 
     if (resolvedSourceRef.type == SourceRefType.local) {
-      final localComic = LocalManager().find(widget.id, type);
-      if (localComic == null) {
+      final localDetail = await UnifiedLocalComicDetailRepository(
+        store: App.unifiedComicsStore,
+      ).getComicDetail(widget.id);
+      if (localDetail == null) {
         return Res.error("LOCAL_ASSET_MISSING");
       }
+      final chapters = buildCanonicalReaderChapters(localDetail.chapters);
       return Res(
         ReaderProps(
           type: type,
           cid: widget.id,
-          name: localComic.title,
-          chapters: localComic.chapters,
+          name: localDetail.title,
+          chapters: chapters,
           history: buildReaderCompatibilityHistory(
-            model: localComic,
-            chapters: localComic.chapters,
+            model: _CanonicalReaderHistoryModel(
+              title: localDetail.title,
+              subTitle: localDetail.primarySource?.sourceTitle,
+              cover: localDetail.coverLocalPath ?? '',
+              id: widget.id,
+              historyType: type,
+            ),
+            chapters: chapters,
             canonicalActiveTab: canonicalActiveTab,
           ),
           sourceRef: resolvedSourceRef,
-          author: localComic.subtitle,
-          tags: localComic.tags,
+          author: localDetail.primarySource?.sourceTitle ?? '',
+          tags: buildCanonicalReaderTags(localDetail),
         ),
       );
     }

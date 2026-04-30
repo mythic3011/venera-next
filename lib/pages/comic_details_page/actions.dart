@@ -98,12 +98,7 @@ abstract mixin class _ComicPageActions {
     if (folder is! String) {
       return;
     }
-    LocalFavoritesManager().addComic(
-      folder,
-      _toFavoriteItem(),
-      null,
-      comic.findUpdateTime(),
-    );
+    legacyAddLocalFavorite(folder, _toFavoriteItem(), comic.findUpdateTime());
     isAddToLocalFav = true;
     update();
     App.rootContext.showMessage(message: "Added".tl);
@@ -162,12 +157,12 @@ abstract mixin class _ComicPageActions {
   void onReadEnd();
 
   void download() async {
-    if (LocalManager().isDownloading(comic.id, comic.comicType)) {
+    if (legacyIsDownloading(comic.id, comic.comicType)) {
       App.rootContext.showMessage(message: "The comic is downloading".tl);
       return;
     }
     if (comic.chapters == null &&
-        LocalManager().isDownloaded(comic.id, comic.comicType, 0)) {
+        legacyIsDownloaded(comic.id, comic.comicType, 0)) {
       App.rootContext.showMessage(message: "The comic is downloaded".tl);
       return;
     }
@@ -259,7 +254,7 @@ abstract mixin class _ComicPageActions {
                         });
                       } else if (context.mounted) {
                         if (res.data.isNotEmpty) {
-                          LocalManager().addTask(
+                          legacyAddDownloadTask(
                             ArchiveDownloadTask(res.data, comic),
                           );
                           App.rootContext.showMessage(
@@ -283,7 +278,7 @@ abstract mixin class _ComicPageActions {
     }
 
     if (comic.chapters == null) {
-      LocalManager().addTask(
+      legacyAddDownloadTask(
         ImagesDownloadTask(
           source: comicSource,
           comicId: comic.id,
@@ -293,7 +288,7 @@ abstract mixin class _ComicPageActions {
     } else {
       List<int>? selected;
       var downloaded = <int>[];
-      var localComic = LocalManager().find(comic.id, comic.comicType);
+      var localComic = legacyFindLocalComic(comic.id, comic.comicType);
       if (localComic != null) {
         for (int i = 0; i < comic.chapters!.length; i++) {
           if (localComic.downloadedChapters.contains(
@@ -312,7 +307,7 @@ abstract mixin class _ComicPageActions {
         ),
       );
       if (selected == null) return;
-      LocalManager().addTask(
+      legacyAddDownloadTask(
         ImagesDownloadTask(
           source: comicSource,
           comicId: comic.id,
