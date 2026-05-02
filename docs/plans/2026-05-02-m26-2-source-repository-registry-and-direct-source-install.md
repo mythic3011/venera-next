@@ -932,6 +932,30 @@ git diff --check
 - Record origin/content hash where existing source authority supports it.
 - Handle source key collision.
 
+#### M26.2-D1: Direct JS Validation Service (Validation-Only)
+
+Scope:
+
+- HTTPS-only validation input path
+- reject HTML/non-JS responses
+- script size limit
+- parser sandbox or equivalent isolated validation path
+- timeout enforcement
+- extract source key/name/version metadata where possible
+- return typed `SourceCommandResult` / typed failure code
+- no install write path
+- no source enablement path
+- no direct JS install button enablement
+
+Acceptance tests:
+
+```dart
+test('direct javascript source rejects non https url by default', () async {});
+test('direct javascript source rejects html response masquerading as script', () async {});
+test('direct javascript source enforces script size limit', () async {});
+test('direct javascript validation runs outside ui isolate with timeout', () async {});
+```
+
 ### M26.2-E: Settings UI Consolidation
 
 - Update `Settings > Comic Sources`.
@@ -1089,6 +1113,39 @@ git diff --check
 - F-lane does not validate or execute Direct JS source scripts.
 - F-lane does not change installed source authority.
 - F-lane does not change ReaderNext, cache, appdata, or cookie semantics.
+
+#### M26.2-F Closeout Evidence
+
+Implemented:
+
+- F1: repository command failures now surface visible typed UI errors (inline + message), avoiding raw exception strings.
+- F2: repository rows now show `lastRefreshStatus` and `lastErrorCode`.
+- F3: diagnostics redaction helper added for source-management data.
+  - headers redacted case-insensitively
+  - signed query parameters redacted
+  - raw source script content blocked from diagnostics payloads by default
+- F1 follow-up: invalid repository URL now returns typed `SourceCommandFailed(code: REPOSITORY_URL_INVALID)`; UI maps typed code instead of Dart exception class.
+
+Files:
+
+- `lib/pages/comic_source_page.dart`
+- `lib/features/sources/comic_source/source_management_controller.dart`
+- `lib/features/sources/comic_source/source_management_redaction.dart`
+- `test/features/source_management/source_management_controller_test.dart`
+- `test/features/source_management/source_management_redaction_test.dart`
+
+Verification:
+
+```bash
+dart analyze lib/features/sources/comic_source/source_management_controller.dart \
+  lib/features/sources/comic_source/source_management_redaction.dart \
+  lib/pages/comic_source_page.dart \
+  test/features/source_management/source_management_controller_test.dart \
+  test/features/source_management/source_management_redaction_test.dart
+
+flutter test test/features/source_management/source_management_controller_test.dart \
+  test/features/source_management/source_management_redaction_test.dart
+```
 
 ## Acceptance Tests
 
