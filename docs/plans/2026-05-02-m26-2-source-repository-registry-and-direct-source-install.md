@@ -117,11 +117,13 @@ Existing `comicSourceListUrl` is a legacy single-repository setting.
 
 ## Hard Rules
 
+These hard rules describe the full M26.2 target state unless a lane-specific acceptance boundary says otherwise. D1, D2, and D3a are intentionally validation/design-only phases and must not be treated as completion of the Direct JS install/write requirements.
+
 1. `Settings > Comic Sources` must become the canonical source management surface.
 2. Home/Search source page may remain as a shortcut only.
 3. Add source must be available from Settings.
 4. Repository `index.json` URL install must be supported.
-5. Direct JavaScript source URL install must be supported.
+5. Direct JavaScript source URL install must be supported by the final D-lane write phase, not by D1, D2, or D3a.
 6. Local file import must be supported where existing runtime already supports it.
 7. Installed sources and available sources must be visually separated.
 8. Repository records must be first-class state, not a transient text field.
@@ -129,7 +131,7 @@ Existing `comicSourceListUrl` is a legacy single-repository setting.
 10. Repository refresh failure must not delete or mutate installed sources.
 11. Repository package metadata must be treated as rebuildable cache.
 12. Direct JS install must require explicit user confirmation.
-13. Direct JS install must record install origin.
+13. Direct JS install must record install origin when the final install/write phase is enabled.
 14. Repository install must record repository origin through the existing installed source authority or its adapter.
 15. Source key collision must require explicit overwrite/update confirmation.
 16. Source install/update/remove must use one shared controller.
@@ -142,7 +144,7 @@ Existing `comicSourceListUrl` is a legacy single-repository setting.
 23. Direct JS install must reject non-HTTPS URLs by default, except local/dev override.
 24. Direct JS install must reject HTML responses masquerading as JavaScript.
 25. Direct JS install must enforce a script size limit.
-26. Direct JS install must record a content hash.
+26. Direct JS install must record a content hash when the final install/write phase is enabled.
 27. Direct JS update must validate that the fetched script keeps the same `sourceKey`.
 28. Repository index schema must support both the legacy official array shape and the new repository object shape.
 
@@ -414,18 +416,18 @@ Failure states:
 ### Direct JS URL Flow
 
 1. User enters JS URL.
-2. App validates URL scheme.
-3. App fetches script metadata or script content.
-4. App validates script through the source parser sandbox or equivalent isolated validation path.
-5. App rejects HTML/non-JS responses.
-6. App enforces script size limit.
-7. App validates source script shape.
-8. App extracts source key/name/version where possible.
-9. App displays warning: remote script will run inside app source runtime.
-10. User confirms install.
-11. App records install origin as `direct_js` through existing source authority/adapter.
-12. App records content hash where supported.
-13. Source appears in installed sources.
+2. D2 UI calls `DirectJsSourceValidator` instead of the legacy direct install path.
+3. App validates URL scheme.
+4. App fetches script metadata or script content.
+5. App validates script through the source parser sandbox or equivalent isolated validation path.
+6. App rejects HTML/non-JS responses.
+7. App enforces script size limit.
+8. App validates source script shape.
+9. App extracts source key/name/version where possible.
+10. App displays warning: remote script will run inside app source runtime.
+11. D2 displays validation metadata and risk confirmation with install action disabled or hidden.
+12. D2 does not record install origin, content hash, or installed source state.
+13. D3 later enables install/write after confirmation and source-key collision handling are implemented.
 
 Failure states:
 
@@ -578,7 +580,7 @@ Expected codes:
 11. Direct JS install must reject non-HTTPS URLs by default, except local/dev override.
 12. Direct JS install must reject HTML/non-JS responses.
 13. Direct JS install must enforce a script size limit.
-14. Direct JS install must record content hash where supported.
+14. Direct JS install must record content hash where supported when the final install/write phase is enabled.
 15. Direct JS validation must not execute untrusted scripts on the UI isolate.
 16. Direct JS validation must enforce timeout/failure isolation.
 17. Repository refresh must not fetch every source script solely to compute hashes.
@@ -932,29 +934,345 @@ git diff --check
 - Record origin/content hash where existing source authority supports it.
 - Handle source key collision.
 
+#### M26.2-D Acceptance Boundary
+
+- D-lane is split into validation, confirmation, and install/write phases.
+- D1 is validation-only.
+- D1 must not enable direct JavaScript install buttons.
+- D1 must not write installed source files.
+- D1 must not mutate `ComicSourceManager` state.
+- D1 must return typed validation results only.
+
 #### M26.2-D1: Direct JS Validation Service (Validation-Only)
 
 Scope:
 
-- HTTPS-only validation input path
-- reject HTML/non-JS responses
-- script size limit
-- parser sandbox or equivalent isolated validation path
-- timeout enforcement
+- add `DirectJsSourceValidator`
+- validate direct JavaScript source URL
+- reject non-HTTPS URLs unless local/dev override is active
+- fetch response through injectable fetcher
+- reject HTML content-type
+- reject HTML-looking body prefix even when content-type is misleading
+- enforce script size limit before parser validation
+- validate source script through injectable isolated validation port
+- enforce validation timeout
 - extract source key/name/version metadata where possible
 - return typed `SourceCommandResult` / typed failure code
 - no install write path
 - no source enablement path
 - no direct JS install button enablement
+- no `ComicSourceManager` mutation
+
+Required behavior:
+
+- URL validation failure returns `SOURCE_SCRIPT_URL_INVALID`.
+- Non-HTTPS URL returns `SOURCE_SCRIPT_URL_INSECURE` unless local/dev override is active.
+- Fetch failure returns `SOURCE_SCRIPT_FETCH_FAILED`.
+- HTML content-type or HTML-looking body returns `SOURCE_SCRIPT_CONTENT_TYPE_INVALID`.
+- Oversized script returns `SOURCE_SCRIPT_TOO_LARGE`.
+- Parser validation timeout returns `SOURCE_SCRIPT_VALIDATION_TIMEOUT`.
+- Parser schema failure returns `SOURCE_SCRIPT_SCHEMA_INVALID`.
+- Missing source key returns `SOURCE_KEY_MISSING`.
+- Validation success returns source metadata without installing the source.
+
+Implementation files:
+
+- `lib/features/sources/comic_source/direct_js_source_validator.dart`
+- `test/features/source_management/direct_js_source_validator_test.dart`
+
+Verification:
+
+```bash
+flutter test test/features/source_management/direct_js_source_validator_test.dart
+dart analyze lib/features/sources/comic_source/direct_js_source_validator.dart test/features/source_management/direct_js_source_validator_test.dart
+git diff --check
+```
 
 Acceptance tests:
 
 ```dart
 test('direct javascript source rejects non https url by default', () async {});
 test('direct javascript source rejects html response masquerading as script', () async {});
+test('direct javascript source rejects html looking body with misleading content type', () async {});
 test('direct javascript source enforces script size limit', () async {});
 test('direct javascript validation runs outside ui isolate with timeout', () async {});
 ```
+
+#### M26.2-D1 Closeout Evidence
+
+Implemented:
+
+- Added `DirectJsSourceValidator` as a validation-only service.
+- Added injectable fetcher and injectable isolated validation port.
+- Enforced URL validation boundary:
+  - invalid/relative URL -> `SOURCE_SCRIPT_URL_INVALID`
+  - non-HTTPS URL -> `SOURCE_SCRIPT_URL_INSECURE`
+- Enforced fetch boundary:
+  - non-2xx -> `SOURCE_SCRIPT_FETCH_FAILED`
+  - fetch exception -> `SOURCE_SCRIPT_FETCH_FAILED`
+- Enforced content boundary:
+  - HTML content-type/body sniff reject -> `SOURCE_SCRIPT_CONTENT_TYPE_INVALID`
+- Enforced script size boundary using UTF-8 bytes -> `SOURCE_SCRIPT_TOO_LARGE`
+- Enforced validation timeout -> `SOURCE_SCRIPT_VALIDATION_TIMEOUT`
+- Enforced schema boundary -> `SOURCE_SCRIPT_SCHEMA_INVALID`
+- Enforced source key presence -> `SOURCE_KEY_MISSING`
+- No install/write path is enabled in D1.
+
+Files:
+
+- `lib/features/sources/comic_source/direct_js_source_validator.dart`
+- `test/features/source_management/direct_js_source_validator_test.dart`
+
+Verification:
+
+```bash
+dart analyze lib/features/sources/comic_source/direct_js_source_validator.dart \
+  test/features/source_management/direct_js_source_validator_test.dart
+
+flutter test test/features/source_management/direct_js_source_validator_test.dart
+```
+
+Typed validation/result codes for D1 should use `SOURCE_SCRIPT_*` domain naming:
+
+- `SOURCE_SCRIPT_URL_INVALID`
+- `SOURCE_SCRIPT_URL_INSECURE`
+- `SOURCE_SCRIPT_FETCH_FAILED`
+- `SOURCE_SCRIPT_CONTENT_TYPE_INVALID`
+- `SOURCE_SCRIPT_TOO_LARGE`
+- `SOURCE_SCRIPT_VALIDATION_TIMEOUT`
+- `SOURCE_SCRIPT_SCHEMA_INVALID`
+- `SOURCE_KEY_MISSING`
+
+#### M26.2-D2: Direct JS Confirmation UI (Validation-Only UI Wiring)
+
+Scope:
+
+- route direct URL input through `DirectJsSourceValidator`
+- stop direct URL input from calling the legacy `handleAddSource(url)` install path
+- show validation progress while validation is running
+- show typed user-safe validation errors on failure
+- show source metadata confirmation on success
+- show source key, source name, version, content hash, and URL host when available
+- show explicit remote-script risk warning
+- keep install action disabled or hidden
+- no installed source file write
+- no `ComicSourceManager` mutation
+- no repository package install enablement
+
+Required behavior:
+
+- Direct URL action validates before any install/write path.
+- Validation failure maps typed `SOURCE_SCRIPT_*` / `SOURCE_KEY_MISSING` code to user-safe UI text.
+- Validation success opens a confirmation dialog or inline panel with source metadata.
+- Confirmation UI clearly states that install enablement is pending.
+- Confirmation UI does not offer an active install action in D2.
+- Direct URL validation does not mutate installed source state.
+- Local file import may continue using existing import path unless separately hardened.
+
+Acceptance tests:
+
+```dart
+test('direct url action validates before any install write', () async {});
+test('direct url validation success shows metadata confirmation with disabled install', () async {});
+test('direct url validation failure shows typed user safe error', () async {});
+test('direct url validation does not mutate installed sources', () async {});
+test('direct url action no longer calls legacy handleAddSource install path directly', () async {});
+```
+
+Implementation files:
+
+- `lib/pages/comic_source_page.dart`
+- `test/pages/settings_comic_sources_page_test.dart`
+
+Verification:
+
+```bash
+flutter test test/pages/settings_comic_sources_page_test.dart
+dart analyze lib/pages/comic_source_page.dart test/pages/settings_comic_sources_page_test.dart
+git diff --check
+```
+
+#### M26.2-D2 Acceptance Boundary
+
+- D2 wires validation into the direct URL UI only.
+- D2 must not enable direct JavaScript installation.
+- D2 must not write installed source files.
+- D2 must not mutate `ComicSourceManager` state.
+- D2 must not enable repository package install.
+- D2 must not change ReaderNext, cache, appdata, cookie, or deep source runtime semantics.
+
+#### M26.2-D2 Closeout Evidence
+
+Implemented:
+
+- Direct URL input now calls the D1 `DirectJsSourceValidator` path before any install/write path.
+- `ComicSourcePage` exposes an injectable `validateDirectSourceUrl` callback for widget tests and future controller wiring.
+- The direct URL text-field submit action validates instead of installing.
+- The direct URL suffix action validates instead of installing.
+- The `Validate Direct URL` action validates instead of installing.
+- Validation success shows source metadata and remote-script risk information.
+- Validation success clearly states: `Install/write path is disabled in D2.`
+- Validation dialog action is `Close` only.
+- Validation failure shows typed user-safe code/message.
+- Direct URL validation does not call the legacy install path.
+- Direct URL validation does not mutate installed sources.
+
+Files:
+
+- `lib/pages/comic_source_page.dart`
+- `test/pages/settings_comic_sources_page_test.dart`
+
+Verification:
+
+```bash
+dart analyze lib/pages/comic_source_page.dart test/pages/settings_comic_sources_page_test.dart
+flutter test test/pages/settings_comic_sources_page_test.dart
+```
+
+D2 closeout tests added:
+
+```dart
+test('settings direct url validation action uses validator callback', () async {});
+test('direct url validation success shows disabled install state', () async {});
+test('direct url validation does not mutate installed sources', () async {});
+```
+
+#### M26.2-D3a: Direct JS Install Command Design and Test Plan (No Write Path)
+
+Scope:
+
+- define the Direct JS install command contract before enabling any install/write path
+- define `DirectJsInstallRequest` semantics
+- define confirmation gate semantics
+- define source-key collision policy
+- define install provenance metadata requirements
+- define content-hash requirements
+- define rollback expectations for later write path
+- define tests for install command behavior before implementing the write adapter
+- no installed source file write
+- no `ComicSourceManager` mutation
+- no active install button enablement
+- no repository package install enablement
+
+Non-goals:
+
+- do not write source script files
+- do not update installed source order/settings/enabled state
+- do not mutate existing installed source records
+- do not enable repository package install
+- do not change source JavaScript runtime behavior
+- do not change ReaderNext, cache, appdata, or cookie semantics
+
+Proposed request model:
+
+```dart
+class DirectJsInstallRequest {
+  const DirectJsInstallRequest({
+    required this.scriptUrl,
+    required this.validatedSourceKey,
+    required this.validatedName,
+    required this.validatedVersion,
+    required this.contentHash,
+    required this.confirmInstall,
+    this.confirmOverwrite = false,
+  });
+
+  final String scriptUrl;
+  final String validatedSourceKey;
+  final String validatedName;
+  final String? validatedVersion;
+  final String contentHash;
+  final bool confirmInstall;
+  final bool confirmOverwrite;
+}
+```
+
+Required command semantics:
+
+- install command must only accept previously validated metadata from D1/D2 validation flow
+- `confirmInstall == false` returns `SOURCE_INSTALL_BLOCKED`
+- existing installed source with same source key returns `SOURCE_KEY_COLLISION`
+- collision with `confirmOverwrite == false` returns `SOURCE_KEY_COLLISION`
+- collision with `confirmOverwrite == true` remains blocked until D3b write adapter exists
+- source key mismatch between validation metadata and parsed install payload returns `SOURCE_KEY_MISMATCH`
+- successful design-level command may return a dry-run success/pending result only
+- D3a must not write files or mutate `ComicSourceManager`
+
+Provenance requirements for D3b/D3c:
+
+- direct JS install origin type: `direct_js`
+- origin ref: normalized script URL
+- content hash: SHA-256 of fetched script bytes
+- installed source key: validated source key
+- installed source name/version: validated metadata
+- install timestamp must be recorded where existing source authority supports it
+- provenance must not mark direct JS sources as official
+
+Rollback requirements for later write path:
+
+- write path must be transactional or staged
+- source file write must be atomic where practical
+- failed install must not leave partially installed source visible
+- failed overwrite must preserve previous installed source
+- failed metadata write must remove staged script file
+- rollback errors must be logged as redacted diagnostics, not shown as raw exceptions
+
+D3a UI flow design:
+
+```text
+Validate Direct URL
+  -> D1 validator success
+  -> D2 metadata/risk confirmation
+  -> D3a command design gate
+      - confirmInstall=false: blocked
+      - confirmInstall=true but write adapter unavailable: blocked/pending
+  -> D3b later enables write adapter behind explicit confirmation
+```
+
+Typed result codes:
+
+- `SOURCE_INSTALL_BLOCKED`
+- `SOURCE_KEY_COLLISION`
+- `SOURCE_KEY_MISMATCH`
+- `SOURCE_COMMAND_CONFLICT`
+- `SOURCE_UPDATE_FAILED`
+- `SOURCE_REMOVE_FAILED`
+
+Acceptance tests:
+
+```dart
+test('direct js install command blocks when confirmInstall is false', () async {});
+test('direct js install command blocks source key collision without overwrite confirmation', () async {});
+test('direct js install command keeps collision blocked even with overwrite until write adapter exists', () async {});
+test('direct js install command blocks source key mismatch between validation and parsed payload', () async {});
+test('direct js install command dry run does not write installed source files', () async {});
+test('direct js install command dry run does not mutate ComicSourceManager state', () async {});
+```
+
+Implementation files for D3a:
+
+- `docs/plans/2026-05-02-m26-2-source-repository-registry-and-direct-source-install.md`
+- optional later test skeleton only if no production write path is introduced:
+  - `test/features/source_management/direct_js_install_command_test.dart`
+
+Verification for D3a docs/design:
+
+```bash
+rg -n "D3a|DirectJsInstallRequest|SOURCE_INSTALL_BLOCKED|SOURCE_KEY_COLLISION|SOURCE_KEY_MISMATCH" \
+  docs/plans/2026-05-02-m26-2-source-repository-registry-and-direct-source-install.md
+
+git diff --check
+```
+
+#### M26.2-D3a Acceptance Boundary
+
+- D3a is design and test planning only unless explicitly split into a separate test-skeleton commit.
+- D3a must not implement source file writes.
+- D3a must not mutate `ComicSourceManager`.
+- D3a must not enable any direct JavaScript install UI action.
+- D3a closeout must not claim that Direct JS install, origin recording, or content-hash recording is complete.
+- D3a must not enable repository package install.
+- D3a must not change ReaderNext, cache, appdata, cookie, or deep source runtime semantics.
 
 ### M26.2-E: Settings UI Consolidation
 
@@ -1172,8 +1490,14 @@ test('can install source from repository package', () async {});
 test('can install source from direct javascript url after confirmation', () async {});
 test('direct javascript source rejects non https url by default', () async {});
 test('direct javascript source rejects html response masquerading as script', () async {});
+test('direct javascript source rejects html looking body with misleading content type', () async {});
 test('direct javascript source enforces script size limit', () async {});
 test('direct javascript validation runs outside ui isolate with timeout', () async {});
+test('direct url action validates before any install write', () async {});
+test('direct url validation success shows metadata confirmation with disabled install', () async {});
+test('direct url validation failure shows typed user safe error', () async {});
+test('direct url validation does not mutate installed sources', () async {});
+test('direct url action no longer calls legacy handleAddSource install path directly', () async {});
 test('direct javascript source records install origin where supported', () async {});
 test('direct javascript source records content hash where supported', () async {});
 test('direct javascript update blocks source key mismatch', () async {});
@@ -1206,9 +1530,11 @@ git diff --check
 
 ## Exit Criteria
 
+These criteria represent the full M26.2 target. Lane closeout must only claim the criteria covered by that lane's acceptance boundary. D1, D2, and D3a closeouts must not claim that Direct JS install/write support is complete.
+
 - `Settings > Comic Sources` is the canonical source management surface.
 - Users can add repository `index.json` URLs from Settings.
-- Users can install direct JavaScript source URLs from Settings.
+- Direct JavaScript source URL validation is available before install enablement; full Direct JS install/write support remains a later D-lane phase until explicitly closed.
 - Users can import local source files from Settings.
 - Installed and available sources are visually separated.
 - Repository management, Add / Import, Available Sources, and Installed Sources are presented in a single Settings source surface.
@@ -1235,5 +1561,11 @@ git diff --check
 - Source management diagnostics redact auth headers, cookies, device identifiers, signatures, and signed query parameters.
 - Source script contents are not persisted in diagnostics by default.
 - Direct JS validation is isolated from the UI isolate and has timeout handling.
+- D1 validation-only path does not write installed source files or mutate `ComicSourceManager` state.
+- Direct URL input uses the D1 validator before any install/write path.
+- D2 confirmation UI shows validated metadata and remote-script risk while keeping install disabled.
+- D2 validation UI does not write installed source files or mutate `ComicSourceManager` state.
+- Direct URL validation action no longer calls the legacy add/install path directly.
+- Direct URL validation success dialog uses `Close` only and does not expose an install action.
 - Sensitive diagnostics are redacted.
 - No ReaderNext, appdata, cache, cookie, or deep source runtime semantics are changed.
