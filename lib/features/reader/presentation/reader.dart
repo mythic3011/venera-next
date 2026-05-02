@@ -406,7 +406,40 @@ class _ReaderState extends State<Reader>
 
   @override
   Widget build(BuildContext context) {
+    final pageBeforeBuild = page;
+    final imagesPerPageBeforeBuild = imagesPerPage;
+    final imagesKey = Key(chapter.toString());
+    final chapterIdSnapshot = eid;
+    final readerIdentitySnapshot = '${type.sourceKey}:$cid:$chapterIdSnapshot';
     _checkImagesPerPageChange();
+    final pageAfterBuildCheck = page;
+    final imagesPerPageAfterBuildCheck = imagesPerPage;
+    final imageCountSnapshot = images?.length;
+    if (pageAfterBuildCheck != pageBeforeBuild ||
+        imagesPerPageAfterBuildCheck != imagesPerPageBeforeBuild) {
+      recordReaderPaginationChangedDuringBuildDiagnostics(
+        buildContext: context,
+        owner: 'Reader.build',
+        beforePage: pageBeforeBuild,
+        afterPage: pageAfterBuildCheck,
+        beforeImagesPerPage: imagesPerPageBeforeBuild,
+        afterImagesPerPage: imagesPerPageAfterBuildCheck,
+        imagesKey: imagesKey.toString(),
+        chapterIdSnapshot: chapterIdSnapshot,
+        readerIdentitySnapshot: readerIdentitySnapshot,
+        imageCountSnapshot: imageCountSnapshot,
+      );
+    }
+    recordReaderWidgetBuiltDiagnostics(
+      buildContext: context,
+      owner: 'Reader.build',
+      imagesKey: imagesKey.toString(),
+      chapterIdSnapshot: chapterIdSnapshot,
+      readerIdentitySnapshot: readerIdentitySnapshot,
+      pageSnapshot: pageAfterBuildCheck,
+      imagesPerPageSnapshot: imagesPerPageAfterBuildCheck,
+      imageCountSnapshot: imageCountSnapshot,
+    );
     return KeyboardListener(
       focusNode: focusNode,
       autofocus: true,
@@ -415,9 +448,19 @@ class _ReaderState extends State<Reader>
         initialEntries: [
           OverlayEntry(
             builder: (context) {
+              recordReaderOverlayEntryBuiltDiagnostics(
+                buildContext: context,
+                owner: 'Reader.build.overlayEntry',
+                imagesKey: imagesKey.toString(),
+                chapterIdSnapshot: chapterIdSnapshot,
+                readerIdentitySnapshot: readerIdentitySnapshot,
+                pageSnapshot: pageAfterBuildCheck,
+                imagesPerPageSnapshot: imagesPerPageAfterBuildCheck,
+                imageCountSnapshot: imageCountSnapshot,
+              );
               return _ReaderScaffold(
                 child: _ReaderGestureDetector(
-                  child: _ReaderImages(key: Key(chapter.toString())),
+                  child: _ReaderImages(key: imagesKey),
                 ),
               );
             },

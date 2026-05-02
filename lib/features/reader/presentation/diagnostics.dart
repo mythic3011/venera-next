@@ -52,14 +52,12 @@ ReaderPaginationDiagnostics _buildReaderPaginationDiagnostics({
       imagesPerPage: imagesPerPage(),
     );
   } catch (error) {
-    final fallbackReason = unavailableReason ?? 'pagination_snapshot_unavailable';
+    final fallbackReason =
+        unavailableReason ?? 'pagination_snapshot_unavailable';
     AppDiagnostics.warn(
       'reader.lifecycle',
       'pagination.diagnostics.unavailable',
-      data: {
-        'reason': fallbackReason,
-        'error': error.toString(),
-      },
+      data: {'reason': fallbackReason, 'error': error.toString()},
     );
     return ReaderPaginationDiagnostics(
       imageCount: imageCount,
@@ -87,6 +85,126 @@ ReaderPaginationDiagnostics buildReaderPaginationDiagnosticsForTesting({
 }
 
 extension _ReaderDiagnosticsState on _ReaderState {
+  Map<String, Object?> _readerBuildDiagnosticData({
+    required BuildContext buildContext,
+    required String owner,
+    required String imagesKey,
+    required String chapterIdSnapshot,
+    required String readerIdentitySnapshot,
+    required int pageSnapshot,
+    required int imagesPerPageSnapshot,
+    required int? imageCountSnapshot,
+    Map<String, Object?> extra = const {},
+  }) {
+    final context = currentReaderContext();
+    final routeName = ModalRoute.of(buildContext)?.settings.name;
+    return {
+      'owner': owner,
+      'loadMode': context.loadMode,
+      'sourceKey': context.sourceKey,
+      'comicId': context.comicId,
+      'chapterId': context.chapterId,
+      'chapterIndex': context.chapterIndex,
+      'page': pageSnapshot,
+      'mode': mode.key,
+      'imageCount': imageCountSnapshot,
+      'imagesPerPage': imagesPerPageSnapshot,
+      'routeName': routeName,
+      'imagesKey': imagesKey,
+      'chapterIdSnapshot': chapterIdSnapshot,
+      'readerIdentitySnapshot': readerIdentitySnapshot,
+      'widgetHashCode': widget.hashCode,
+      'stateHashCode': hashCode,
+      ...extra,
+    };
+  }
+
+  void recordReaderWidgetBuiltDiagnostics({
+    required BuildContext buildContext,
+    required String owner,
+    required String imagesKey,
+    required String chapterIdSnapshot,
+    required String readerIdentitySnapshot,
+    required int pageSnapshot,
+    required int imagesPerPageSnapshot,
+    required int? imageCountSnapshot,
+  }) {
+    AppDiagnostics.trace(
+      'reader.lifecycle',
+      'reader.widget.built',
+      data: _readerBuildDiagnosticData(
+        buildContext: buildContext,
+        owner: owner,
+        imagesKey: imagesKey,
+        chapterIdSnapshot: chapterIdSnapshot,
+        readerIdentitySnapshot: readerIdentitySnapshot,
+        pageSnapshot: pageSnapshot,
+        imagesPerPageSnapshot: imagesPerPageSnapshot,
+        imageCountSnapshot: imageCountSnapshot,
+      ),
+    );
+  }
+
+  void recordReaderOverlayEntryBuiltDiagnostics({
+    required BuildContext buildContext,
+    required String owner,
+    required String imagesKey,
+    required String chapterIdSnapshot,
+    required String readerIdentitySnapshot,
+    required int pageSnapshot,
+    required int imagesPerPageSnapshot,
+    required int? imageCountSnapshot,
+  }) {
+    AppDiagnostics.trace(
+      'reader.lifecycle',
+      'reader.overlay.entry.built',
+      data: _readerBuildDiagnosticData(
+        buildContext: buildContext,
+        owner: owner,
+        imagesKey: imagesKey,
+        chapterIdSnapshot: chapterIdSnapshot,
+        readerIdentitySnapshot: readerIdentitySnapshot,
+        pageSnapshot: pageSnapshot,
+        imagesPerPageSnapshot: imagesPerPageSnapshot,
+        imageCountSnapshot: imageCountSnapshot,
+      ),
+    );
+  }
+
+  void recordReaderPaginationChangedDuringBuildDiagnostics({
+    required BuildContext buildContext,
+    required String owner,
+    required int beforePage,
+    required int afterPage,
+    required int beforeImagesPerPage,
+    required int afterImagesPerPage,
+    required String imagesKey,
+    required String chapterIdSnapshot,
+    required String readerIdentitySnapshot,
+    required int? imageCountSnapshot,
+  }) {
+    AppDiagnostics.warn(
+      'reader.lifecycle',
+      'reader.pagination.changed.during.build',
+      data: _readerBuildDiagnosticData(
+        buildContext: buildContext,
+        owner: owner,
+        imagesKey: imagesKey,
+        chapterIdSnapshot: chapterIdSnapshot,
+        readerIdentitySnapshot: readerIdentitySnapshot,
+        pageSnapshot: afterPage,
+        imagesPerPageSnapshot: afterImagesPerPage,
+        imageCountSnapshot: imageCountSnapshot,
+        extra: {
+          'beforePage': beforePage,
+          'afterPage': afterPage,
+          'beforeImagesPerPage': beforeImagesPerPage,
+          'afterImagesPerPage': afterImagesPerPage,
+        },
+      ),
+    );
+  }
+
   void recordImageControllerLifecycle(
     String lifecycle, {
     required String owner,
