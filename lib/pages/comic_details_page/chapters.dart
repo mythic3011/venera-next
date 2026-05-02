@@ -1,5 +1,92 @@
 part of 'comic_page.dart';
 
+String _chapterWidgetIdentity({
+  required String sourceKey,
+  required String comicId,
+}) => '$sourceKey:$comicId';
+
+@visibleForTesting
+bool updateChapterShowAllForDependencyForTesting({
+  required bool currentShowAll,
+  required bool isLocalSource,
+  required String? previousIdentity,
+  required String nextIdentity,
+}) {
+  if (!isLocalSource) {
+    return currentShowAll;
+  }
+  if (previousIdentity != nextIdentity) {
+    return true;
+  }
+  return currentShowAll;
+}
+
+class GroupedChapterSelection {
+  const GroupedChapterSelection({
+    required this.displayIndex,
+    required this.sourceIndex,
+    required this.chapterIndex,
+    required this.rawIndex,
+    required this.groupedIndex,
+  });
+
+  final int displayIndex;
+  final int sourceIndex;
+  final int chapterIndex;
+  final String rawIndex;
+  final String groupedIndex;
+}
+
+@visibleForTesting
+GroupedChapterSelection resolveGroupedChapterSelectionForTesting({
+  required List<int> groupLengths,
+  required int groupIndex,
+  required int displayIndex,
+  required bool reverse,
+}) {
+  final groupLength = groupLengths[groupIndex];
+  final sourceIndex = reverse
+      ? groupLength - displayIndex - 1
+      : displayIndex;
+  var chapterIndex = sourceIndex;
+  for (var i = 0; i < groupIndex; i++) {
+    chapterIndex += groupLengths[i];
+  }
+  return GroupedChapterSelection(
+    displayIndex: displayIndex,
+    sourceIndex: sourceIndex,
+    chapterIndex: chapterIndex,
+    rawIndex: (chapterIndex + 1).toString(),
+    groupedIndex: '${groupIndex + 1}-${sourceIndex + 1}',
+  );
+}
+
+@visibleForTesting
+TabController syncGroupedChapterTabControllerForTesting({
+  required TabController? current,
+  required int requestedIndex,
+  required int length,
+  required TickerProvider vsync,
+  required VoidCallback listener,
+}) {
+  final clampedIndex = length == 0 ? 0 : requestedIndex.clamp(0, length - 1);
+  if (current != null && current.length == length) {
+    if (current.index != clampedIndex) {
+      current.index = clampedIndex;
+    }
+    return current;
+  }
+  current?.removeListener(listener);
+  current?.dispose();
+  final controller = TabController(
+    initialIndex: clampedIndex,
+    length: length,
+    vsync: vsync,
+  );
+  controller.addListener(listener);
+  return controller;
+}
+
 bool comicChapterIsVisited(
   History? history, {
   required String rawIndex,
@@ -46,6 +133,7 @@ class _NormalComicChaptersState extends State<_NormalComicChapters> {
   late History? history;
 
   late ComicChapters chapters;
+  String? _comicIdentity;
 
   @override
   void initState() {
@@ -58,18 +146,24 @@ class _NormalComicChaptersState extends State<_NormalComicChapters> {
   void didChangeDependencies() {
     state = context.findAncestorStateOfType<_ComicPageState>()!;
     chapters = state.comic.chapters!;
-    if (isLocalSourceKey(state.comic.sourceKey)) {
-      showAll = true;
-    }
+    final nextIdentity = _chapterWidgetIdentity(
+      sourceKey: state.comic.sourceKey,
+      comicId: state.widget.id,
+    );
+    showAll = updateChapterShowAllForDependencyForTesting(
+      currentShowAll: showAll,
+      isLocalSource: isLocalSourceKey(state.comic.sourceKey),
+      previousIdentity: _comicIdentity,
+      nextIdentity: nextIdentity,
+    );
+    _comicIdentity = nextIdentity;
     super.didChangeDependencies();
   }
 
   @override
   void didUpdateWidget(covariant _NormalComicChapters oldWidget) {
     super.didUpdateWidget(oldWidget);
-    setState(() {
-      history = widget.history;
-    });
+    history = widget.history;
   }
 
   @override
@@ -203,9 +297,10 @@ class _GroupedComicChaptersState extends State<_GroupedComicChapters>
 
   late ComicChapters chapters;
 
-  late TabController tabController;
+  TabController? tabController;
 
   late int index;
+  String? _comicIdentity;
 
   @override
   void initState() {
@@ -223,22 +318,31 @@ class _GroupedComicChaptersState extends State<_GroupedComicChapters>
   void didChangeDependencies() {
     state = context.findAncestorStateOfType<_ComicPageState>()!;
     chapters = state.comic.chapters!;
-    if (isLocalSourceKey(state.comic.sourceKey)) {
-      showAll = true;
-    }
-    tabController = TabController(
-      initialIndex: index,
+    final nextIdentity = _chapterWidgetIdentity(
+      sourceKey: state.comic.sourceKey,
+      comicId: state.widget.id,
+    );
+    showAll = updateChapterShowAllForDependencyForTesting(
+      currentShowAll: showAll,
+      isLocalSource: isLocalSourceKey(state.comic.sourceKey),
+      previousIdentity: _comicIdentity,
+      nextIdentity: nextIdentity,
+    );
+    _comicIdentity = nextIdentity;
+    tabController = syncGroupedChapterTabControllerForTesting(
+      current: tabController,
+      requestedIndex: index,
       length: chapters.groups.length,
       vsync: this,
+      listener: onTabChange,
     );
-    tabController.addListener(onTabChange);
     super.didChangeDependencies();
   }
 
   void onTabChange() {
-    if (index != tabController.index) {
+    if (index != tabController!.index) {
       setState(() {
-        index = tabController.index;
+        index = tabController!.index;
       });
     }
   }
@@ -246,9 +350,14 @@ class _GroupedComicChaptersState extends State<_GroupedComicChapters>
   @override
   void didUpdateWidget(covariant _GroupedComicChapters oldWidget) {
     super.didUpdateWidget(oldWidget);
-    setState(() {
-      history = widget.history;
-    });
+    history = widget.history;
+  }
+
+  @override
+  void dispose() {
+    tabController?.removeListener(onTabChange);
+    tabController?.dispose();
+    super.dispose();
   }
 
   @override
@@ -295,7 +404,7 @@ class _GroupedComicChaptersState extends State<_GroupedComicChapters>
             SliverToBoxAdapter(
               child: AppTabBar(
                 withUnderLine: false,
-                controller: tabController,
+                controller: tabController!,
                 tabs: chapters.groups.map((e) => Tab(text: e)).toList(),
               ),
             ),
@@ -305,25 +414,21 @@ class _GroupedComicChaptersState extends State<_GroupedComicChapters>
                 context,
                 i,
               ) {
-                if (reverse) {
-                  i = group.length - i - 1;
-                }
-                var key = group.keys.elementAt(i);
+                final selection = resolveGroupedChapterSelectionForTesting(
+                  groupLengths: [
+                    for (var j = 0; j < chapters.groupCount; j++)
+                      chapters.getGroupByIndex(j).length,
+                  ],
+                  groupIndex: index,
+                  displayIndex: i,
+                  reverse: reverse,
+                );
+                var key = group.keys.elementAt(selection.sourceIndex);
                 var value = group[key]!;
-                var chapterIndex = 0;
-                for (var j = 0; j < chapters.groupCount; j++) {
-                  if (j == index) {
-                    chapterIndex += i;
-                    break;
-                  }
-                  chapterIndex += chapters.getGroupByIndex(j).length;
-                }
-                String rawIndex = (chapterIndex + 1).toString();
-                String groupedIndex = "${index + 1}-${i + 1}";
                 final visited = comicChapterIsVisited(
                   history,
-                  rawIndex: rawIndex,
-                  groupedIndex: groupedIndex,
+                  rawIndex: selection.rawIndex,
+                  groupedIndex: selection.groupedIndex,
                 );
                 return Padding(
                   padding: const EdgeInsets.fromLTRB(4, 4, 4, 4),
@@ -331,7 +436,7 @@ class _GroupedComicChaptersState extends State<_GroupedComicChapters>
                     color: context.colorScheme.surfaceContainerLow,
                     borderRadius: BorderRadius.circular(12),
                     child: InkWell(
-                      onTap: () => state.read(chapterIndex + 1),
+                      onTap: () => state.read(selection.chapterIndex + 1),
                       borderRadius: BorderRadius.circular(12),
                       child: Padding(
                         padding: const EdgeInsets.symmetric(horizontal: 8),
