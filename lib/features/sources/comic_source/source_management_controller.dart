@@ -15,12 +15,32 @@ typedef SourceFetchText = Future<String> Function(String url);
 typedef SourceFilePicker = Future<FileSelectResult?> Function();
 typedef SourceRepositoryStoreProvider = UnifiedComicsStore? Function();
 
-const _defaultSourceRepositoryName = 'Official Venera Configs';
-const _defaultSourceRepositoryUrl =
-    'https://cdn.jsdelivr.net/gh/venera-app/venera-configs@main/index.json';
+const _defaultSourceRepositories = <({String name, String url})>[
+  (
+    name: 'Official Venera Configs',
+    url:
+        'https://cdn.jsdelivr.net/gh/venera-app/venera-configs@main/index.json',
+  ),
+  (
+    name: 'Mythic Venera Configs',
+    url:
+        'https://cdn.jsdelivr.net/gh/mythic3011/venera-configs@main/index.json',
+  ),
+];
 const _repositoryRefreshFailedCode = 'repository_refresh_failed';
 const _repositorySchemaUnsupportedCode = 'REPOSITORY_SCHEMA_UNSUPPORTED';
 const _repositoryPackageUrlInvalidCode = 'REPOSITORY_PACKAGE_URL_INVALID';
+const repositoryUrlInvalidCode = 'REPOSITORY_URL_INVALID';
+
+class SourceCommandFailed implements Exception {
+  const SourceCommandFailed({required this.code, required this.message});
+
+  final String code;
+  final String message;
+
+  @override
+  String toString() => 'SourceCommandFailed($code): $message';
+}
 
 class SourceRepositoryIndexException implements Exception {
   const SourceRepositoryIndexException(this.code, this.message);
@@ -123,7 +143,10 @@ Future<String> _defaultSourceFetchText(String url) async {
   return data;
 }
 
-Future<void> _defaultInstallSourceFromJs(String sourceJs, String fileName) async {
+Future<void> _defaultInstallSourceFromJs(
+  String sourceJs,
+  String fileName,
+) async {
   final source = await ComicSourceParser().createAndParse(sourceJs, fileName);
   ComicSourceManager().add(source);
   _addAllPagesWithComicSource(source);
@@ -141,7 +164,8 @@ class SourceManagementController {
     SourceFetchText? fetchText,
     SourceFilePicker? pickJsConfigFile,
     SourceRepositoryStoreProvider? repositoryStoreProvider,
-  }) : _installSourceFromJs = installSourceFromJs ?? _defaultInstallSourceFromJs,
+  }) : _installSourceFromJs =
+           installSourceFromJs ?? _defaultInstallSourceFromJs,
        _fetchText = fetchText ?? _defaultSourceFetchText,
        _pickJsConfigFile = pickJsConfigFile ?? _defaultPickJsConfigFile,
        _repositoryStoreProvider =
@@ -203,9 +227,7 @@ class SourceManagementController {
     }
     await _ensureRepositoryRegistrySeeded(store);
     final rows = await store.loadSourceRepositories();
-    return rows
-        .map(SourceRepositoryView.fromRecord)
-        .toList(growable: false);
+    return rows.map(SourceRepositoryView.fromRecord).toList(growable: false);
   }
 
   Future<SourceRepositoryView> addRepository(
@@ -222,7 +244,17 @@ class SourceManagementController {
     await _ensureRepositoryRegistrySeeded(store);
     final normalizedUrl = indexUrl.trim();
     if (normalizedUrl.isEmpty) {
-      throw ArgumentError('indexUrl must not be empty');
+      throw const SourceCommandFailed(
+        code: repositoryUrlInvalidCode,
+        message: 'Repository URL must not be empty',
+      );
+    }
+    final parsed = Uri.tryParse(normalizedUrl);
+    if (parsed == null || parsed.scheme.toLowerCase() != 'https') {
+      throw const SourceCommandFailed(
+        code: repositoryUrlInvalidCode,
+        message: 'Repository URL must use HTTPS',
+      );
     }
     final now = DateTime.now().millisecondsSinceEpoch;
     final id = _repositoryIdFromUrl(normalizedUrl);
@@ -398,22 +430,40 @@ class SourceManagementController {
     if (current.isNotEmpty) {
       return;
     }
-    final fromSettings = (appdata.settings['comicSourceListUrl'] as String).trim();
-    final seedUrl = fromSettings.isEmpty ? _defaultSourceRepositoryUrl : fromSettings;
+    final fromSettings = (appdata.settings['comicSourceListUrl'] as String)
+        .trim();
     final now = DateTime.now().millisecondsSinceEpoch;
-    await store.upsertSourceRepository(
-      SourceRepositoryRecord(
-        id: _repositoryIdFromUrl(seedUrl),
-        name: _defaultSourceRepositoryName,
-        indexUrl: seedUrl,
-        enabled: true,
-        userAdded: false,
-        trustLevel: 'official',
-        lastRefreshStatus: 'never',
-        createdAtMs: now,
-        updatedAtMs: now,
-      ),
-    );
+    if (fromSettings.isNotEmpty) {
+      await store.upsertSourceRepository(
+        SourceRepositoryRecord(
+          id: _repositoryIdFromUrl(fromSettings),
+          name: 'Legacy Source Repository',
+          indexUrl: fromSettings,
+          enabled: true,
+          userAdded: false,
+          trustLevel: 'official',
+          lastRefreshStatus: 'never',
+          createdAtMs: now,
+          updatedAtMs: now,
+        ),
+      );
+      return;
+    }
+    for (final repo in _defaultSourceRepositories) {
+      await store.upsertSourceRepository(
+        SourceRepositoryRecord(
+          id: _repositoryIdFromUrl(repo.url),
+          name: repo.name,
+          indexUrl: repo.url,
+          enabled: true,
+          userAdded: false,
+          trustLevel: 'official',
+          lastRefreshStatus: 'never',
+          createdAtMs: now,
+          updatedAtMs: now,
+        ),
+      );
+    }
   }
 
   String _repositoryIdFromUrl(String url) {
@@ -439,7 +489,10 @@ class SourceManagementController {
       }
       final key = item['key']?.toString();
       final version = item['version']?.toString();
-      if (key != null && key.isNotEmpty && version != null && version.isNotEmpty) {
+      if (key != null &&
+          key.isNotEmpty &&
+          version != null &&
+          version.isNotEmpty) {
         versions[key] = version;
       }
     }

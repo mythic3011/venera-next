@@ -80,7 +80,7 @@ M26.2 must not create a second source authority.
 Existing `comicSourceListUrl` is a legacy single-repository setting.
 
 - On first repository registry initialization, if no repository records exist, seed one repository from `comicSourceListUrl` when present.
-- If `comicSourceListUrl` is missing or empty, seed the built-in official repository URL.
+- If `comicSourceListUrl` is missing or empty, seed the built-in default repositories.
 - After `source_repositories` exists, repository configuration is read from the repository registry.
 - UI writes must go to `source_repositories`, not `comicSourceListUrl`.
 - `comicSourceListUrl` may remain for rollback compatibility but must not be the active authority after registry initialization.
@@ -407,6 +407,7 @@ Failure states:
 - invalid JSON
 - missing package descriptors
 - duplicate repository
+- default repository seed conflict
 - unsupported repository schema
 - package URL escapes repository base path
 
@@ -601,17 +602,23 @@ Required compatibility:
 - existing installed sources remain installed
 - existing source settings remain readable
 - existing source order remains preserved
-- existing official repository URL may be seeded as default repository
+- existing built-in default repository URLs may be seeded as default repositories
 - existing add-source popup may remain as shortcut
 - existing source update logic should be reused, not rewritten
 - existing official legacy index array shape must remain supported
 - existing `comicSourceListUrl` must seed the first repository registry entry when present
 - after repository registry initialization, UI writes must use `source_repositories`
 
-Default repository seed:
+Default repository seeds:
 
 - name: `Official Venera Configs`
 - url: `https://cdn.jsdelivr.net/gh/venera-app/venera-configs@main/index.json`
+- trustLevel: `official`
+- enabled: `true`
+- userAdded: `false`
+
+- name: `Mythic Venera Configs`
+- url: `https://cdn.jsdelivr.net/gh/mythic3011/venera-configs@main/index.json`
 - trustLevel: `official`
 - enabled: `true`
 - userAdded: `false`
@@ -789,7 +796,7 @@ test('source packages are refresh-derived and rebuildable', () async {});
 Scope:
 
 - seed first repository record from legacy `comicSourceListUrl` when registry is empty
-- seed built-in official repository when legacy setting is missing/empty
+- seed built-in default repositories when legacy setting is missing/empty
 - keep legacy setting as rollback artifact only
 - no UI writes back to `comicSourceListUrl`
 
@@ -798,13 +805,13 @@ Required behavior:
 - seeding is idempotent
 - after repository records exist, `source_repositories` is active authority
 - legacy setting does not create duplicate repository records
-- missing/corrupt setting state falls back to built-in official repository
+- missing/corrupt setting state falls back to built-in default repositories
 
 Acceptance tests:
 
 ```dart
 test('legacy comicSourceListUrl migrates into repository registry once', () async {});
-test('repository registry seeds built-in official url when legacy setting missing', () async {});
+test('repository registry seeds built-in default repositories when legacy setting missing', () async {});
 test('repository registry seed is idempotent', () async {});
 ```
 
@@ -902,6 +909,7 @@ git diff --check
 - repository registry tables exist in canonical app DB only
 - no source registry sidecar file exists
 - legacy `comicSourceListUrl` seeds the registry only once
+- missing legacy `comicSourceListUrl` seeds both built-in default repositories
 - `source_repositories` becomes active repository authority after initialization
 - legacy official array index shape is supported
 - object schemaVersion 1 index shape is supported
@@ -1096,6 +1104,7 @@ test('source packages are refresh-derived and rebuildable', () async {});
 test('can add repository index url and refresh packages', () async {});
 test('legacy official array repository schema remains supported', () async {});
 test('legacy comicSourceListUrl migrates into repository registry once', () async {});
+test('repository registry seeds built-in default repositories when legacy setting missing', () async {});
 test('repository registry uses canonical app db and does not create sidecar files', () async {});
 test('object repository schema is supported', () async {});
 test('invalid repository index url shows typed error', () async {});
@@ -1150,6 +1159,7 @@ git diff --check
 - Available source install remains disabled until Direct JS install hardening is complete.
 - Multiple repositories are supported.
 - Legacy `comicSourceListUrl` seeds the repository registry once and stops being active authority.
+- Missing legacy `comicSourceListUrl` seeds both built-in default repositories.
 - Repository registry metadata is stored in the canonical app DB only.
 - Legacy official array index shape remains supported.
 - Object repository schema is supported.

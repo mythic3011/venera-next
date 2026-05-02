@@ -101,6 +101,7 @@ class _BodyState extends State<_Body> {
   List<SourceRepositoryView> _repositories = const <SourceRepositoryView>[];
   List<SourcePackageView> _availablePackages = const <SourcePackageView>[];
   bool _loadingRepositories = false;
+  String? _repositoryCommandError;
   var url = "";
 
   void updateUI() {
@@ -145,6 +146,7 @@ class _BodyState extends State<_Body> {
   Future<void> _reloadRepositoryData() async {
     setState(() {
       _loadingRepositories = true;
+      _repositoryCommandError = null;
     });
     try {
       final repos = await _sourceManagementController.listRepositories();
@@ -163,6 +165,37 @@ class _BodyState extends State<_Body> {
     }
   }
 
+  void _showRepositoryCommandError(Object error) {
+    final message = _repositoryErrorMessage(error);
+    if (mounted) {
+      setState(() {
+        _repositoryCommandError = message;
+      });
+    }
+    context.showMessage(message: message);
+  }
+
+  String _repositoryErrorMessage(Object error) {
+    if (error is SourceCommandFailed) {
+      switch (error.code) {
+        case repositoryUrlInvalidCode:
+          return 'Invalid repository URL'.tl;
+        default:
+          return 'Repository command failed'.tl;
+      }
+    }
+    if (error is SourceRepositoryIndexException) {
+      switch (error.code) {
+        case 'REPOSITORY_SCHEMA_UNSUPPORTED':
+          return 'Repository schema unsupported'.tl;
+        case 'REPOSITORY_PACKAGE_URL_INVALID':
+          return 'Repository contains invalid package URL'.tl;
+        default:
+          return 'Repository refresh failed'.tl;
+      }
+    }
+    return 'Repository command failed'.tl;
+  }
   Widget _buildRepositorySection(BuildContext context) {
     return SliverToBoxAdapter(
       child: Card(
@@ -190,6 +223,14 @@ class _BodyState extends State<_Body> {
                 ],
               ),
               const SizedBox(height: 8),
+              if (_repositoryCommandError != null)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 8),
+                  child: Text(
+                    _repositoryCommandError!,
+                    style: TextStyle(color: context.colorScheme.error),
+                  ),
+                ),
               if (_repositories.isEmpty && !_loadingRepositories)
                 const Text('No repositories')
               else
@@ -198,18 +239,27 @@ class _BodyState extends State<_Body> {
                     contentPadding: EdgeInsets.zero,
                     title: Text(repo.name),
                     subtitle: Text(
-                      repo.indexUrl,
-                      maxLines: 1,
+                      [
+                        repo.indexUrl,
+                        'status=${repo.lastRefreshStatus ?? 'never'}',
+                        if (repo.lastErrorCode != null)
+                          'error=${repo.lastErrorCode}',
+                      ].join('\n'),
+                      maxLines: 3,
                       overflow: TextOverflow.ellipsis,
                     ),
                     leading: Switch(
                       value: repo.enabled,
                       onChanged: (value) async {
-                        await _sourceManagementController.setRepositoryEnabled(
-                          repo.id,
-                          value,
-                        );
-                        await _reloadRepositoryData();
+                        try {
+                          await _sourceManagementController.setRepositoryEnabled(
+                            repo.id,
+                            value,
+                          );
+                          await _reloadRepositoryData();
+                        } catch (error) {
+                          _showRepositoryCommandError(error);
+                        }
                       },
                     ),
                     trailing: Wrap(
@@ -219,20 +269,29 @@ class _BodyState extends State<_Body> {
                           key: ValueKey('refresh-repo-${repo.id}'),
                           tooltip: 'Refresh repository',
                           onPressed: () async {
-                            await _sourceManagementController.refreshRepository(
-                              repo.id,
-                            );
-                            await _reloadRepositoryData();
+                            try {
+                              await _sourceManagementController.refreshRepository(
+                                repo.id,
+                              );
+                              await _reloadRepositoryData();
+                            } catch (error) {
+                              _showRepositoryCommandError(error);
+                              await _reloadRepositoryData();
+                            }
                           },
                           icon: const Icon(Icons.sync),
                         ),
                         IconButton(
                           tooltip: 'Remove repository',
                           onPressed: () async {
-                            await _sourceManagementController.removeRepository(
-                              repo.id,
-                            );
-                            await _reloadRepositoryData();
+                            try {
+                              await _sourceManagementController.removeRepository(
+                                repo.id,
+                              );
+                              await _reloadRepositoryData();
+                            } catch (error) {
+                              _showRepositoryCommandError(error);
+                            }
                           },
                           icon: const Icon(Icons.delete_outline),
                         ),
@@ -266,11 +325,15 @@ class _BodyState extends State<_Body> {
             onPressed: () async {
               final url = controller.text.trim();
               if (url.isEmpty) return;
-              await _sourceManagementController.addRepository(url);
-              if (ctx.mounted) {
-                Navigator.of(ctx).pop();
+              try {
+                await _sourceManagementController.addRepository(url);
+                if (ctx.mounted) {
+                  Navigator.of(ctx).pop();
+                }
+                await _reloadRepositoryData();
+              } catch (error) {
+                _showRepositoryCommandError(error);
               }
-              await _reloadRepositoryData();
             },
             child: const Text('Add'),
           ),
