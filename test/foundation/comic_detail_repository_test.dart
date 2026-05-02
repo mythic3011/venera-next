@@ -16,7 +16,7 @@ void main() {
       comicId: 'comic-1',
       cover: 'cover.jpg',
       title: 'Canonical Local',
-      heroID: 7,
+      heroTag: 'test:hero:7',
     );
 
     expect(page.comicId, 'comic-1');
@@ -24,7 +24,29 @@ void main() {
     expect(page.sourceKey, localSourceKey);
     expect(page.cover, 'cover.jpg');
     expect(page.title, 'Canonical Local');
-    expect(page.heroID, 7);
+    expect(page.heroTag, 'test:hero:7');
+  });
+
+  test('comic detail cover hero tag normalizes explicit hero tag', () {
+    final tag = normalizeComicDetailCoverHeroTagForTesting(
+      heroTag: 'home:local:local:comic-1',
+      sourceKey: localSourceKey,
+      comicId: 'comic-1',
+    );
+
+    expect(tag, 'cover:home:local:local:comic-1');
+  });
+
+  test('comic detail cover hero tag falls back without global cover id tag', () {
+    final tag = normalizeComicDetailCoverHeroTagForTesting(
+      heroTag: null,
+      sourceKey: localSourceKey,
+      comicId: 'comic-1',
+    );
+
+    expect(tag, 'cover:detail:local:comic-1:cover');
+    expect(tag, isNot('cover7045321'));
+    expect(tag, isNot(contains('cover\$heroID')));
   });
 
   test('static repository returns mapped detail for comic id', () async {

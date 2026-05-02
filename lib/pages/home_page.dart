@@ -339,10 +339,11 @@ class _HistoryState extends State<_History> {
                     scrollDirection: Axis.horizontal,
                     itemCount: history.length,
                     itemBuilder: (context, index) {
-                      final heroID = history[index].id.hashCode;
+                      final heroTag =
+                          'home:history:${history[index].sourceKey}:${history[index].id}';
                       return SimpleComicTile(
                         comic: history[index],
-                        heroID: heroID,
+                        heroTag: heroTag,
                         onTap: () {
                           context.to(
                             () => ComicPage(
@@ -350,7 +351,7 @@ class _HistoryState extends State<_History> {
                               sourceKey: history[index].sourceKey,
                               cover: history[index].cover,
                               title: history[index].title,
-                              heroID: heroID,
+                              heroTag: heroTag,
                             ),
                           );
                         },

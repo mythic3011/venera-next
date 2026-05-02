@@ -140,4 +140,88 @@ void main() {
       'local@@comic-1',
     );
   });
+
+  testWidgets(
+    'two SliverGridComics instances in same route use distinct hero tags',
+    (tester) async {
+      final comics = [
+        Comic(
+          'Title',
+          '',
+          'comic-1',
+          '',
+          <String>[],
+          '',
+          'local',
+          null,
+          null,
+        ),
+      ];
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: CustomScrollView(
+              slivers: [
+                SliverGridComics(comics: comics),
+                SliverGridComics(comics: comics),
+              ],
+            ),
+          ),
+        ),
+      );
+
+      final tags = tester
+          .widgetList<Hero>(find.byType(Hero))
+          .map((hero) => hero.tag)
+          .toList();
+      expect(tags, hasLength(2));
+      expect(tags.first, isNot(tags.last));
+    },
+  );
+
+  testWidgets(
+    'SimpleComicTile callers can scope duplicate comic hero tags per section',
+    (tester) async {
+      final comic = Comic(
+        'Title',
+        '',
+        'comic-1',
+        '',
+        <String>[],
+        '',
+        'local',
+        null,
+        null,
+      );
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: Row(
+              children: [
+                SimpleComicTile(
+                  comic: comic,
+                  heroTag: 'home:history:local:comic-1',
+                ),
+                SimpleComicTile(
+                  comic: comic,
+                  heroTag: 'home:local:local:comic-1',
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+
+      final tags = tester
+          .widgetList<Hero>(find.byType(Hero))
+          .map((hero) => hero.tag)
+          .toList();
+      expect(tags, [
+        buildCoverHeroTag('home:history:local:comic-1'),
+        buildCoverHeroTag('home:local:local:comic-1'),
+      ]);
+    },
+  );
 }

@@ -286,7 +286,7 @@ class _HistoryPageState extends State<HistoryPage> {
               selections: selectedComics,
               onLongPressed: null,
               onTap: multiSelectMode
-                  ? (c, heroID) {
+                  ? (c, heroTag) {
                       final item = c as ReaderActivityItem;
                       setState(() {
                         if (selectedComics.containsKey(item)) {

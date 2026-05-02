@@ -126,10 +126,11 @@ class _LocalState extends State<_Local> {
                     scrollDirection: Axis.horizontal,
                     itemCount: local.length,
                     itemBuilder: (context, index) {
-                      final heroID = local[index].id.hashCode;
+                      final heroTag =
+                          'home:local:${local[index].sourceKey}:${local[index].id}';
                       return SimpleComicTile(
                         comic: local[index],
-                        heroID: heroID,
+                        heroTag: heroTag,
                         onTap: () {
                           context.to(
                             () => ComicPage(
@@ -137,7 +138,7 @@ class _LocalState extends State<_Local> {
                               sourceKey: local[index].sourceKey,
                               cover: local[index].cover,
                               title: local[index].title,
-                              heroID: heroID,
+                              heroTag: heroTag,
                             ),
                           );
                         },

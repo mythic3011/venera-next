@@ -814,7 +814,7 @@ class _LocalFavoritesPageState extends State<_LocalFavoritesPage> {
                   ),
               ];
             },
-            onTap: (c, heroID) {
+            onTap: (c, heroTag) {
               if (multiSelectMode) {
                 setState(() {
                   if (selectedComics.containsKey(c as FavoriteItem)) {
@@ -832,14 +832,14 @@ class _LocalFavoritesPageState extends State<_LocalFavoritesPage> {
                     sourceKey: c.sourceKey,
                     cover: c.cover,
                     title: c.title,
-                    heroID: heroID,
+                    heroTag: heroTag,
                   ),
                 );
               } else {
                 unawaited(_openFavoriteComic(c as FavoriteItem));
               }
             },
-            onLongPressed: (c, heroID) {
+            onLongPressed: (c, heroTag) {
               setState(() {
                 if (!multiSelectMode) {
                   multiSelectMode = true;

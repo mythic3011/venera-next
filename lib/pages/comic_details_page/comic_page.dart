@@ -59,7 +59,7 @@ class ComicPage extends StatefulWidget {
     required this.sourceKey,
     this.cover,
     this.title,
-    this.heroID,
+    this.heroTag,
   });
 
   final String id;
@@ -70,7 +70,7 @@ class ComicPage extends StatefulWidget {
 
   final String? title;
 
-  final int? heroID;
+  final String? heroTag;
 
   @override
   State<ComicPage> createState() => _ComicPageState();
@@ -82,10 +82,19 @@ class ComicDetailPage extends ComicPage {
     required String comicId,
     super.cover,
     super.title,
-    super.heroID,
+    super.heroTag,
   }) : super(id: comicId, sourceKey: localSourceKey);
 
   String get comicId => id;
+}
+
+@visibleForTesting
+String normalizeComicDetailCoverHeroTagForTesting({
+  String? heroTag,
+  required String sourceKey,
+  required String comicId,
+}) {
+  return buildCoverHeroTag(heroTag ?? 'detail:$sourceKey:$comicId:cover');
 }
 
 @visibleForTesting
@@ -199,6 +208,14 @@ class _ComicPageState extends LoadingState<ComicPage, ComicDetails>
   String? _canonicalComicId;
   ComicDetailViewModel? _canonicalDetailVm;
 
+  String _detailCoverHeroTag() {
+    return normalizeComicDetailCoverHeroTagForTesting(
+      heroTag: widget.heroTag,
+      sourceKey: widget.sourceKey,
+      comicId: widget.id,
+    );
+  }
+
   @override
   History? history;
 
@@ -222,7 +239,7 @@ class _ComicPageState extends LoadingState<ComicPage, ComicDetails>
       title: widget.title,
       sourceKey: widget.sourceKey,
       cid: widget.id,
-      heroID: widget.heroID,
+      heroTag: widget.heroTag,
     );
   }
 
@@ -468,7 +485,7 @@ class _ComicPageState extends LoadingState<ComicPage, ComicDetails>
             onTap: () => _viewCover(context),
             onLongPress: () => _saveCover(context),
             child: Hero(
-              tag: "cover${widget.heroID}",
+              tag: _detailCoverHeroTag(),
               child: Container(
                 decoration: BoxDecoration(
                   color: context.colorScheme.primaryContainer,
@@ -924,7 +941,7 @@ class _ComicPageState extends LoadingState<ComicPage, ComicDetails>
       () => _CoverViewer(
         imageProvider: imageProvider,
         title: comic.title,
-        heroTag: "cover${widget.heroID}",
+        heroTag: _detailCoverHeroTag(),
       ),
     );
   }
@@ -1130,7 +1147,7 @@ class _ComicPageLoadingPlaceHolder extends StatelessWidget {
     this.title,
     required this.sourceKey,
     required this.cid,
-    this.heroID,
+    this.heroTag,
   });
 
   final String? cover;
@@ -1141,7 +1158,7 @@ class _ComicPageLoadingPlaceHolder extends StatelessWidget {
 
   final String cid;
 
-  final int? heroID;
+  final String? heroTag;
 
   @override
   Widget build(BuildContext context) {
@@ -1223,26 +1240,29 @@ class _ComicPageLoadingPlaceHolder extends StatelessWidget {
       child = const SizedBox();
     }
 
-    return Hero(
-      tag: "cover$heroID",
-      child: Container(
-        decoration: BoxDecoration(
-          color: context.colorScheme.primaryContainer,
-          borderRadius: BorderRadius.circular(8),
-          boxShadow: [
-            BoxShadow(
-              color: context.colorScheme.outlineVariant,
-              blurRadius: 1,
-              offset: const Offset(0, 1),
-            ),
-          ],
-        ),
-        height: 144,
-        width: 144 * 0.72,
-        clipBehavior: Clip.antiAlias,
-        child: child,
+    final normalizedTag =
+        heroTag == null ? null : buildCoverHeroTag(heroTag!);
+    final imageContainer = Container(
+      decoration: BoxDecoration(
+        color: context.colorScheme.primaryContainer,
+        borderRadius: BorderRadius.circular(8),
+        boxShadow: [
+          BoxShadow(
+            color: context.colorScheme.outlineVariant,
+            blurRadius: 1,
+            offset: const Offset(0, 1),
+          ),
+        ],
       ),
+      height: 144,
+      width: 144 * 0.72,
+      clipBehavior: Clip.antiAlias,
+      child: child,
     );
+    if (normalizedTag == null) {
+      return imageContainer;
+    }
+    return Hero(tag: normalizedTag, child: imageContainer);
   }
 
   ImageProvider? _imageProvider() {

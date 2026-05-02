@@ -520,13 +520,13 @@ class _LocalComicsPageState extends State<LocalComicsPage> {
           SliverGridComics(
             comics: comics,
             selections: selectedComics,
-            onLongPressed: (c, heroID) {
+            onLongPressed: (c, heroTag) {
               setState(() {
                 multiSelectMode = true;
                 selectedComics[c as LocalComic] = true;
               });
             },
-            onTap: (c, heroID) {
+            onTap: (c, heroTag) {
               if (multiSelectMode) {
                 setState(() {
                   if (selectedComics.containsKey(c as LocalComic)) {
