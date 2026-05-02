@@ -135,6 +135,71 @@ void emitReaderTabRetentionDiagnosticForTesting(Map<String, Object?> data) {
   AppDiagnostics.warn('reader.lifecycle', event, data: data);
 }
 
+@visibleForTesting
+Map<String, Object?> buildReaderParentShellDiagnosticForTesting({
+  required String owner,
+  required String branch,
+  required bool readerChildMounted,
+  required String comicId,
+  required String loadMode,
+  required String sourceKey,
+  required String expectedReaderTabId,
+  required String? activeReaderTabId,
+  required String? pageOrderId,
+  String? chapterId,
+  int? chapterIndex,
+  int? page,
+  int? selectedIndex,
+  int? currentPage,
+  String? routeName,
+  String? parentKey,
+  String? readerChildKey,
+  String? reason,
+  int? openDurationMs,
+}) {
+  final retainedTab = activeReaderTabId == expectedReaderTabId;
+  return {
+    'owner': owner,
+    'branch': branch,
+    'readerChildMounted': readerChildMounted,
+    'comicId': comicId,
+    'loadMode': loadMode,
+    'sourceKey': sourceKey,
+    'chapterId': chapterId,
+    'chapterIndex': chapterIndex,
+    'page': page,
+    'selectedIndex': selectedIndex,
+    'currentPage': currentPage,
+    'routeName': routeName,
+    'expectedReaderTabId': expectedReaderTabId,
+    'activeReaderTabId': activeReaderTabId,
+    'pageOrderId': pageOrderId,
+    'retainedTab': retainedTab,
+    'parentKey': parentKey,
+    'readerChildKey': readerChildKey,
+    if (reason != null) 'reason': reason,
+    if (openDurationMs != null) 'openDurationMs': openDurationMs,
+  };
+}
+
+@visibleForTesting
+void emitReaderParentShellBuildDiagnosticForTesting(Map<String, Object?> data) {
+  AppDiagnostics.trace(
+    'reader.lifecycle',
+    'reader.parent.shell.build',
+    data: data,
+  );
+}
+
+@visibleForTesting
+void emitReaderParentUnmountDiagnosticForTesting(Map<String, Object?> data) {
+  AppDiagnostics.warn(
+    'reader.lifecycle',
+    'reader.parent.unmount.retainedTab',
+    data: data,
+  );
+}
+
 extension _ReaderDiagnosticsState on _ReaderState {
   Map<String, Object?> _readerBuildDiagnosticData({
     required BuildContext buildContext,

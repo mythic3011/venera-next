@@ -162,8 +162,148 @@ class ReaderWithLoading extends StatefulWidget {
 
 class _ReaderWithLoadingState
     extends LoadingState<ReaderWithLoading, ReaderProps> {
+  DateTime? _readerChildMountedAt;
+  bool _readerChildMounted = false;
+  String? _routeNameSnapshot;
+
+  SourceRef? _diagnosticSourceRef({ReaderProps? data}) {
+    return data?.sourceRef ??
+        widget.sourceRef ??
+        (widget.sourceKey == null
+            ? null
+            : SourceRef.fromLegacy(
+                comicId: widget.id,
+                sourceKey: widget.sourceKey!,
+              ));
+  }
+
+  Future<void> _recordParentShellBuild({
+    required String branch,
+    required bool readerChildMounted,
+    required String? routeName,
+    ReaderProps? data,
+  }) async {
+    final sourceRef = _diagnosticSourceRef(data: data);
+    if (sourceRef == null) {
+      return;
+    }
+    final type = ComicType.fromKey(sourceRef.sourceKey);
+    final chapterIds = data?.chapters?.ids;
+    final runtimeContext = buildReaderRuntimeContext(
+      comicId: widget.id,
+      type: type,
+      chapterIndex: data?.history.ep ?? 0,
+      page: data?.history.page ?? 0,
+      chapterId: chapterIds?.elementAtOrNull((data?.history.ep ?? 1) - 1),
+      sourceRef: sourceRef,
+    );
+    final activeTab = await App.repositories.readerSession.loadActiveReaderTab(
+      runtimeContext.canonicalComicId,
+    );
+    final diagnosticData = buildReaderParentShellDiagnosticForTesting(
+      owner: 'ReaderWithLoading.buildFrame',
+      branch: branch,
+      readerChildMounted: readerChildMounted,
+      comicId: runtimeContext.canonicalComicId,
+      loadMode: runtimeContext.loadMode,
+      sourceKey: runtimeContext.sourceKey,
+      chapterId: runtimeContext.chapterId,
+      chapterIndex: runtimeContext.chapterIndex,
+      page: runtimeContext.page,
+      selectedIndex: data?.history.ep,
+      currentPage: data?.history.page,
+      routeName: routeName,
+      expectedReaderTabId: ReaderSessionRepository.defaultTabIdForSourceRef(
+        sourceRef,
+      ),
+      activeReaderTabId: activeTab?.tabId,
+      pageOrderId: activeTab?.pageOrderId,
+      parentKey: widget.key?.toString(),
+      readerChildKey: 'reader:${widget.id}:${sourceRef.id}',
+    );
+    emitReaderParentShellBuildDiagnosticForTesting(diagnosticData);
+  }
+
+  Future<void> _recordParentUnmountIfRetained({
+    required String reason,
+    required String? routeName,
+    ReaderProps? data,
+  }) async {
+    final mountedAt = _readerChildMountedAt;
+    if (mountedAt == null) {
+      return;
+    }
+    final openDurationMs = DateTime.now().difference(mountedAt).inMilliseconds;
+    if (openDurationMs >= 5000) {
+      return;
+    }
+    final sourceRef = _diagnosticSourceRef(data: data);
+    if (sourceRef == null) {
+      return;
+    }
+    final type = ComicType.fromKey(sourceRef.sourceKey);
+    final chapterIds = data?.chapters?.ids;
+    final runtimeContext = buildReaderRuntimeContext(
+      comicId: widget.id,
+      type: type,
+      chapterIndex: data?.history.ep ?? 0,
+      page: data?.history.page ?? 0,
+      chapterId: chapterIds?.elementAtOrNull((data?.history.ep ?? 1) - 1),
+      sourceRef: sourceRef,
+    );
+    final activeTab = await App.repositories.readerSession.loadActiveReaderTab(
+      runtimeContext.canonicalComicId,
+    );
+    final expectedReaderTabId =
+        ReaderSessionRepository.defaultTabIdForSourceRef(sourceRef);
+    if (activeTab?.tabId != expectedReaderTabId) {
+      return;
+    }
+    emitReaderParentUnmountDiagnosticForTesting(
+      buildReaderParentShellDiagnosticForTesting(
+        owner: 'ReaderWithLoading.parentUnmount',
+        branch: error != null ? 'error' : (isLoading ? 'loading' : 'content'),
+        readerChildMounted: false,
+        comicId: runtimeContext.canonicalComicId,
+        loadMode: runtimeContext.loadMode,
+        sourceKey: runtimeContext.sourceKey,
+        chapterId: runtimeContext.chapterId,
+        chapterIndex: runtimeContext.chapterIndex,
+        page: runtimeContext.page,
+        selectedIndex: data?.history.ep,
+        currentPage: data?.history.page,
+        routeName: routeName,
+        expectedReaderTabId: expectedReaderTabId,
+        activeReaderTabId: activeTab?.tabId,
+        pageOrderId: activeTab?.pageOrderId,
+        parentKey: widget.key?.toString(),
+        readerChildKey: 'reader:${widget.id}:${sourceRef.id}',
+        reason: reason,
+        openDurationMs: openDurationMs,
+      ),
+    );
+  }
+
+  @override
+  void dispose() {
+    if (_readerChildMounted) {
+      unawaited(
+        _recordParentUnmountIfRetained(
+          reason: 'parentState.dispose',
+          routeName: _routeNameSnapshot,
+          data: data,
+        ),
+      );
+    }
+    super.dispose();
+  }
+
   @override
   Widget buildContent(BuildContext context, ReaderProps data) {
+    if (!_readerChildMounted) {
+      _readerChildMounted = true;
+      _readerChildMountedAt = DateTime.now();
+    }
     final initialPosition = resolveReaderInitialPosition(
       requestedEp: widget.initialEp,
       requestedPage: widget.initialPage,
@@ -185,6 +325,35 @@ class _ReaderWithLoadingState
       author: data.author,
       tags: data.tags,
     );
+  }
+
+  @override
+  Widget? buildFrame(BuildContext context, Widget child) {
+    _routeNameSnapshot = ModalRoute.of(context)?.settings.name;
+    final branch = isLoading
+        ? 'loading'
+        : (error != null ? 'error' : 'content');
+    final nextReaderChildMounted = branch == 'content';
+    if (_readerChildMounted && !nextReaderChildMounted) {
+      unawaited(
+        _recordParentUnmountIfRetained(
+          reason: 'branch_switched_$branch',
+          routeName: _routeNameSnapshot,
+          data: data,
+        ),
+      );
+      _readerChildMounted = false;
+      _readerChildMountedAt = null;
+    }
+    unawaited(
+      _recordParentShellBuild(
+        branch: branch,
+        readerChildMounted: nextReaderChildMounted,
+        routeName: _routeNameSnapshot,
+        data: data,
+      ),
+    );
+    return null;
   }
 
   @override

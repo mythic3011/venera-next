@@ -154,38 +154,41 @@ void main() {
     expect(data['pageOrderId'], '1:__imported__:source_default');
   });
 
-  test('reader emits tab retention diagnostic after local page list success', () {
-    final data = buildReaderTabRetentionDiagnosticForTesting(
-      expectedReaderTabId: 'local:local:1:1:__imported__',
-      activeReaderTabId: 'local:local:1:1:__imported__',
-      pageOrderId: '1:__imported__:source_default',
-      comicId: '1',
-      loadMode: 'local',
-      sourceKey: 'local',
-      chapterId: '1:__imported__',
-      chapterIndex: 1,
-      page: 1,
-    );
+  test(
+    'reader emits tab retention diagnostic after local page list success',
+    () {
+      final data = buildReaderTabRetentionDiagnosticForTesting(
+        expectedReaderTabId: 'local:local:1:1:__imported__',
+        activeReaderTabId: 'local:local:1:1:__imported__',
+        pageOrderId: '1:__imported__:source_default',
+        comicId: '1',
+        loadMode: 'local',
+        sourceKey: 'local',
+        chapterId: '1:__imported__',
+        chapterIndex: 1,
+        page: 1,
+      );
 
-    emitReaderTabRetentionDiagnosticForTesting(data);
+      emitReaderTabRetentionDiagnosticForTesting(data);
 
-    final diagnosticEvent = DevDiagnosticsApi.recent(
-      channel: 'reader.lifecycle',
-    ).single;
-    expect(diagnosticEvent.message, 'reader.tab.retention.afterPageList');
-    expect(
-      diagnosticEvent.data['activeReaderTabId'],
-      'local:local:1:1:__imported__',
-    );
-    expect(
-      diagnosticEvent.data['expectedReaderTabId'],
-      'local:local:1:1:__imported__',
-    );
-    expect(
-      diagnosticEvent.data['pageOrderId'],
-      '1:__imported__:source_default',
-    );
-  });
+      final diagnosticEvent = DevDiagnosticsApi.recent(
+        channel: 'reader.lifecycle',
+      ).single;
+      expect(diagnosticEvent.message, 'reader.tab.retention.afterPageList');
+      expect(
+        diagnosticEvent.data['activeReaderTabId'],
+        'local:local:1:1:__imported__',
+      );
+      expect(
+        diagnosticEvent.data['expectedReaderTabId'],
+        'local:local:1:1:__imported__',
+      );
+      expect(
+        diagnosticEvent.data['pageOrderId'],
+        '1:__imported__:source_default',
+      );
+    },
+  );
 
   test(
     'reader tab retention warning fires when active tab is missing after page list success',
@@ -211,6 +214,122 @@ void main() {
       expect(diagnosticEvent.data['status'], 'missingActiveTab');
       expect(diagnosticEvent.data['expectedReaderTabId'], isNotNull);
       expect(diagnosticEvent.data['activeReaderTabId'], isNull);
+    },
+  );
+
+  test(
+    'shell keeps reader child mounted when active tab id matches expected local reader tab',
+    () {
+      final data = buildReaderParentShellDiagnosticForTesting(
+        owner: 'ReaderWithLoading.buildFrame',
+        branch: 'content',
+        readerChildMounted: true,
+        comicId: '1',
+        loadMode: 'local',
+        sourceKey: 'local',
+        chapterId: '1:__imported__',
+        chapterIndex: 1,
+        page: 1,
+        selectedIndex: 1,
+        currentPage: 1,
+        routeName: null,
+        expectedReaderTabId: 'local:local:1:1:__imported__',
+        activeReaderTabId: 'local:local:1:1:__imported__',
+        pageOrderId: '1:__imported__:source_default',
+        parentKey: 'parent-key',
+        readerChildKey: 'reader:1:local:local:1:1:__imported__',
+      );
+
+      expect(data['readerChildMounted'], isTrue);
+      expect(data['retainedTab'], isTrue);
+      expect(data['branch'], 'content');
+    },
+  );
+
+  test(
+    'reader short dispose with retained tab emits parent unmount diagnostic',
+    () {
+      final data = buildReaderParentShellDiagnosticForTesting(
+        owner: 'ReaderWithLoading.parentUnmount',
+        branch: 'loading',
+        readerChildMounted: false,
+        comicId: '1',
+        loadMode: 'local',
+        sourceKey: 'local',
+        chapterId: '1:__imported__',
+        chapterIndex: 1,
+        page: 1,
+        selectedIndex: 1,
+        currentPage: 1,
+        routeName: null,
+        expectedReaderTabId: 'local:local:1:1:__imported__',
+        activeReaderTabId: 'local:local:1:1:__imported__',
+        pageOrderId: '1:__imported__:source_default',
+        parentKey: 'parent-key',
+        readerChildKey: 'reader:1:local:local:1:1:__imported__',
+        reason: 'branch_switched_loading',
+        openDurationMs: 1885,
+      );
+
+      emitReaderParentUnmountDiagnosticForTesting(data);
+
+      final diagnosticEvent = DevDiagnosticsApi.recent(
+        channel: 'reader.lifecycle',
+      ).single;
+      expect(diagnosticEvent.message, 'reader.parent.unmount.retainedTab');
+      expect(
+        diagnosticEvent.data['activeReaderTabId'],
+        data['activeReaderTabId'],
+      );
+      expect(
+        diagnosticEvent.data['expectedReaderTabId'],
+        data['expectedReaderTabId'],
+      );
+      expect(diagnosticEvent.data['reason'], 'branch_switched_loading');
+    },
+  );
+
+  test(
+    'shell build diagnostic includes active tab id expected tab id and page order id',
+    () {
+      final data = buildReaderParentShellDiagnosticForTesting(
+        owner: 'ReaderWithLoading.buildFrame',
+        branch: 'content',
+        readerChildMounted: true,
+        comicId: '1',
+        loadMode: 'local',
+        sourceKey: 'local',
+        chapterId: '1:__imported__',
+        chapterIndex: 1,
+        page: 1,
+        selectedIndex: 1,
+        currentPage: 1,
+        routeName: null,
+        expectedReaderTabId: 'local:local:1:1:__imported__',
+        activeReaderTabId: 'local:local:1:1:__imported__',
+        pageOrderId: '1:__imported__:source_default',
+        parentKey: 'parent-key',
+        readerChildKey: 'reader:1:local:local:1:1:__imported__',
+      );
+
+      emitReaderParentShellBuildDiagnosticForTesting(data);
+
+      final diagnosticEvent = DevDiagnosticsApi.recent(
+        channel: 'reader.lifecycle',
+      ).single;
+      expect(diagnosticEvent.message, 'reader.parent.shell.build');
+      expect(
+        diagnosticEvent.data['activeReaderTabId'],
+        'local:local:1:1:__imported__',
+      );
+      expect(
+        diagnosticEvent.data['expectedReaderTabId'],
+        'local:local:1:1:__imported__',
+      );
+      expect(
+        diagnosticEvent.data['pageOrderId'],
+        '1:__imported__:source_default',
+      );
     },
   );
 
