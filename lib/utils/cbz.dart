@@ -1,11 +1,13 @@
 import 'dart:convert';
 import 'dart:isolate';
+import 'package:flutter/foundation.dart';
 import 'package:flutter_7zip/flutter_7zip.dart';
 import 'package:venera/foundation/app.dart';
 import 'package:venera/features/sources/comic_source/comic_source.dart';
 import 'package:venera/foundation/comic_type.dart';
 import 'package:venera/foundation/local_comics_legacy_bridge.dart';
 import 'package:venera/foundation/local.dart';
+import 'package:venera/utils/local_import_storage.dart';
 import 'package:venera/utils/ext.dart';
 import 'package:venera/utils/file_type.dart';
 import 'package:venera/utils/import_sort.dart';
@@ -98,6 +100,15 @@ abstract class CBZ {
         'Local comics database unavailable (fail closed): ${result.code}',
       );
     }
+  }
+
+  @visibleForTesting
+  static Future<void> assertCanonicalStorageReadyForImport(
+    String comicTitle, {
+    LocalImportStoragePort? storage,
+  }) {
+    return (storage ?? const CanonicalLocalImportStorage())
+        .assertStorageReadyForImport(comicTitle);
   }
 
   static Future<Directory> _flattenSingleWrapper(Directory root) async {
@@ -226,7 +237,9 @@ abstract class CBZ {
   static Future<LocalComic> import(
     File file, {
     void Function(String message, double? progress)? onProgress,
+    LocalImportStoragePort? localImportStorage,
   }) async {
+    final storage = localImportStorage ?? const CanonicalLocalImportStorage();
     onProgress?.call("Preparing import".tl, 0.02);
     onProgress?.call("Extracting archive".tl, 0.08);
     var cache = Directory(FilePath.join(App.cachePath, 'cbz_import'));
@@ -249,9 +262,11 @@ abstract class CBZ {
       author: "",
       tags: [],
     );
-    assertLegacyLookupAvailableForImport(metaData.title);
-    final duplicateCheck = legacyLookupLocalComicByName(metaData.title);
-    if (duplicateCheck is LegacyLocalComicLookupFound) {
+    await assertCanonicalStorageReadyForImport(
+      metaData.title,
+      storage: storage,
+    );
+    if (await storage.hasDuplicateTitle(metaData.title)) {
       throw Exception('Comic with name ${metaData.title} already exists');
     }
     var files = await _collectImageFiles(cache);
@@ -270,7 +285,7 @@ abstract class CBZ {
     Map<String, String>? cpMap;
     var dest = Directory(
       FilePath.join(
-        legacyLocalComicsRootPath(),
+        await storage.requireRootPath(),
         sanitizeFileName(metaData.title),
       ),
     );
@@ -338,7 +353,7 @@ abstract class CBZ {
       );
     }
     var comic = LocalComic(
-      id: legacyFindValidLocalComicId(ComicType.local),
+      id: '0',
       title: metaData.title,
       subtitle: metaData.author,
       tags: metaData.tags,

@@ -15,6 +15,7 @@ import 'package:venera/foundation/log.dart';
 import 'package:sqlite3/sqlite3.dart' as sql;
 import 'package:venera/utils/ext.dart';
 import 'package:venera/utils/import_sort.dart';
+import 'package:venera/utils/local_import_storage.dart';
 import 'package:venera/utils/translations.dart';
 import 'cbz.dart';
 import 'io.dart';
@@ -30,41 +31,49 @@ const Set<String> _supportedImageExtensions = {
   'jpe',
 };
 
-bool _isLateInitError(Object error) {
-  final asText = error.toString();
-  return asText.contains('LateInitializationError') ||
-      asText.contains('late initialization');
-}
-
-@visibleForTesting
-LegacyLocalComicLookupResult lookupLocalComicForImportDuplicateCheck(
-  String title, {
-  LegacyLocalComicLookupResult Function(String title)? lookup,
-}) {
-  return (lookup ?? legacyLookupLocalComicByName).call(title);
-}
-
-@visibleForTesting
-String requireLocalComicsRootPathForImport({
-  String Function()? reader,
-}) {
-  try {
-    final path = (reader ?? legacyReadLocalComicsRootPath).call().trim();
-    if (path.isEmpty) {
-      throw Exception('Local comics root path unavailable (fail closed)');
-    }
-    return path;
-  } catch (error) {
-    if (_isLateInitError(error)) {
-      throw Exception('Local comics root path unavailable (fail closed)');
-    }
-    rethrow;
-  }
-}
-
 @visibleForTesting
 bool isSupportedImageExtension(String extension) {
   return _supportedImageExtensions.contains(extension.toLowerCase());
+}
+
+@visibleForTesting
+Future<int> registerImportedComicsForTesting({
+  required Map<String?, List<LocalComic>> importedComics,
+  required LocalImportStoragePort localImportStorage,
+  required Future<Map<String?, List<LocalComic>>> Function(
+    Map<String?, List<LocalComic>> comics,
+  )
+  copyComicsToLocalDir,
+  required void Function(String folder, FavoriteItem item) addFavoriteComic,
+  required bool copy,
+}) async {
+  if (copy) {
+    importedComics = await copyComicsToLocalDir(importedComics);
+  }
+  var importedCount = 0;
+  for (final folder in importedComics.keys) {
+    for (final comic in importedComics[folder]!) {
+      final registeredComic = await localImportStorage.registerImportedComic(
+        comic,
+      );
+      importedCount++;
+      if (folder != null) {
+        addFavoriteComic(
+          folder,
+          FavoriteItem(
+            id: registeredComic.id,
+            name: registeredComic.title,
+            coverPath: registeredComic.cover,
+            author: registeredComic.subtitle,
+            type: registeredComic.comicType,
+            tags: registeredComic.tags,
+            favoriteTime: registeredComic.createdAt,
+          ),
+        );
+      }
+    }
+  }
+  return importedCount;
 }
 
 @visibleForTesting
@@ -117,8 +126,14 @@ class _ExtractedArchive {
 class ImportComic {
   final String? selectedFolder;
   final bool copyToLocal;
+  final LocalImportStoragePort localImportStorage;
 
-  const ImportComic({this.selectedFolder, this.copyToLocal = true});
+  const ImportComic({
+    this.selectedFolder,
+    this.copyToLocal = true,
+    LocalImportStoragePort? localImportStorage,
+  }) : localImportStorage =
+           localImportStorage ?? const CanonicalLocalImportStorage();
 
   Future<bool> cbz() async {
     var file = await selectFile(ext: ['cbz', 'zip', '7z', 'cb7', 'pdf']);
@@ -341,14 +356,9 @@ class ImportComic {
       return null;
     }
     var title = sanitizeFileName(source.basenameWithoutExt);
-    final duplicateCheck = lookupLocalComicForImportDuplicateCheck(title);
-    if (duplicateCheck is LegacyLocalComicLookupUnavailable) {
-      throw Exception(
-        'Local comics lookup unavailable (fail closed): ${duplicateCheck.code}',
-      );
-    }
-    final localRootPath = requireLocalComicsRootPathForImport();
-    if (duplicateCheck is LegacyLocalComicLookupFound) {
+    await localImportStorage.assertStorageReadyForImport(title);
+    final localRootPath = await localImportStorage.requireRootPath();
+    if (await localImportStorage.hasDuplicateTitle(title)) {
       title = findValidDirectoryName(localRootPath, title);
     }
     final dest = Directory(FilePath.join(localRootPath, title));
@@ -448,7 +458,13 @@ class ImportComic {
         if (child.extension.toLowerCase() == 'pdf') {
           comics.add(await _importPdfAsComic(child));
         } else {
-          comics.add(await CBZ.import(child, onProgress: onProgress));
+          comics.add(
+            await CBZ.import(
+              child,
+              onProgress: onProgress,
+              localImportStorage: localImportStorage,
+            ),
+          );
         }
       } catch (e, s) {
         Log.error("Import Comic", e.toString(), s);
@@ -520,16 +536,11 @@ class ImportComic {
     void Function(String message, double? progress)? onProgress,
   }) async {
     final title = sanitizeFileName(source.basenameWithoutExt);
-    final duplicateCheck = lookupLocalComicForImportDuplicateCheck(title);
-    if (duplicateCheck is LegacyLocalComicLookupUnavailable) {
-      throw Exception(
-        'Local comics lookup unavailable (fail closed): ${duplicateCheck.code}',
-      );
-    }
-    if (duplicateCheck is LegacyLocalComicLookupFound) {
+    await localImportStorage.assertStorageReadyForImport(title);
+    if (await localImportStorage.hasDuplicateTitle(title)) {
       throw Exception("Comic with name $title already exists");
     }
-    final localRootPath = requireLocalComicsRootPathForImport();
+    final localRootPath = await localImportStorage.requireRootPath();
     final dest = Directory(FilePath.join(localRootPath, title));
     if (dest.existsSync()) {
       await dest.deleteIgnoreError(recursive: true);
@@ -625,7 +636,13 @@ class ImportComic {
     final extraction = await _extractArchive(file, onProgress: onProgress);
     try {
       if (!await _isBundleArchive(extraction.root)) {
-        return [await CBZ.import(file, onProgress: onProgress)];
+        return [
+          await CBZ.import(
+            file,
+            onProgress: onProgress,
+            localImportStorage: localImportStorage,
+          ),
+        ];
       }
       final childFiles = await _collectChildImportFiles(extraction.root);
       if (childFiles.isEmpty) {
@@ -860,13 +877,8 @@ class ImportComic {
   }) async {
     if (!(await directory.exists())) return null;
     var name = title ?? directory.name;
-    final duplicateCheck = lookupLocalComicForImportDuplicateCheck(name);
-    if (duplicateCheck is LegacyLocalComicLookupUnavailable) {
-      throw Exception(
-        'Local comics lookup unavailable (fail closed): ${duplicateCheck.code}',
-      );
-    }
-    if (duplicateCheck is LegacyLocalComicLookupFound) {
+    await localImportStorage.assertStorageReadyForImport(name);
+    if (await localImportStorage.hasDuplicateTitle(name)) {
       Log.info("Import Comic", "Comic already exists: $name");
       return null;
     }
@@ -963,7 +975,7 @@ class ImportComic {
   Future<Map<String?, List<LocalComic>>> _copyComicsToLocalDir(
     Map<String?, List<LocalComic>> comics,
   ) async {
-    var destPath = requireLocalComicsRootPathForImport();
+    var destPath = await localImportStorage.requireRootPath();
     Map<String?, List<LocalComic>> result = {};
     for (var favoriteFolder in comics.keys) {
       result[favoriteFolder] = comics[favoriteFolder]!
@@ -1019,31 +1031,15 @@ class ImportComic {
     bool copy,
   ) async {
     try {
-      if (copy) {
-        importedComics = await _copyComicsToLocalDir(importedComics);
-      }
-      int importedCount = 0;
-      for (var folder in importedComics.keys) {
-        for (var comic in importedComics[folder]!) {
-          var id = legacyFindValidLocalComicId(ComicType.local);
-          legacyRegisterLocalComic(comic, id);
-          importedCount++;
-          if (folder != null) {
-            LocalFavoritesManager().addComic(
-              folder,
-              FavoriteItem(
-                id: id,
-                name: comic.title,
-                coverPath: comic.cover,
-                author: comic.subtitle,
-                type: comic.comicType,
-                tags: comic.tags,
-                favoriteTime: comic.createdAt,
-              ),
-            );
-          }
-        }
-      }
+      final importedCount = await registerImportedComicsForTesting(
+        importedComics: importedComics,
+        localImportStorage: localImportStorage,
+        copyComicsToLocalDir: _copyComicsToLocalDir,
+        addFavoriteComic: (folder, item) {
+          LocalFavoritesManager().addComic(folder, item);
+        },
+        copy: copy,
+      );
       App.rootContext.showMessage(
         message: "Imported @a comics".tlParams({'a': importedCount}),
       );
