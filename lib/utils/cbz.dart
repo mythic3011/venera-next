@@ -88,6 +88,18 @@ class ComicChapter {
 abstract class CBZ {
   static const _imageExtensions = {'jpg', 'jpeg', 'png', 'webp', 'gif', 'jpe'};
 
+  static void assertLegacyLookupAvailableForImport(
+    String comicTitle, {
+    LegacyLocalComicLookupResult Function(String title)? lookup,
+  }) {
+    final result = (lookup ?? legacyLookupLocalComicByName).call(comicTitle);
+    if (result is LegacyLocalComicLookupUnavailable) {
+      throw Exception(
+        'Local comics database unavailable (fail closed): ${result.code}',
+      );
+    }
+  }
+
   static Future<Directory> _flattenSingleWrapper(Directory root) async {
     var current = root;
     while (true) {
@@ -237,8 +249,9 @@ abstract class CBZ {
       author: "",
       tags: [],
     );
-    var old = legacyFindLocalComicByName(metaData.title);
-    if (old != null) {
+    assertLegacyLookupAvailableForImport(metaData.title);
+    final duplicateCheck = legacyLookupLocalComicByName(metaData.title);
+    if (duplicateCheck is LegacyLocalComicLookupFound) {
       throw Exception('Comic with name ${metaData.title} already exists');
     }
     var files = await _collectImageFiles(cache);

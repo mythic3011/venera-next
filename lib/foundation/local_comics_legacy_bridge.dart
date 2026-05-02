@@ -4,6 +4,32 @@ import 'package:flutter/material.dart';
 import 'package:venera/foundation/comic_type.dart';
 import 'package:venera/foundation/local.dart';
 
+sealed class LegacyLocalComicLookupResult {
+  const LegacyLocalComicLookupResult();
+}
+
+class LegacyLocalComicLookupFound extends LegacyLocalComicLookupResult {
+  final LocalComic comic;
+
+  const LegacyLocalComicLookupFound(this.comic);
+}
+
+class LegacyLocalComicLookupNotFound extends LegacyLocalComicLookupResult {
+  const LegacyLocalComicLookupNotFound();
+}
+
+class LegacyLocalComicLookupUnavailable extends LegacyLocalComicLookupResult {
+  final String code;
+
+  const LegacyLocalComicLookupUnavailable({this.code = 'LEGACY_UNAVAILABLE'});
+}
+
+bool _isLateInitError(Object error) {
+  final asText = error.toString();
+  return asText.contains('LateInitializationError') ||
+      asText.contains('late initialization');
+}
+
 Future<void> legacyEnsureLocalComicsInitialized() {
   return LocalManager().ensureInitialized();
 }
@@ -38,6 +64,24 @@ List<LocalComic> legacySearchLocalComics(String keyword) {
 
 LocalComic? legacyFindLocalComicByName(String name) {
   return LocalManager().findByName(name);
+}
+
+LegacyLocalComicLookupResult legacyLookupLocalComicByName(
+  String name, {
+  LocalComic? Function(String name)? finder,
+}) {
+  try {
+    final comic = (finder ?? legacyFindLocalComicByName).call(name);
+    if (comic == null) {
+      return const LegacyLocalComicLookupNotFound();
+    }
+    return LegacyLocalComicLookupFound(comic);
+  } catch (error) {
+    if (_isLateInitError(error)) {
+      return const LegacyLocalComicLookupUnavailable();
+    }
+    rethrow;
+  }
 }
 
 String legacyFindValidLocalComicId(ComicType type) {

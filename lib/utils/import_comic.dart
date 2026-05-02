@@ -30,6 +30,38 @@ const Set<String> _supportedImageExtensions = {
   'jpe',
 };
 
+bool _isLateInitError(Object error) {
+  final asText = error.toString();
+  return asText.contains('LateInitializationError') ||
+      asText.contains('late initialization');
+}
+
+@visibleForTesting
+LegacyLocalComicLookupResult lookupLocalComicForImportDuplicateCheck(
+  String title, {
+  LegacyLocalComicLookupResult Function(String title)? lookup,
+}) {
+  return (lookup ?? legacyLookupLocalComicByName).call(title);
+}
+
+@visibleForTesting
+String requireLocalComicsRootPathForImport({
+  String Function()? reader,
+}) {
+  try {
+    final path = (reader ?? legacyReadLocalComicsRootPath).call().trim();
+    if (path.isEmpty) {
+      throw Exception('Local comics root path unavailable (fail closed)');
+    }
+    return path;
+  } catch (error) {
+    if (_isLateInitError(error)) {
+      throw Exception('Local comics root path unavailable (fail closed)');
+    }
+    rethrow;
+  }
+}
+
 @visibleForTesting
 bool isSupportedImageExtension(String extension) {
   return _supportedImageExtensions.contains(extension.toLowerCase());
@@ -309,13 +341,17 @@ class ImportComic {
       return null;
     }
     var title = sanitizeFileName(source.basenameWithoutExt);
-    var existed = legacyFindLocalComicByName(title);
-    if (existed != null) {
-      title = findValidDirectoryName(legacyReadLocalComicsRootPath(), title);
+    final duplicateCheck = lookupLocalComicForImportDuplicateCheck(title);
+    if (duplicateCheck is LegacyLocalComicLookupUnavailable) {
+      throw Exception(
+        'Local comics lookup unavailable (fail closed): ${duplicateCheck.code}',
+      );
     }
-    final dest = Directory(
-      FilePath.join(legacyReadLocalComicsRootPath(), title),
-    );
+    final localRootPath = requireLocalComicsRootPathForImport();
+    if (duplicateCheck is LegacyLocalComicLookupFound) {
+      title = findValidDirectoryName(localRootPath, title);
+    }
+    final dest = Directory(FilePath.join(localRootPath, title));
     if (dest.existsSync()) {
       await dest.deleteIgnoreError(recursive: true);
     }
@@ -484,12 +520,17 @@ class ImportComic {
     void Function(String message, double? progress)? onProgress,
   }) async {
     final title = sanitizeFileName(source.basenameWithoutExt);
-    if (legacyFindLocalComicByName(title) != null) {
+    final duplicateCheck = lookupLocalComicForImportDuplicateCheck(title);
+    if (duplicateCheck is LegacyLocalComicLookupUnavailable) {
+      throw Exception(
+        'Local comics lookup unavailable (fail closed): ${duplicateCheck.code}',
+      );
+    }
+    if (duplicateCheck is LegacyLocalComicLookupFound) {
       throw Exception("Comic with name $title already exists");
     }
-    final dest = Directory(
-      FilePath.join(legacyReadLocalComicsRootPath(), title),
-    );
+    final localRootPath = requireLocalComicsRootPathForImport();
+    final dest = Directory(FilePath.join(localRootPath, title));
     if (dest.existsSync()) {
       await dest.deleteIgnoreError(recursive: true);
     }
@@ -819,7 +860,13 @@ class ImportComic {
   }) async {
     if (!(await directory.exists())) return null;
     var name = title ?? directory.name;
-    if (legacyFindLocalComicByName(name) != null) {
+    final duplicateCheck = lookupLocalComicForImportDuplicateCheck(name);
+    if (duplicateCheck is LegacyLocalComicLookupUnavailable) {
+      throw Exception(
+        'Local comics lookup unavailable (fail closed): ${duplicateCheck.code}',
+      );
+    }
+    if (duplicateCheck is LegacyLocalComicLookupFound) {
       Log.info("Import Comic", "Comic already exists: $name");
       return null;
     }
@@ -916,7 +963,7 @@ class ImportComic {
   Future<Map<String?, List<LocalComic>>> _copyComicsToLocalDir(
     Map<String?, List<LocalComic>> comics,
   ) async {
-    var destPath = legacyReadLocalComicsRootPath();
+    var destPath = requireLocalComicsRootPathForImport();
     Map<String?, List<LocalComic>> result = {};
     for (var favoriteFolder in comics.keys) {
       result[favoriteFolder] = comics[favoriteFolder]!

@@ -4,19 +4,32 @@ import 'package:flutter/foundation.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:uuid/uuid.dart';
 import 'package:venera/foundation/app.dart';
+import 'package:venera/foundation/db/unified_comics_store.dart';
 import 'package:venera/foundation/log.dart';
 import 'package:venera/utils/data_sync.dart';
 import 'package:venera/utils/init.dart';
 import 'package:venera/utils/io.dart';
 
 class Appdata with Init {
-  Appdata._create();
+  Appdata._create([this._settingsStoreOverride]);
 
   final Settings settings = Settings._create();
 
   var searchHistory = <String>[];
 
   bool _isSavingData = false;
+
+  static const String _appdataBackupSuffix = '.m25_2_backup';
+
+  final UnifiedComicsStore? _settingsStoreOverride;
+
+  @visibleForTesting
+  static Appdata createForTest({UnifiedComicsStore? settingsStore}) {
+    return Appdata._create(settingsStore);
+  }
+
+  UnifiedComicsStore? get _settingsStore =>
+      _settingsStoreOverride ?? App.unifiedComicsStoreOrNull;
 
   Future<void> saveData([bool sync = true]) async {
     while (_isSavingData) {
@@ -29,6 +42,7 @@ class Appdata with Init {
       var data = jsonEncode(json);
       var file = File(FilePath.join(App.dataPath, 'appdata.json'));
       futures.add(file.writeAsString(data));
+      futures.add(_saveToDb());
 
       var disableSyncFields = json["settings"]["disableSyncFields"] as String;
       if (disableSyncFields.isNotEmpty) {
@@ -122,7 +136,10 @@ class Appdata with Init {
     _isSavingData = true;
     try {
       var file = File(FilePath.join(App.dataPath, 'implicitData.json'));
-      await file.writeAsString(jsonEncode(implicitData));
+      await Future.wait([
+        file.writeAsString(jsonEncode(implicitData)),
+        _saveToDb(),
+      ]);
     } finally {
       _isSavingData = false;
     }
@@ -132,37 +149,248 @@ class Appdata with Init {
   Future<void> doInit() async {
     var dataPath = (await getApplicationSupportDirectory()).path;
     var file = File(FilePath.join(dataPath, 'appdata.json'));
-    if (!await file.exists()) {
-      return;
-    }
+    var loadedFromDb = false;
     try {
-      var json = jsonDecode(await file.readAsString());
-      for (var key in (json['settings'] as Map<String, dynamic>).keys) {
-        if (json['settings'][key] != null) {
-          settings[key] = json['settings'][key];
-        }
-      }
-      searchHistory = List.from(json['searchHistory']);
+      loadedFromDb = await _loadFromDb();
     } catch (e) {
-      Log.error("Appdata", "Failed to load appdata", e);
-      Log.info("Appdata", "Resetting appdata");
-      file.deleteIgnoreError();
+      Log.warning("Appdata", "DB app settings load failed; fallback to JSON: $e");
+      loadedFromDb = false;
     }
+
+    if (!loadedFromDb) {
+      final migrated = await _loadFromLegacyJson(
+        appDataFile: file,
+        implicitDataFile: File(FilePath.join(dataPath, 'implicitData.json')),
+      );
+      if (migrated) {
+        await _saveToDb();
+      }
+    }
+
     if ((settings["deviceId"] as String).isEmpty) {
       settings._data["deviceId"] = const Uuid().v4();
       await saveData(false);
     }
-    try {
-      var implicitDataFile = File(FilePath.join(dataPath, 'implicitData.json'));
-      if (await implicitDataFile.exists()) {
-        implicitData = jsonDecode(await implicitDataFile.readAsString());
+  }
+
+  Future<bool> _loadFromLegacyJson({
+    required File appDataFile,
+    required File implicitDataFile,
+  }) async {
+    var loadedAny = false;
+    if (await appDataFile.exists()) {
+      try {
+        var json = jsonDecode(await appDataFile.readAsString());
+        for (var key in (json['settings'] as Map<String, dynamic>).keys) {
+          if (json['settings'][key] != null) {
+            settings[key] = json['settings'][key];
+          }
+        }
+        searchHistory = List.from(json['searchHistory'] ?? const <String>[]);
+        loadedAny = true;
+        await _writeLegacyBackup(appDataFile);
+      } catch (e) {
+        Log.error("Appdata", "Failed to load appdata JSON", e);
       }
-    } catch (e) {
-      Log.error("Appdata", "Failed to load implicit data", e);
-      Log.info("Appdata", "Resetting implicit data");
-      var implicitDataFile = File(FilePath.join(dataPath, 'implicitData.json'));
-      implicitDataFile.deleteIgnoreError();
     }
+    if (await implicitDataFile.exists()) {
+      try {
+        implicitData = jsonDecode(await implicitDataFile.readAsString());
+        loadedAny = true;
+      } catch (e) {
+        Log.error("Appdata", "Failed to load implicit data JSON", e);
+      }
+    }
+    return loadedAny;
+  }
+
+  Future<void> _writeLegacyBackup(File appDataFile) async {
+    final backupPath = '${appDataFile.path}$_appdataBackupSuffix';
+    final backup = File(backupPath);
+    if (await backup.exists()) {
+      return;
+    }
+    if (await appDataFile.exists()) {
+      await appDataFile.copy(backupPath);
+    }
+  }
+
+  Future<bool> _loadFromDb() async {
+    final store = _settingsStore;
+    if (store == null) {
+      return false;
+    }
+    final settingRows = await store.loadAppSettings();
+    final searchRows = await store.loadSearchHistory();
+    final implicitRows = await store.loadImplicitData();
+    if (settingRows.isEmpty && searchRows.isEmpty && implicitRows.isEmpty) {
+      return false;
+    }
+
+    for (final row in settingRows) {
+      try {
+        final decoded = _decodeSettingValue(row);
+        if (!_isCompatibleWithDefaultShape(row.key, decoded)) {
+          Log.warning(
+            "Appdata",
+            "Skip DB setting with incompatible shape for key=${row.key}, valueType=${row.valueType}",
+          );
+          continue;
+        }
+        settings[row.key] = decoded;
+      } catch (e) {
+        Log.warning(
+          "Appdata",
+          "Skip invalid DB setting key=${row.key}, valueType=${row.valueType}: $e",
+        );
+      }
+    }
+    searchHistory = searchRows.map((row) => row.keyword).toList(growable: false);
+    implicitData = {
+      for (final row in implicitRows) row.key: jsonDecode(row.valueJson),
+    };
+    return true;
+  }
+
+  Future<void> _saveToDb() async {
+    final store = _settingsStore;
+    if (store == null) {
+      return;
+    }
+    final now = DateTime.now().millisecondsSinceEpoch;
+    await store.transaction(() async {
+      await store.clearAppSettings();
+      await store.clearSearchHistory();
+      await store.clearImplicitData();
+
+      for (final entry in settings._data.entries) {
+        final value = entry.value;
+        final valueType = _valueTypeOf(value);
+        final syncPolicy = _disableSync.contains(entry.key) ? 'local_only' : 'syncable';
+        await store.upsertAppSetting(
+          AppSettingRecord(
+            key: entry.key,
+            valueJson: jsonEncode(value),
+            valueType: valueType,
+            syncPolicy: syncPolicy,
+            updatedAtMs: now,
+          ),
+        );
+      }
+
+      for (var i = 0; i < searchHistory.length; i++) {
+        await store.upsertSearchHistory(
+          SearchHistoryRecord(
+            keyword: searchHistory[i],
+            position: i,
+            updatedAtMs: now,
+          ),
+        );
+      }
+
+      for (final entry in implicitData.entries) {
+        await store.upsertImplicitData(
+          ImplicitDataRecord(
+            key: entry.key,
+            valueJson: jsonEncode(entry.value),
+            updatedAtMs: now,
+          ),
+        );
+      }
+    });
+  }
+
+  String _valueTypeOf(Object? value) {
+    if (value == null) {
+      return 'null';
+    }
+    if (value is bool) {
+      return 'bool';
+    }
+    if (value is num) {
+      return 'num';
+    }
+    if (value is String) {
+      return 'string';
+    }
+    if (value is List) {
+      return 'list';
+    }
+    if (value is Map) {
+      return 'map';
+    }
+    return 'json';
+  }
+
+  dynamic _decodeSettingValue(AppSettingRecord row) {
+    final decoded = jsonDecode(row.valueJson);
+    switch (row.valueType) {
+      case 'null':
+        return null;
+      case 'bool':
+        if (decoded is bool) {
+          return decoded;
+        }
+        throw StateError('expected bool');
+      case 'string':
+        if (decoded is String) {
+          return decoded;
+        }
+        throw StateError('expected string');
+      case 'int':
+        if (decoded is int) {
+          return decoded;
+        }
+        throw StateError('expected int');
+      case 'double':
+        if (decoded is double) {
+          return decoded;
+        }
+        throw StateError('expected double');
+      case 'num':
+        if (decoded is num) {
+          return decoded;
+        }
+        throw StateError('expected num');
+      case 'list':
+        if (decoded is List) {
+          return List<dynamic>.from(decoded);
+        }
+        throw StateError('expected list');
+      case 'map':
+        if (decoded is Map) {
+          return Map<String, dynamic>.from(decoded);
+        }
+        throw StateError('expected map');
+      default:
+        return decoded;
+    }
+  }
+
+  bool _isCompatibleWithDefaultShape(String key, dynamic value) {
+    if (!settings._data.containsKey(key)) {
+      return true;
+    }
+    final defaultValue = settings._data[key];
+    if (defaultValue == null || value == null) {
+      return true;
+    }
+    if (defaultValue is Map) {
+      return value is Map;
+    }
+    if (defaultValue is List) {
+      return value is List;
+    }
+    if (defaultValue is bool) {
+      return value is bool;
+    }
+    if (defaultValue is num) {
+      return value is num;
+    }
+    if (defaultValue is String) {
+      return value is String;
+    }
+    return true;
   }
 }
 
@@ -239,9 +467,10 @@ class Settings with ChangeNotifier {
         false, // show chapter comments at end of chapter
     'reader_use_source_ref_resolver': false,
     'enableDebugDiagnostics': false,
-    'reader_next_enabled': false,
-    'reader_next_history_enabled': false,
-    'reader_next_favorites_enabled': false,
+    'reader_next_enabled': true,
+    'reader_next_history_enabled': true,
+    'reader_next_favorites_enabled': true,
+    'reader_next_downloads_enabled': true,
   };
 
   operator [](String key) {
