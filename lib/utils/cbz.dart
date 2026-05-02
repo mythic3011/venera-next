@@ -111,6 +111,25 @@ abstract class CBZ {
         .assertStorageReadyForImport(comicTitle);
   }
 
+  static Future<T> _runWithImportCacheCleanup<T>(
+    Directory cache,
+    Future<T> Function() action,
+  ) async {
+    try {
+      return await action();
+    } finally {
+      await cache.deleteIgnoreError(recursive: true);
+    }
+  }
+
+  @visibleForTesting
+  static Future<T> runWithImportCacheCleanupForTesting<T>(
+    Directory cache,
+    Future<T> Function() action,
+  ) {
+    return _runWithImportCacheCleanup(cache, action);
+  }
+
   static Future<Directory> _flattenSingleWrapper(Directory root) async {
     var current = root;
     while (true) {
@@ -234,21 +253,14 @@ abstract class CBZ {
     }
   }
 
-  static Future<LocalComic> import(
-    File file, {
+  static Future<LocalComic> _importExtractedDirectory(
+    Directory cache,
+    Directory root, {
+    required LocalImportStoragePort storage,
+    required String fallbackTitle,
     void Function(String message, double? progress)? onProgress,
-    LocalImportStoragePort? localImportStorage,
   }) async {
-    final storage = localImportStorage ?? const CanonicalLocalImportStorage();
-    onProgress?.call("Preparing import".tl, 0.02);
-    onProgress?.call("Extracting archive".tl, 0.08);
-    var cache = Directory(FilePath.join(App.cachePath, 'cbz_import'));
-    if (cache.existsSync()) cache.deleteSync(recursive: true);
-    cache.createSync();
-    await extractArchive(file, cache);
-    onProgress?.call("Scanning images".tl, 0.2);
-    cache = await _flattenSingleWrapper(cache);
-    var metaDataFile = File(FilePath.join(cache.path, 'metadata.json'));
+    var metaDataFile = File(FilePath.join(root.path, 'metadata.json'));
     ComicMetaData? metaData;
     if (metaDataFile.existsSync()) {
       try {
@@ -258,7 +270,7 @@ abstract class CBZ {
       } catch (_) {}
     }
     metaData ??= ComicMetaData(
-      title: file.name.substring(0, file.name.lastIndexOf('.')),
+      title: fallbackTitle,
       author: "",
       tags: [],
     );
@@ -269,37 +281,42 @@ abstract class CBZ {
     if (await storage.hasDuplicateTitle(metaData.title)) {
       throw Exception('Comic with name ${metaData.title} already exists');
     }
-    var files = await _collectImageFiles(cache);
+    var files = await _collectImageFiles(root);
     if (files.isEmpty) {
-      cache.deleteSync(recursive: true);
       throw Exception('No images found in the archive');
     }
-    var coverFile = files.firstWhereOrNull(
+    final coverFile = files.firstWhereOrNull(
       (element) => element.basenameWithoutExt.toLowerCase() == 'cover',
     );
+    final pageFiles = [...files];
+    File effectiveCoverFile;
     if (coverFile != null) {
-      files.remove(coverFile);
+      effectiveCoverFile = coverFile;
+      if (pageFiles.length > 1) {
+        pageFiles.remove(coverFile);
+      }
     } else {
-      coverFile = files.first;
+      effectiveCoverFile = pageFiles.first;
     }
     Map<String, String>? cpMap;
-    var dest = Directory(
-      FilePath.join(
-        await storage.requireRootPath(),
-        sanitizeFileName(metaData.title),
-      ),
-    );
-    dest.createSync();
-    await coverFile.copyFast(
-      FilePath.join(dest.path, 'cover.${coverFile.extension}'),
+    final localRootPath = await storage.requireRootPath();
+    var title = sanitizeFileName(metaData.title);
+    var dest = Directory(FilePath.join(localRootPath, title));
+    if (dest.existsSync()) {
+      title = findValidDirectoryName(localRootPath, title);
+      dest = Directory(FilePath.join(localRootPath, title));
+    }
+    dest.createSync(recursive: true);
+    await effectiveCoverFile.copyFast(
+      FilePath.join(dest.path, 'cover.${effectiveCoverFile.extension}'),
     );
     final directoryChapters = metaData.chapters == null
-        ? await _collectTopLevelDirectoryChapters(cache)
+        ? await _collectTopLevelDirectoryChapters(root)
         : null;
     if (metaData.chapters == null && directoryChapters == null) {
       final tasks = <Map<String, String>>[];
-      for (var i = 0; i < files.length; i++) {
-        final src = files[i];
+      for (var i = 0; i < pageFiles.length; i++) {
+        final src = pageFiles[i];
         tasks.add({
           'src': src.path,
           'dst': FilePath.join(dest.path, '${i + 1}.${src.extension}'),
@@ -313,11 +330,10 @@ abstract class CBZ {
         },
       );
     } else {
-      dest.createSync();
       final chapters = <String, List<File>>{};
       if (metaData.chapters != null) {
         for (var chapter in metaData.chapters!) {
-          chapters[chapter.title] = files.sublist(
+          chapters[chapter.title] = pageFiles.sublist(
             chapter.start - 1,
             chapter.end,
           );
@@ -331,7 +347,7 @@ abstract class CBZ {
       for (var chapter in chapters.entries) {
         cpMap[i.toString()] = chapter.key;
         var chapterDir = Directory(FilePath.join(dest.path, i.toString()));
-        chapterDir.createSync();
+        chapterDir.createSync(recursive: true);
         for (var pageIndex = 0; pageIndex < chapter.value.length; pageIndex++) {
           var src = chapter.value[pageIndex];
           tasks.add({
@@ -352,7 +368,8 @@ abstract class CBZ {
         },
       );
     }
-    var comic = LocalComic(
+    onProgress?.call("Finalizing import".tl, 1.0);
+    return LocalComic(
       id: '0',
       title: metaData.title,
       subtitle: metaData.author,
@@ -361,12 +378,51 @@ abstract class CBZ {
       directory: dest.name,
       chapters: ComicChapters.fromJsonOrNull(cpMap),
       downloadedChapters: cpMap?.keys.toList() ?? [],
-      cover: 'cover.${coverFile.extension}',
+      cover: 'cover.${effectiveCoverFile.extension}',
       createdAt: DateTime.now(),
     );
-    onProgress?.call("Finalizing import".tl, 1.0);
-    await cache.delete(recursive: true);
-    return comic;
+  }
+
+  @visibleForTesting
+  static Future<LocalComic> importExtractedDirectoryForTesting(
+    Directory cache,
+    Directory root, {
+    LocalImportStoragePort? localImportStorage,
+    String fallbackTitle = 'test-comic',
+    void Function(String message, double? progress)? onProgress,
+  }) {
+    return _importExtractedDirectory(
+      cache,
+      root,
+      storage: localImportStorage ?? const CanonicalLocalImportStorage(),
+      fallbackTitle: fallbackTitle,
+      onProgress: onProgress,
+    );
+  }
+
+  static Future<LocalComic> import(
+    File file, {
+    void Function(String message, double? progress)? onProgress,
+    LocalImportStoragePort? localImportStorage,
+  }) async {
+    final storage = localImportStorage ?? const CanonicalLocalImportStorage();
+    onProgress?.call("Preparing import".tl, 0.02);
+    onProgress?.call("Extracting archive".tl, 0.08);
+    var cache = Directory(FilePath.join(App.cachePath, 'cbz_import'));
+    if (cache.existsSync()) cache.deleteSync(recursive: true);
+    cache.createSync();
+    return _runWithImportCacheCleanup(cache, () async {
+      await extractArchive(file, cache);
+      onProgress?.call("Scanning images".tl, 0.2);
+      final root = await _flattenSingleWrapper(cache);
+      return _importExtractedDirectory(
+        cache,
+        root,
+        storage: storage,
+        fallbackTitle: file.name.substring(0, file.name.lastIndexOf('.')),
+        onProgress: onProgress,
+      );
+    });
   }
 
   static Future<File> export(LocalComic comic, String outFilePath) async {

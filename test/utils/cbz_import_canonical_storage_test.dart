@@ -1,3 +1,6 @@
+import 'dart:convert';
+import 'dart:io';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:venera/foundation/comic_type.dart';
 import 'package:venera/foundation/db/unified_comics_store.dart';
@@ -51,6 +54,13 @@ class _FakeImportStorage implements LocalImportStoragePort {
           createdAt: comic.createdAt,
         );
   }
+}
+
+const _singlePixelPngBase64 =
+    'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO0p6xQAAAAASUVORK5CYII=';
+
+Future<File> _writeImageFile(String path) {
+  return File(path).writeAsBytes(base64Decode(_singlePixelPngBase64));
 }
 
 void main() {
@@ -161,4 +171,72 @@ void main() {
       expect(favorites.single.id, 'canonical-1');
     },
   );
+
+  test('cbz import keeps single cover image as first page', () async {
+    final tempRoot = await Directory.systemTemp.createTemp('cbz-import-cover');
+    addTearDown(() => tempRoot.delete(recursive: true));
+    final cache = Directory('${tempRoot.path}/cache')..createSync();
+    final extracted = Directory('${cache.path}/archive')..createSync();
+    final localRoot = Directory('${tempRoot.path}/library')..createSync();
+    await _writeImageFile('${extracted.path}/cover.png');
+
+    final comic = await CBZ.importExtractedDirectoryForTesting(
+      cache,
+      extracted,
+      fallbackTitle: 'single-cover',
+      localImportStorage: _FakeImportStorage()
+        ..onRequireRootPath = () async => localRoot.path,
+    );
+
+    final importedDir = Directory('${localRoot.path}/${comic.directory}');
+    expect(File('${importedDir.path}/cover.png').existsSync(), isTrue);
+    expect(File('${importedDir.path}/1.png').existsSync(), isTrue);
+  });
+
+  test(
+    'cbz import resolves destination folder collision when folder exists but db has no duplicate',
+    () async {
+      final tempRoot = await Directory.systemTemp.createTemp(
+        'cbz-import-collision',
+      );
+      addTearDown(() => tempRoot.delete(recursive: true));
+      final cache = Directory('${tempRoot.path}/cache')..createSync();
+      final extracted = Directory('${cache.path}/archive')..createSync();
+      final localRoot = Directory('${tempRoot.path}/library')..createSync();
+      final existingDir = Directory('${localRoot.path}/collision-title')
+        ..createSync();
+      File('${existingDir.path}/old.txt').writeAsStringSync('existing');
+      await _writeImageFile('${extracted.path}/page-1.png');
+
+      final comic = await CBZ.importExtractedDirectoryForTesting(
+        cache,
+        extracted,
+        fallbackTitle: 'collision-title',
+        localImportStorage: _FakeImportStorage()
+          ..onRequireRootPath = () async => localRoot.path,
+      );
+
+      expect(comic.directory, isNot('collision-title'));
+      expect(
+        Directory('${localRoot.path}/${comic.directory}').existsSync(),
+        isTrue,
+      );
+      expect(File('${existingDir.path}/old.txt').readAsStringSync(), 'existing');
+    },
+  );
+
+  test('cbz import cleans import cache when import fails', () async {
+    final tempRoot = await Directory.systemTemp.createTemp('cbz-import-cache');
+    addTearDown(() => tempRoot.delete(recursive: true));
+    final cache = Directory('${tempRoot.path}/cache')..createSync();
+    File('${cache.path}/leftover.txt').writeAsStringSync('leftover');
+
+    await expectLater(
+      CBZ.runWithImportCacheCleanupForTesting(cache, () async {
+        throw StateError('boom');
+      }),
+      throwsA(isA<StateError>()),
+    );
+    expect(cache.existsSync(), isFalse);
+  });
 }
