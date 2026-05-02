@@ -58,6 +58,7 @@ void main() {
           (event) => event.message == 'reader.render.page.provider.created',
         );
     expect(providerCreated.data['loadMode'], 'local');
+    expect(providerCreated.data['imageKey'], 'file:///tmp/page-1.jpg');
   });
 
   test('reader image provider emits remote page terminal diagnostics', () {
@@ -85,6 +86,7 @@ void main() {
           (event) => event.message == 'reader.render.page.provider.created',
         );
     expect(providerCreated.data['loadMode'], 'remote');
+    expect(providerCreated.data['imageKey'], 'https://example.com/page-3.jpg');
   });
 
   test('reader image diagnostics include comic chapter and source context', () {

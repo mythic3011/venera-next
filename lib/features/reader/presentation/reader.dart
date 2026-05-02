@@ -60,6 +60,7 @@ part 'scaffold.dart';
 
 part 'images.dart';
 part 'reader_image_bytes_loader.dart';
+part 'reader_image_provider_factory.dart';
 part 'reader_render_diagnostics.dart';
 
 part 'gesture.dart';
