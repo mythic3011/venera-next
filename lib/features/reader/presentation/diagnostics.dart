@@ -88,6 +88,7 @@ ReaderPaginationDiagnostics buildReaderPaginationDiagnosticsForTesting({
 Map<String, Object?> buildReaderTabRetentionDiagnosticForTesting({
   required String expectedReaderTabId,
   required String? activeReaderTabId,
+  required String? pageOrderId,
   required String comicId,
   required String loadMode,
   required String sourceKey,
@@ -105,6 +106,7 @@ Map<String, Object?> buildReaderTabRetentionDiagnosticForTesting({
     'page': page,
     'expectedReaderTabId': expectedReaderTabId,
     'activeReaderTabId': activeReaderTabId,
+    'pageOrderId': pageOrderId,
     'retained': retained,
     'status': retained
         ? 'active'
@@ -439,6 +441,7 @@ extension _ReaderDiagnosticsState on _ReaderState {
         final data = buildReaderTabRetentionDiagnosticForTesting(
           expectedReaderTabId: expectedReaderTabId,
           activeReaderTabId: activeTab?.tabId,
+          pageOrderId: activeTab?.pageOrderId,
           comicId: context.canonicalComicId,
           loadMode: context.loadMode,
           sourceKey: context.sourceKey,

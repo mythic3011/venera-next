@@ -139,6 +139,7 @@ void main() {
     final data = buildReaderTabRetentionDiagnosticForTesting(
       expectedReaderTabId: 'local:local:1:1:__imported__',
       activeReaderTabId: 'local:local:1:1:__imported__',
+      pageOrderId: '1:__imported__:source_default',
       comicId: '1',
       loadMode: 'local',
       sourceKey: 'local',
@@ -150,6 +151,7 @@ void main() {
     expect(data['retained'], isTrue);
     expect(data['status'], 'active');
     expect(data['activeReaderTabId'], data['expectedReaderTabId']);
+    expect(data['pageOrderId'], '1:__imported__:source_default');
   });
 
   test('dispose diagnostics can skip layout dependent pagination reads', () {
