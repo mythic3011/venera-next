@@ -59,6 +59,8 @@ import 'package:flutter_staggered_grid_view/flutter_staggered_grid_view.dart';
 part 'scaffold.dart';
 
 part 'images.dart';
+part 'reader_image_bytes_loader.dart';
+part 'reader_render_diagnostics.dart';
 
 part 'gesture.dart';
 

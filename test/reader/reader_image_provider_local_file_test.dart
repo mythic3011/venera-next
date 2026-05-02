@@ -1,11 +1,20 @@
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:venera/foundation/diagnostics/diagnostics.dart';
 import 'package:venera/foundation/local.dart';
 import 'package:venera/foundation/image_provider/reader_image.dart';
 import 'package:venera/features/reader/presentation/reader.dart';
 
 void main() {
+  setUp(() {
+    AppDiagnostics.configureSinksForTesting(const []);
+  });
+
+  tearDown(() {
+    AppDiagnostics.resetForTesting();
+  });
+
   test('file URI image keys normalize to readable local file paths', () {
     expect(readerImageFilePathForTesting('file:///tmp/a.jpg'), '/tmp/a.jpg');
 
@@ -133,4 +142,61 @@ void main() {
 
     expect(bytes, expectedBytes);
   });
+
+  test('missing local page emits typed render blocked diagnostic', () async {
+    final tempDir = Directory.systemTemp.createTempSync(
+      'venera_reader_page_missing_test_',
+    );
+    addTearDown(() => tempDir.deleteSync(recursive: true));
+
+    final missing = File('${tempDir.path}/missing page.bin');
+
+    await expectLater(
+      () => readReaderImageBytesForTesting(
+        imageKey: missing.uri.toString(),
+        sourceKey: 'local',
+        canonicalComicId: 'comic-missing',
+        upstreamComicRefId: 'comic-missing',
+        chapterRefId: 'chapter-missing',
+      ),
+      throwsA(isA<FileSystemException>()),
+    );
+
+    final event = DevDiagnosticsApi.recent(
+      channel: 'reader.render',
+    ).singleWhere((event) => event.message == 'reader.render.blocked');
+    expect(event.data['code'], 'LOCAL_IMAGE_READ_FAILED');
+    expect(event.data['fileName'], 'missing page.bin');
+  });
+
+  test(
+    'remote cache miss emits structured render blocked diagnostic',
+    () async {
+      await expectLater(
+        () => readReaderImageBytesForTesting(
+          imageKey: 'https://example.com/page-miss.jpg',
+          sourceKey: 'copymanga',
+          canonicalComicId: 'remote:copymanga:comic-miss',
+          upstreamComicRefId: 'comic-miss',
+          chapterRefId: 'chapter-miss',
+          findCache: (_) async => null,
+        ),
+        throwsA(
+          isA<StateError>().having(
+            (error) => error.message,
+            'message',
+            contains('IMAGE_CACHE_MISS'),
+          ),
+        ),
+      );
+
+      final event = DevDiagnosticsApi.recent(
+        channel: 'reader.render',
+      ).singleWhere((event) => event.message == 'reader.render.blocked');
+      expect(event.data['code'], 'IMAGE_CACHE_MISS');
+      expect(event.data['loadMode'], 'remote');
+      expect(event.data['sourceKey'], 'copymanga');
+      expect(event.data['upstreamComicRefId'], 'comic-miss');
+    },
+  );
 }

@@ -3,6 +3,7 @@ import 'dart:ui' as ui;
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_qjs/flutter_qjs.dart';
+import 'package:venera/foundation/diagnostics/diagnostics.dart';
 import 'package:venera/foundation/log.dart';
 import 'package:venera/foundation/js_engine.dart';
 import 'package:venera/foundation/reader/reader_diagnostics.dart';
@@ -32,7 +33,8 @@ String readerImageLoadContextForTesting({
   String? chapterId,
   required int page,
 }) {
-  final resolvedCanonicalComicRefId = canonicalComicId ?? comicId ?? '<unknown>';
+  final resolvedCanonicalComicRefId =
+      canonicalComicId ?? comicId ?? '<unknown>';
   final resolvedUpstreamComicRefId =
       upstreamComicRefId ?? resolvedCanonicalComicRefId;
   final resolvedChapterRefId = chapterRefId ?? chapterId ?? '<unknown>';
@@ -82,6 +84,7 @@ class ReaderImageProvider
   Future<Uint8List> load(chunkEvents, checkStop) async {
     Uint8List? imageBytes;
     final loadMode = imageKey.startsWith('file://') ? 'local' : 'remote';
+    var localErrorCode = 'LOCAL_IMAGE_READ_FAILED';
     final diagnosticContext = readerImageLoadContextForTesting(
       imageKey: imageKey,
       sourceKey: sourceRef.sourceKey,
@@ -104,6 +107,7 @@ class ReaderImageProvider
         if (await file.exists()) {
           imageBytes = await file.readAsBytes();
         } else {
+          localErrorCode = 'LOCAL_PAGE_FILE_MISSING';
           throw "Error: File not found: ${file.path} ($diagnosticContext)";
         }
       } else {
@@ -220,6 +224,22 @@ class ReaderImageProvider
       );
       return loadedBytes;
     } catch (e, s) {
+      if (loadMode == 'local') {
+        AppDiagnostics.error(
+          'reader.local',
+          e,
+          message: 'reader.local.render.blocked',
+          data: {
+            'code': localErrorCode,
+            'loadMode': loadMode,
+            'sourceKey': sourceRef.sourceKey,
+            'comicId': canonicalComicId,
+            'chapterId': chapterRefId,
+            'page': page,
+            'imageKey': imageKey,
+          },
+        );
+      }
       ReaderDiagnostics.failImageLoad(
         callId: callId,
         loadMode: loadMode,

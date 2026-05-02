@@ -1,57 +1,5 @@
 part of 'reader.dart';
 
-Future<Uint8List> _readReaderImageBytes({
-  required String imageKey,
-  String? sourceKey,
-  String? canonicalComicId,
-  String? upstreamComicRefId,
-  String? chapterRefId,
-  // Compatibility aliases for older callsites.
-  String? comicId,
-  String? chapterId,
-}) async {
-  final resolvedSourceKey = sourceKey ?? localSourceKey;
-  final resolvedCanonicalComicRefId = canonicalComicId ?? comicId;
-  final resolvedChapterRefId = chapterRefId ?? chapterId;
-  final resolvedUpstreamComicRefId =
-      upstreamComicRefId ?? resolvedCanonicalComicRefId;
-  if (resolvedCanonicalComicRefId == null || resolvedCanonicalComicRefId.isEmpty) {
-    throw StateError('IMAGE_IDENTITY_MISSING: canonicalComicRefId');
-  }
-  if (resolvedChapterRefId == null || resolvedChapterRefId.isEmpty) {
-    throw StateError('IMAGE_IDENTITY_MISSING: chapterRefId');
-  }
-  if (imageKey.startsWith('file://')) {
-    return File(Uri.parse(imageKey).toFilePath()).readAsBytes();
-  }
-  final cache = await CacheManager().findCache(
-    '$imageKey@$resolvedSourceKey@$resolvedCanonicalComicRefId@$resolvedUpstreamComicRefId@$resolvedChapterRefId',
-  );
-  if (cache == null) {
-    throw StateError(
-      'IMAGE_CACHE_MISS: imageKey=$imageKey sourceKey=$resolvedSourceKey canonicalComicRefId=$resolvedCanonicalComicRefId upstreamComicRefId=$resolvedUpstreamComicRefId chapterRefId=$resolvedChapterRefId',
-    );
-  }
-  return cache.readAsBytes();
-}
-
-@visibleForTesting
-Future<Uint8List> readReaderImageBytesForTesting({
-  required String imageKey,
-  required String sourceKey,
-  required String canonicalComicId,
-  required String upstreamComicRefId,
-  required String chapterRefId,
-}) {
-  return _readReaderImageBytes(
-    imageKey: imageKey,
-    sourceKey: sourceKey,
-    canonicalComicId: canonicalComicId,
-    upstreamComicRefId: upstreamComicRefId,
-    chapterRefId: chapterRefId,
-  );
-}
-
 @visibleForTesting
 String? resolveLegacyRemoteSourceUnavailableErrorForTesting(
   String? sourceKey, {
@@ -247,6 +195,20 @@ ReaderImageProvider buildReaderImageProvider({
   required int page,
   required bool enableResize,
 }) {
+  recordReaderPageAttachedDiagnostic(
+    imageKey: imageKey,
+    sourceRef: sourceRef,
+    canonicalComicId: canonicalComicId,
+    chapterRefId: chapterRefId,
+    page: page,
+  );
+  recordReaderProviderCreatedDiagnostic(
+    imageKey: imageKey,
+    sourceRef: sourceRef,
+    canonicalComicId: canonicalComicId,
+    chapterRefId: chapterRefId,
+    page: page,
+  );
   return ReaderImageProvider(
     imageKey,
     sourceRef,

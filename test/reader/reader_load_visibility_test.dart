@@ -1,10 +1,19 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:venera/foundation/comic_type.dart';
+import 'package:venera/foundation/diagnostics/diagnostics.dart';
 import 'package:venera/foundation/image_provider/reader_image.dart';
 import 'package:venera/features/reader/presentation/reader.dart';
 import 'package:venera/foundation/source_ref.dart';
 
 void main() {
+  setUp(() {
+    AppDiagnostics.configureSinksForTesting(const []);
+  });
+
+  tearDown(() {
+    AppDiagnostics.resetForTesting();
+  });
+
   test('build_reader_image_provider_keeps_requested_page', () {
     final provider = buildReaderImageProvider(
       imageKey: 'https://example.com/page-3.jpg',
@@ -22,6 +31,60 @@ void main() {
 
     expect(provider.page, 3);
     expect(provider.enableResize, isTrue);
+  });
+
+  test('reader image provider emits local page terminal diagnostics', () {
+    buildReaderImageProvider(
+      imageKey: 'file:///tmp/page-1.jpg',
+      sourceRef: SourceRef.fromLegacyLocal(
+        localType: 'local',
+        localComicId: 'comic-1',
+        chapterId: 'comic-1:__imported__',
+      ),
+      canonicalComicId: 'comic-1',
+      upstreamComicRefId: 'comic-1',
+      chapterRefId: 'comic-1:__imported__',
+      page: 1,
+      enableResize: true,
+    );
+
+    final event = DevDiagnosticsApi.recent(
+      channel: 'reader.render',
+    ).singleWhere((event) => event.message == 'reader.render.page.attached');
+    expect(event.data['page'], 1);
+    expect(event.data['chapterId'], 'comic-1:__imported__');
+    final providerCreated = DevDiagnosticsApi.recent(channel: 'reader.render')
+        .singleWhere(
+          (event) => event.message == 'reader.render.page.provider.created',
+        );
+    expect(providerCreated.data['loadMode'], 'local');
+  });
+
+  test('reader image provider emits remote page terminal diagnostics', () {
+    buildReaderImageProvider(
+      imageKey: 'https://example.com/page-3.jpg',
+      sourceRef: SourceRef.fromLegacyRemote(
+        sourceKey: 'copymanga',
+        comicId: 'comic-9',
+        chapterId: 'ep-5',
+      ),
+      canonicalComicId: 'remote:copymanga:comic-9',
+      upstreamComicRefId: 'comic-9',
+      chapterRefId: 'ep-5',
+      page: 3,
+      enableResize: true,
+    );
+
+    final messages = DevDiagnosticsApi.recent(
+      channel: 'reader.render',
+    ).map((event) => event.message);
+    expect(messages, contains('reader.render.page.attached'));
+    expect(messages, contains('reader.render.page.provider.created'));
+    final providerCreated = DevDiagnosticsApi.recent(channel: 'reader.render')
+        .singleWhere(
+          (event) => event.message == 'reader.render.page.provider.created',
+        );
+    expect(providerCreated.data['loadMode'], 'remote');
   });
 
   test('reader image diagnostics include comic chapter and source context', () {
