@@ -6,7 +6,9 @@ import 'package:venera/foundation/comic_detail/comic_detail.dart';
 import 'package:venera/features/sources/comic_source/comic_source.dart';
 import 'package:venera/foundation/comic_type.dart';
 import 'package:venera/foundation/db/unified_comics_store.dart';
+import 'package:venera/foundation/diagnostics/diagnostics.dart';
 import 'package:venera/foundation/reader/page_provider.dart';
+import 'package:venera/foundation/reader/resume_target_store.dart';
 import 'package:venera/features/reader/data/reader_resume_service.dart';
 import 'package:venera/features/reader/data/reader_runtime_context.dart';
 import 'package:venera/features/reader/data/reader_session_persistence.dart';
@@ -27,6 +29,10 @@ class _SpyProvider implements ReadablePageProvider {
 }
 
 void main() {
+  tearDown(() {
+    AppDiagnostics.resetForTesting();
+  });
+
   test(
     'local_continue_reading_remains_local_with_linked_remote_source',
     () async {
@@ -171,7 +177,174 @@ void main() {
     },
   );
 
+  test('ReaderResumeService uses legacy fallback only when fallback loader is injected', () async {
+    final tempDir = await Directory.systemTemp.createTemp(
+      'venera-reader-resume-no-injected-fallback-',
+    );
+    final store = UnifiedComicsStore(p.join(tempDir.path, 'venera.db'));
+    await store.init();
+    try {
+      var fallbackCalls = 0;
+      final serviceWithoutFallback = ReaderResumeService(
+        readerSessions: ReaderSessionRepository(store: store),
+      );
+      final preferredWithoutFallback =
+          await serviceWithoutFallback.loadPreferredResumeSourceRef(
+            'series-no-fallback',
+            ComicType.local,
+          );
+
+      expect(preferredWithoutFallback, isNull);
+      expect(fallbackCalls, 0);
+
+      final legacyRef = SourceRef.fromLegacyLocal(
+        localType: 'local',
+        localComicId: 'series-no-fallback',
+        chapterId: 'chapter-3',
+      );
+      final serviceWithFallback = ReaderResumeService(
+        readerSessions: ReaderSessionRepository(store: store),
+        loadLegacyResumeSourceRef: (comicId, type) async {
+          fallbackCalls++;
+          return legacyRef;
+        },
+      );
+      final preferredWithFallback =
+          await serviceWithFallback.loadPreferredResumeSourceRef(
+            'series-no-fallback',
+            ComicType.local,
+          );
+
+      expect(preferredWithFallback?.id, legacyRef.id);
+      expect(fallbackCalls, 1);
+    } finally {
+      await store.close();
+      if (tempDir.existsSync()) {
+        tempDir.deleteSync(recursive: true);
+      }
+    }
+  });
+
+  test('resume service emits legacy fallback hit when canonical session misses', () async {
+    AppDiagnostics.configureSinksForTesting(const []);
+    final tempDir = await Directory.systemTemp.createTemp(
+      'venera-reader-resume-legacy-hit-',
+    );
+    final store = UnifiedComicsStore(p.join(tempDir.path, 'venera.db'));
+    await store.init();
+    try {
+      final legacyRef = SourceRef.fromLegacyLocal(
+        localType: 'local',
+        localComicId: 'series-legacy',
+        chapterId: 'chapter-7',
+      );
+      final preferred = await ReaderResumeService(
+        readerSessions: ReaderSessionRepository(store: store),
+        loadLegacyResumeSourceRef: (comicId, type) async => legacyRef,
+      ).loadPreferredResumeSourceRef('series-legacy', ComicType.local);
+
+      expect(preferred?.id, legacyRef.id);
+      final events = DevDiagnosticsApi.recent(channel: 'reader.session');
+      expect(
+        events.any(
+          (event) =>
+              event.message == 'reader.session.load.legacy_fallback_hit' &&
+              event.data['fallbackSource'] == 'reading_resume_targets_v1',
+        ),
+        isTrue,
+      );
+    } finally {
+      await store.close();
+      if (tempDir.existsSync()) {
+        tempDir.deleteSync(recursive: true);
+      }
+    }
+  });
+
+  test('legacy resume target fallback still reads reading_resume_targets_v1 when injected', () async {
+    AppDiagnostics.configureSinksForTesting(const []);
+    final implicitData = <String, dynamic>{};
+    final store = ResumeTargetStore(implicitData);
+    final legacyRef = SourceRef.fromLegacyLocal(
+      localType: 'local',
+      localComicId: 'series-injected-legacy',
+      chapterId: 'chapter-4',
+    );
+    store.write(
+      comicId: 'series-injected-legacy',
+      type: ComicType.local,
+      chapter: 4,
+      group: null,
+      page: 9,
+      sourceRef: legacyRef,
+    );
+
+    final tempDir = await Directory.systemTemp.createTemp(
+      'venera-reader-resume-injected-legacy-',
+    );
+    final dbStore = UnifiedComicsStore(p.join(tempDir.path, 'venera.db'));
+    await dbStore.init();
+    try {
+      final preferred = await ReaderResumeService(
+        readerSessions: ReaderSessionRepository(store: dbStore),
+        loadLegacyResumeSourceRef: (comicId, type) async =>
+            store.readWithDiagnostic(comicId, type).snapshot?.sourceRef,
+      ).loadPreferredResumeSourceRef(
+        'series-injected-legacy',
+        ComicType.local,
+      );
+
+      expect(preferred?.id, legacyRef.id);
+      final events = DevDiagnosticsApi.recent(channel: 'reader.session');
+      expect(
+        events.any(
+          (event) =>
+              event.message == 'reader.session.load.legacy_fallback_hit' &&
+              event.data['fallbackSource'] == 'reading_resume_targets_v1',
+        ),
+        isTrue,
+      );
+    } finally {
+      await dbStore.close();
+      if (tempDir.existsSync()) {
+        tempDir.deleteSync(recursive: true);
+      }
+    }
+  });
+
+  test('resume service emits legacy fallback miss when canonical and legacy both miss', () async {
+    AppDiagnostics.configureSinksForTesting(const []);
+    final tempDir = await Directory.systemTemp.createTemp(
+      'venera-reader-resume-legacy-miss-',
+    );
+    final store = UnifiedComicsStore(p.join(tempDir.path, 'venera.db'));
+    await store.init();
+    try {
+      final preferred = await ReaderResumeService(
+        readerSessions: ReaderSessionRepository(store: store),
+        loadLegacyResumeSourceRef: (_, __) async => null,
+      ).loadPreferredResumeSourceRef('series-miss', ComicType.local);
+
+      expect(preferred, isNull);
+      final events = DevDiagnosticsApi.recent(channel: 'reader.session');
+      expect(
+        events.any(
+          (event) =>
+              event.message == 'reader.session.load.legacy_fallback_miss' &&
+              event.data['fallbackSource'] == 'reading_resume_targets_v1',
+        ),
+        isTrue,
+      );
+    } finally {
+      await store.close();
+      if (tempDir.existsSync()) {
+        tempDir.deleteSync(recursive: true);
+      }
+    }
+  });
+
   test('resume service loads canonical active tab source ref only', () async {
+    AppDiagnostics.configureSinksForTesting(const []);
     final tempDir = await Directory.systemTemp.createTemp(
       'venera-reader-resume-hit-',
     );
@@ -211,6 +384,70 @@ void main() {
       expect(preferred!.type, SourceRefType.local);
       expect(preferred.sourceKey, 'local');
       expect(preferred.params['chapterId'], 'chapter-6');
+      final events = DevDiagnosticsApi.recent(channel: 'reader.session');
+      expect(
+        events.any(
+          (event) =>
+              event.message == 'reader.session.load.canonical_hit' &&
+              event.data['tabId'] != null,
+        ),
+        isTrue,
+      );
+    } finally {
+      await store.close();
+      if (tempDir.existsSync()) {
+        tempDir.deleteSync(recursive: true);
+      }
+    }
+  });
+
+  test('canonical reader session hit bypasses legacy fallback loader', () async {
+    final tempDir = await Directory.systemTemp.createTemp(
+      'venera-reader-resume-bypass-legacy-',
+    );
+    final store = UnifiedComicsStore(p.join(tempDir.path, 'venera.db'));
+    await store.init();
+    try {
+      await store.upsertComic(
+        const ComicRecord(
+          id: 'series-bypass',
+          title: 'Series Bypass',
+          normalizedTitle: 'series bypass',
+        ),
+      );
+      final repository = ReaderSessionRepository(store: store);
+      final localRef = SourceRef.fromLegacyLocal(
+        localType: 'local',
+        localComicId: 'series-bypass',
+        chapterId: 'chapter-8',
+      );
+      await persistReaderSessionContextForTesting(
+        repository: repository,
+        context: buildReaderRuntimeContextForTesting(
+          comicId: 'series-bypass',
+          type: ComicType.local,
+          chapterIndex: 8,
+          page: 5,
+          chapterId: 'chapter-8',
+          sourceRef: localRef,
+        ),
+      );
+      var fallbackCalls = 0;
+
+      final preferred = await ReaderResumeService(
+        readerSessions: repository,
+        loadLegacyResumeSourceRef: (comicId, type) async {
+          fallbackCalls++;
+          return SourceRef.fromLegacyLocal(
+            localType: 'local',
+            localComicId: comicId,
+            chapterId: 'chapter-legacy',
+          );
+        },
+      ).loadPreferredResumeSourceRef('series-bypass', ComicType.local);
+
+      expect(preferred?.id, localRef.id);
+      expect(fallbackCalls, 0);
     } finally {
       await store.close();
       if (tempDir.existsSync()) {

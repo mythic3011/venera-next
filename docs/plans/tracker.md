@@ -135,117 +135,6 @@ because Flutter route transition throws and then Reader gets disposed.
 ---
 
 ## 2. Active Bug Tracker
-
-### BUG-D2 - Local detail page blocked / not fully canonical-ready
-
-- **Status:** In progress
-- **Priority:** P0
-- **Area:** Comic detail loader / canonical local detail
-
-Symptom:
-
-Local and remote share detail UI conceptually, but local detail flow is still only partially completed.
-
-Decision:
-
-```text
-ComicDetailPage
--> ComicDetailLoader
--> LocalComicDetailService
--> RemoteComicDetailService
--> ComicDetailViewModel
-```
-
-Progress:
-
-- local detail authority hardened to `UnifiedLocalComicDetailRepository`
-- generic `App.repositories.comicDetail` removed from local load path
-- local detail read request now builds from resolved `SourceRef`
-- local detail chapter/read actions bypass ReaderNext dry-run interception
-- commit: `796f92e fix(comic-detail): harden local canonical detail authority`
-
-Still open:
-
-- local detail chapters / progress rendering
-- shared UI contract still needs full local/remote convergence
-
-Acceptance tests:
-
-```text
-testWidgets('local comic detail loads from canonical local detail repository', (tester) async {});
-testWidgets('local comic detail shows imported chapters', (tester) async {});
-testWidgets('remote comic detail still loads from source adapter', (tester) async {});
-```
-
-### BUG-H1 - History item routes directly to Reader / cover path not canonical
-
-- **Status:** Open
-- **Priority:** P1
-- **Area:** History routing / local cover resolution
-
-Symptoms:
-
-- History item cover fails or renders blank.
-- History item click goes directly to reader.
-- User cannot inspect detail/chapter context before reading.
-
-Expected behavior:
-
-```text
-History item click
--> Comic Detail Page with progress context
--> Continue reading / chapter click
--> Reader
-```
-
-Fix direction:
-
-- History local item uses canonical local cover path
-- History click opens detail page, not reader
-- Pass progress context: chapterId / page / pageOrderId where available
-
-Acceptance tests:
-
-```text
-testWidgets('history local comic tap opens detail page instead of reader', (tester) async {});
-testWidgets('history local comic cover resolves from canonical local detail cover path', (tester) async {});
-testWidgets('history detail route carries chapter and page progress context', (tester) async {});
-```
-
-### BUG-S2 - Custom repository packages not visible / refresh diagnostics insufficient
-
-- **Status:** Open
-- **Priority:** P2
-- **Area:** Source repository refresh
-
-Symptom:
-
-User repository package does not appear after refresh.
-
-Current state:
-
-- base review-only UI is in place
-- refresh diagnostics added:
-  - `repository.refresh.package.count`
-  - `repository.refresh.package.skipped`
-  - `repository.refresh.package.sourceUrl`
-  - `repository.refresh.package.schemaError`
-- commit: `645a1b1 fix(sources): hide disabled repository install actions`
-
-Still open:
-
-- visibility bug for custom repositories still not root-caused
-- start / repository-count diagnostics are still missing
-- package collision / filter path still needs proof
-
-Acceptance tests:
-
-```text
-test('repository refresh emits package count diagnostic', () async {});
-test('repository refresh emits schema error diagnostic for invalid package', () async {});
-test('repository refresh records skipped package reason', () async {});
-```
-
 ### BUG-A1 - application data.json authority still mixed with DB authority
 
 - **Status:** Open
@@ -267,6 +156,44 @@ Fix direction:
   - migration-only keys: read-only / cleanup later
 - add guard that local canonical domains do not require appdata JSON as authority
 
+Audit-only scope for A-appdata-1:
+
+- enumerate currently used `appdata.settings` and `appdata.implicitData` keys
+- classify storage ownership without changing behavior
+- record authority drift and unknown owners explicitly
+- no migration
+- no key deletion
+- no default change unless owner is decided first
+
+#### AppData / implicitData audit candidates
+
+| Key | Storage | Current reader/writer | Classification | Owner / next action |
+| --- | --- | --- | --- | --- |
+| `reader_use_source_ref_resolver` | `appdata.settings` | `HistoryManager`, reader resume path, settings schema | feature flag / safe to stay in appdata | keep as typed setting; not authority by itself |
+| `reader_use_resume_source_ref_snapshot` | `appdata.settings` | no runtime reader; retired migration flag residue | unknown / needs owner | owner decision recorded: retire as runtime flag; legacy resume compatibility now hangs off explicit `ReaderResumeService` fallback injection; no default, no `SettingKey`, no deletion in decision slices |
+| `reading_resume_targets_v1` | `appdata.implicitData` | `ResumeTargetStore(appdata.implicitData)` | legacy bridge / resume snapshot cache | must not become canonical history authority; keep compatibility-only until owner is decided |
+| `comicSourceListUrl` | `appdata.settings` | source init + repository seeding + legacy UI entrypoints | legacy source repository bridge | keep bridge semantics only; repository registry is canonical authority |
+| `favoriteFolder` | `appdata.implicitData` | favorites page selection state | UI state / safe to stay in appdata | retain as view state; not favorites authority |
+| `local_sort` | `appdata.implicitData` | local comics page sort selection | UI preference / safe to stay in appdata | retain as view preference |
+| `local_favorites_read_filter` | `appdata.implicitData` | local favorites page filter selection | UI preference / safe to stay in appdata | retain as view preference |
+| `local_favorites_update_page_num` | `appdata.implicitData` | local favorites page pagination/filter state | UI preference / safe to stay in appdata | retain as view preference |
+| `localDirectoryBookmark` | `appdata.implicitData` | iOS local directory restore path | device integration / safe to stay in appdata | retain as device-local integration data |
+| `followUpdatesFolder` | `appdata.settings` | follow-updates page + favorites manager | UI workflow preference / safe to stay in appdata | retain until follow-up workflow owner changes |
+| `webdavAutoSync` | `appdata.implicitData` | init/bootstrap + settings gateway | feature toggle / safe to stay in appdata | retain as device/runtime preference |
+| `lastCheckUpdate` | `appdata.implicitData` | startup update check throttle | runtime cache / safe to stay in appdata | retain as cache-like throttle state |
+
+Audit note:
+
+```text
+reader_use_resume_source_ref_snapshot is currently read by runtime but is not declared
+in settings_schema.dart and has no dedicated default. The owner decision is to retire it
+as a runtime flag, but the migration slice has not removed the runtime dependency yet.
+```
+
+Owner decision doc:
+
+- [2026-05-03-appdata-owner-decisions.md](/Users/mythic3014/Documents/project/venera/docs/plans/2026-05-03-appdata-owner-decisions.md)
+
 Acceptance tests:
 
 ```text
@@ -278,6 +205,80 @@ test('ui preferences remain available from appdata', () async {});
 ---
 
 ## 3. Closed Bug Tracker
+
+### BUG-D2 - Local detail page blocked / not fully canonical-ready
+
+- **Status:** Closed
+- **Priority:** P0
+- **Area:** Comic detail loader / canonical local detail
+- **Commits:** `796f92e`, `Uncommitted / pending commit`
+
+Resolution:
+
+- local detail loader now stays on `UnifiedLocalComicDetailRepository`
+- canonical detail VM now exposes shared continue/progress state
+- local detail renders imported chapters and progress through the shared detail UI contract
+- remote detail path still uses the shared chapters/progress UI contract
+
+Verification:
+
+```text
+flutter test test/pages/comic_details_page_unified_test.dart
+flutter test test/pages/comic_detail_page_rendering_test.dart
+```
+
+### BUG-H1 - History item routes directly to Reader / cover path not canonical
+
+- **Status:** Closed
+- **Priority:** P1
+- **Area:** History routing / local cover resolution
+- **Commits:** `Uncommitted / pending commit`
+
+Resolution:
+
+- `ReaderActivityRepository` path canonicalizes local cover to canonical `file://` path when available
+- `HistoryPage` tap now opens detail-first instead of `ReaderWithLoading`
+- home history strip tap now opens detail-first
+- route progress context is passed as fallback (`chapterId` / `page`)
+- history cover resolution respects canonical `file://` / absolute path before legacy fallback provider
+
+Remaining audit:
+
+- `HistoryManager.getRecent()`
+- `History.cover` snapshot authority
+- `ResumeTargetStore(appdata.implicitData)` authority
+- `HistoryStore` legacy naming / canonical routing boundary
+
+Authority note:
+
+- `HistoryManager` remains a legacy compatibility facade
+- new UI entrypoints should prefer `ReaderActivityRepository` + canonical detail store over `HistoryManager` authority
+
+Verification:
+
+```text
+flutter test test/pages/history_page_test.dart test/pages/history_page_m15_test.dart
+```
+
+### BUG-S2 - Custom repository packages not visible / refresh diagnostics insufficient
+
+- **Status:** Closed
+- **Priority:** P2
+- **Area:** Source repository refresh
+- **Commits:** `Uncommitted / pending commit`
+
+Resolution:
+
+- repository section top-level `Refresh` now executes a controller-owned repository refresh command instead of only reloading cached DB state
+- refresh-all path now emits `repository.refresh.start` and `repository.refresh.repositoryCount`
+- custom repository package list is reloaded after refresh and becomes visible in the review-only `Available Sources` section
+
+Verification:
+
+```text
+dart analyze lib/features/sources/comic_source/source_management_controller.dart lib/pages/comic_source_page.dart test/features/source_management/source_management_controller_test.dart test/pages/settings_comic_sources_page_test.dart
+flutter test test/features/source_management/source_management_controller_test.dart test/pages/settings_comic_sources_page_test.dart
+```
 
 ### BUG-R3 - ReaderWithLoading parent identity used unresolved placeholder SourceRef
 
@@ -376,7 +377,7 @@ Fixed / added:
 - page load controller extraction
 - render terminal diagnostics
 
-### CLOSED-R3 - Active tab retention upsert bug
+### CLOSED-R4 - Active tab retention upsert bug
 
 - **Status:** Closed
 - **Commit:** `ba0ca25 fix(reader): retain active tab across session upserts`
@@ -389,10 +390,7 @@ Fixed:
 
 ## 4. Recommended Next Execution Order
 
-1. **BUG-D2** - finish local canonical detail branch
-2. **BUG-H1** - history routing and cover path
-3. **BUG-S2** - repository refresh diagnostics and custom repo visibility
-4. **BUG-A1** - appdata authority audit
+1. **BUG-A1** - appdata authority audit
 
 ---
 

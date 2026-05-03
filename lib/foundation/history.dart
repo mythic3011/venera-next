@@ -190,8 +190,6 @@ class HistoryManager with ChangeNotifier {
     appdata.implicitData,
   );
 
-  static const _snapshotFlag = 'reader_use_resume_source_ref_snapshot';
-
   int get length => _historyMap.length;
 
   /// Cache of history ids. Improve the performance of find operation.
@@ -296,9 +294,6 @@ class HistoryManager with ChangeNotifier {
     required int page,
     required SourceRef sourceRef,
   }) {
-    if (!_isResumeSnapshotEnabled()) {
-      return;
-    }
     _resumeStore.write(
       comicId: comicId,
       type: type,
@@ -311,19 +306,11 @@ class HistoryManager with ChangeNotifier {
   }
 
   SourceRef? findResumeSourceRef(String comicId, ComicType type) {
-    if (!_isResumeSnapshotEnabled()) {
-      return null;
-    }
     final result = _resumeStore.readWithDiagnostic(comicId, type);
     if (result.diagnostic != null) {
       Log.info("History", _mapSnapshotDiagnostic(result.diagnostic!));
     }
     return result.snapshot?.sourceRef;
-  }
-
-  bool _isResumeSnapshotEnabled() {
-    return appdata.settings['reader_use_source_ref_resolver'] == true &&
-        appdata.settings[_snapshotFlag] == true;
   }
 
   String _mapSnapshotDiagnostic(ResumeSnapshotDiagnosticCode code) {
