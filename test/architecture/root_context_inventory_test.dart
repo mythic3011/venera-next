@@ -10,16 +10,12 @@ void main() {
       'lib/init.dart': 'background_service',
       'lib/network/cloudflare.dart': 'background_service',
       'lib/utils/data_sync.dart': 'background_service',
-      'lib/utils/import_comic.dart': 'background_service',
-      'lib/utils/io.dart': 'background_service',
     };
     const migrationOwnerByFile = <String, String>{
       'lib/foundation/local/local_comic.dart': 'local-foundation',
       'lib/init.dart': 'bootstrap',
       'lib/network/cloudflare.dart': 'network',
       'lib/utils/data_sync.dart': 'data-sync',
-      'lib/utils/import_comic.dart': 'import',
-      'lib/utils/io.dart': 'io-utils',
     };
     const migrationNoteByFile = <String, String>{
       'lib/foundation/local/local_comic.dart':
@@ -30,10 +26,6 @@ void main() {
           'Stop direct UI on network layer; emit diagnostics + typed status only.',
       'lib/utils/data_sync.dart':
           'Return sync result to UI layer; avoid global context resolution in utility layer.',
-      'lib/utils/import_comic.dart':
-          'Move prompt/dialog dispatch to UI caller and keep import utility side-effect free.',
-      'lib/utils/io.dart':
-          'Delete global UI context helper from IO utility layer.',
     };
 
     final rg = Process.runSync(

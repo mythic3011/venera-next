@@ -170,8 +170,8 @@ class ImportComic {
 
   BuildContext? _resolveUiContext() {
     return uiContext ??
-        App.rootNavigatorKey.currentContext ??
-        App.mainNavigatorKey?.currentContext;
+        App.rootNavigatorKey.currentState?.context ??
+        App.mainNavigatorKey?.currentState?.context;
   }
 
   void _showMessage(String message) {

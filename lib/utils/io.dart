@@ -26,7 +26,8 @@ class IO {
 }
 
 BuildContext? _resolveIoUiContext() {
-  return App.rootNavigatorKey.currentContext ?? App.mainNavigatorKey?.currentContext;
+  return App.rootNavigatorKey.currentState?.context ??
+      App.mainNavigatorKey?.currentState?.context;
 }
 
 void _showIoMessage(String message) {
