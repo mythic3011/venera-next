@@ -48,7 +48,10 @@ void main() {
         createdAt: DateTime.utc(2026, 4, 30),
       );
 
-      await LocalComicCanonicalSyncService(store: store).syncComic(comic);
+      await LocalComicCanonicalSyncService(
+        store: store,
+        resolveCanonicalLocalRootPath: () async => tempDir.path,
+      ).syncComic(comic);
 
       final snapshot = await store.loadComicSnapshot('flat-1');
       final summary = await store.loadPageOrderSummary('flat-1');
@@ -121,7 +124,10 @@ void main() {
         createdAt: DateTime.utc(2026, 4, 30, 12),
       );
 
-      await LocalComicCanonicalSyncService(store: store).syncComic(comic);
+      await LocalComicCanonicalSyncService(
+        store: store,
+        resolveCanonicalLocalRootPath: () async => tempDir.path,
+      ).syncComic(comic);
 
       final snapshot = await store.loadComicSnapshot('chap-1');
       final summary = await store.loadPageOrderSummary('chap-1');
@@ -147,6 +153,53 @@ void main() {
       expect(pageSourceLinks, hasLength(3));
       expect(summary.totalOrders, 2);
       expect(summary.totalPageCount, 3);
+    },
+  );
+
+  test(
+    'syncs imported comic with relative directory without legacy LocalManager.path',
+    () async {
+      final canonicalRoot = Directory(p.join(tempDir.path, 'canonical-root'))
+        ..createSync(recursive: true);
+      final comicRelativeDirectory = 'Imported Relative Comic';
+      final comicDir = Directory(
+        p.join(canonicalRoot.path, comicRelativeDirectory),
+      )..createSync(recursive: true);
+      File(p.join(comicDir.path, 'cover.png')).writeAsBytesSync([1, 2, 3]);
+      File(p.join(comicDir.path, '1.png')).writeAsBytesSync([7]);
+
+      final comic = LocalComic(
+        id: 'relative-1',
+        title: 'Relative Comic',
+        subtitle: '',
+        tags: const [],
+        directory: comicRelativeDirectory,
+        chapters: null,
+        cover: 'cover.png',
+        comicType: ComicType.local,
+        downloadedChapters: const [],
+        createdAt: DateTime.utc(2026, 5, 3),
+      );
+
+      final service = LocalComicCanonicalSyncService(
+        store: store,
+        resolveCanonicalLocalRootPath: () async => canonicalRoot.path,
+      );
+      await expectLater(service.syncComic(comic), completes);
+
+      final snapshot = await store.loadComicSnapshot('relative-1');
+      expect(snapshot, isNotNull);
+      final resolvedComicRootPath = p.join(
+        canonicalRoot.path,
+        comicRelativeDirectory,
+      );
+      expect(
+        snapshot!.localLibraryItems.single.localRootPath,
+        resolvedComicRootPath,
+      );
+      expect(snapshot.chapters, hasLength(1));
+      expect(snapshot.chapters.single.id, 'relative-1:__imported__');
+      expect(await store.countPagesForChapter('relative-1:__imported__'), 2);
     },
   );
 }
