@@ -6,8 +6,10 @@ cd "$ROOT_DIR"
 
 APP_NAME="venera"
 APP_BUNDLE_PATH="build/macos/Build/Products/Release/${APP_NAME}.app"
-DMG_STAGE_DIR="dist/dmg_contents"
-DMG_OUTPUT_PATH="dist/${APP_NAME}.dmg"
+DIST_DIR="dist"
+DMG_STAGE_DIR="${DIST_DIR}/dmg_contents"
+DMG_OUTPUT_PATH="${DIST_DIR}/${APP_NAME}.dmg"
+DMG_SHA256_PATH="${DMG_OUTPUT_PATH}.sha256"
 XCODE_DESTINATION="${XCODE_DESTINATION:-platform=macOS,arch=arm64}"
 START_TS="$(date +%s)"
 VERBOSE="${VERBOSE:-0}"
@@ -16,6 +18,7 @@ SKIP_BUILD="${SKIP_BUILD:-0}"
 CREATE_DMG="${CREATE_DMG:-0}"
 KEEP_STAGE_DIR="${KEEP_STAGE_DIR:-0}"
 KEEP_LOGS="${KEEP_LOGS:-0}"
+WRITE_CHECKSUM="${WRITE_CHECKSUM:-1}"
 DEV_RUNTIME_ROOT_OVERRIDE="${DEV_RUNTIME_ROOT_OVERRIDE:-}"
 DMG_LOG_FILE=""
 BUILD_LOG_FILE=""
@@ -31,6 +34,7 @@ Options:
   --open          Open the built artifact after success
   --keep-stage    Keep dist/dmg_contents after success
   --keep-logs     Keep captured temp logs after success/failure
+  --no-checksum   Do not write a SHA-256 checksum file next to the DMG
   --dev-runtime-root [PATH]
                   Build app with a dev-only runtime root override.
                   If PATH is omitted, use:
@@ -96,11 +100,16 @@ on_error() {
     return
   fi
   printf "\n[FAILED] macOS build stopped (exit=%s).\n" "$exit_code" >&2
-  if [[ -n "$BUILD_LOG_FILE" && -f "$BUILD_LOG_FILE" ]]; then
-    printf "         Build log: %s\n" "$BUILD_LOG_FILE" >&2
-  fi
-  if [[ -n "$DMG_LOG_FILE" && -f "$DMG_LOG_FILE" ]]; then
-    printf "         DMG log:   %s\n" "$DMG_LOG_FILE" >&2
+  stop_spinner
+  if [[ "$KEEP_LOGS" == "1" ]]; then
+    if [[ -n "$BUILD_LOG_FILE" && -f "$BUILD_LOG_FILE" ]]; then
+      printf "         Build log: %s\n" "$BUILD_LOG_FILE" >&2
+    fi
+    if [[ -n "$DMG_LOG_FILE" && -f "$DMG_LOG_FILE" ]]; then
+      printf "         DMG log:   %s\n" "$DMG_LOG_FILE" >&2
+    fi
+  else
+    printf "         Re-run with --keep-logs to keep captured temp logs.\n" >&2
   fi
 }
 trap on_error ERR
@@ -115,6 +124,7 @@ cleanup_temp_files() {
     rm -rf "$DMG_STAGE_DIR" || true
   fi
 }
+trap cleanup_temp_files EXIT
 
 on_interrupt() {
   trap - INT
@@ -147,6 +157,9 @@ while [[ $# -gt 0 ]]; do
     --keep-logs)
       KEEP_LOGS=1
       ;;
+    --no-checksum)
+      WRITE_CHECKSUM=0
+      ;;
     --dev-runtime-root)
       if [[ $# -gt 1 && "$2" != --* ]]; then
         DEV_RUNTIME_ROOT_OVERRIDE="$2"
@@ -169,9 +182,12 @@ done
 step "PRECHECK" "Validating required tools and paths"
 require_cmd xattr
 require_cmd xcodebuild
+require_cmd shasum
+require_cmd ditto
 if [[ "$CREATE_DMG" == "1" ]]; then
   require_cmd hdiutil
 fi
+mkdir -p "$DIST_DIR"
 [[ -d "macos" ]] || die "Missing macos/ directory"
 [[ -f "macos/Runner.xcworkspace/contents.xcworkspacedata" ]] || die "Missing Runner.xcworkspace"
 info "Workspace: $ROOT_DIR"
@@ -186,6 +202,7 @@ info "Skip build: $SKIP_BUILD"
 info "Verbose: $VERBOSE"
 info "Keep stage dir: $KEEP_STAGE_DIR"
 info "Keep logs: $KEEP_LOGS"
+info "Write checksum: $WRITE_CHECKSUM"
 if [[ -n "$DEV_RUNTIME_ROOT_OVERRIDE" ]]; then
   info "Dev runtime root override: $DEV_RUNTIME_ROOT_OVERRIDE"
 fi
@@ -266,7 +283,7 @@ if [[ "$CREATE_DMG" == "1" ]]; then
   step "3/4" "Preparing DMG staging directory"
   mkdir -p "$DMG_STAGE_DIR"
   rm -rf "${DMG_STAGE_DIR}/${APP_NAME}.app" "${DMG_STAGE_DIR}/Applications"
-  cp -R "$APP_BUNDLE_PATH" "$DMG_STAGE_DIR/"
+  ditto "$APP_BUNDLE_PATH" "${DMG_STAGE_DIR}/${APP_NAME}.app"
   ln -s /Applications "${DMG_STAGE_DIR}/Applications"
   info "Staged app: ${DMG_STAGE_DIR}/${APP_NAME}.app"
 
@@ -283,6 +300,12 @@ if [[ "$CREATE_DMG" == "1" ]]; then
     "$DMG_OUTPUT_PATH" >"$DMG_LOG_FILE" 2>&1; then
     stop_spinner
     info "DMG image creation completed"
+    if [[ "$WRITE_CHECKSUM" == "1" ]]; then
+      shasum -a 256 "$DMG_OUTPUT_PATH" > "$DMG_SHA256_PATH"
+      info "SHA-256 checksum written: $DMG_SHA256_PATH"
+    else
+      rm -f "$DMG_SHA256_PATH" || true
+    fi
     if [[ "$KEEP_LOGS" != "1" ]]; then
       rm -f "$DMG_LOG_FILE"
       DMG_LOG_FILE=""
@@ -301,9 +324,11 @@ if [[ "$CREATE_DMG" == "1" ]]; then
   SIZE="$(du -h "$DMG_OUTPUT_PATH" | awk '{print $1}')"
   ARTIFACT_PATH="$DMG_OUTPUT_PATH"
   ARTIFACT_KIND="DMG"
+  CHECKSUM_PATH="$DMG_SHA256_PATH"
 else
   ARTIFACT_PATH="$APP_BUNDLE_PATH"
   ARTIFACT_KIND="app bundle"
+  CHECKSUM_PATH=""
   SIZE="$(du -sh "$APP_BUNDLE_PATH" | awk '{print $1}')"
 fi
 END_TS="$(date +%s)"
@@ -312,11 +337,12 @@ ELAPSED="$((END_TS - START_TS))"
 printf "\n[SUCCESS] macOS %s created.\n" "$ARTIFACT_KIND"
 printf "  Path: %s\n" "$ARTIFACT_PATH"
 printf "  Size: %s\n" "$SIZE"
+if [[ -n "${CHECKSUM_PATH:-}" && -f "$CHECKSUM_PATH" ]]; then
+  printf "  SHA-256: %s\n" "$CHECKSUM_PATH"
+fi
 printf "  Time: %ss\n" "$ELAPSED"
 printf "  Tip:  Open with Finder or run: open \"%s\"\n" "$ARTIFACT_PATH"
 
 if [[ "$OPEN_AFTER_BUILD" == "1" ]]; then
   open "$ARTIFACT_PATH"
 fi
-
-cleanup_temp_files
