@@ -131,7 +131,7 @@ class _AppSettingsState extends State<AppSettings> {
             }
             if (result == null) return;
             var loadingDialog = showLoadingDialog(
-              App.rootContext,
+              context,
               barrierDismissible: false,
               allowCancel: false,
             );
@@ -153,7 +153,7 @@ class _AppSettingsState extends State<AppSettings> {
           actionTitle: "Clear".tl,
           callback: () async {
             var loadingDialog = showLoadingDialog(
-              App.rootContext,
+              context,
               barrierDismissible: false,
               allowCancel: false,
             );
@@ -217,7 +217,19 @@ class _AppSettingsState extends State<AppSettings> {
               if (!mounted) return;
               App.forceRebuild();
             } catch (e, s) {
-              Log.error("Import data", e.toString(), s);
+              diag.AppDiagnostics.error(
+                'app.import',
+                e,
+                message: 'app.import.failed',
+                stackTrace: s,
+                data: {
+                  'source': file.name.endsWith('picadata')
+                      ? 'picadata'
+                      : 'venera',
+                  'errorType': e.runtimeType.toString(),
+                  'message': e.toString(),
+                },
+              );
               if (mounted) {
                 context.showMessage(message: "Failed to import data".tl);
               }
@@ -234,7 +246,10 @@ class _AppSettingsState extends State<AppSettings> {
           },
           actionTitle: 'Set'.tl,
         ).toSliver(),
-        _SettingPartTitle(title: "ReaderNext Runtime".tl, icon: Icons.auto_stories),
+        _SettingPartTitle(
+          title: "ReaderNext Runtime".tl,
+          icon: Icons.auto_stories,
+        ),
         _SwitchSetting(
           title: "Enable ReaderNext".tl,
           subtitle: "Master route selection switch.".tl,
@@ -325,13 +340,38 @@ class LogsPage extends StatefulWidget {
 }
 
 class _LogsPageState extends State<LogsPage> {
+  _LogsViewSource sourceToShow = _LogsViewSource.structured;
   String logLevelToShow = "all";
+  String channelToShow = "all";
+
+  List<diag.DiagnosticEvent> get _structuredLogs {
+    final minLevel = _structuredLevelFromFilter(logLevelToShow);
+    return diag.DevDiagnosticsApi.recent(
+      minLevel: minLevel,
+      channel: channelToShow == "all" ? null : channelToShow,
+    );
+  }
+
+  List<LogItem> get _legacyLogs {
+    if (logLevelToShow == "all") {
+      return Log.logs;
+    }
+    return Log.logs.where((log) => log.level.name == logLevelToShow).toList();
+  }
+
+  List<String> get _structuredChannels {
+    final channels = diag.DevDiagnosticsApi.recent()
+        .map((event) => event.channel)
+        .toSet()
+        .toList(growable: false);
+    channels.sort();
+    return channels;
+  }
 
   @override
   Widget build(BuildContext context) {
-    var logToShow = logLevelToShow == "all"
-        ? Log.logs
-        : Log.logs.where((log) => log.level.name == logLevelToShow).toList();
+    final structuredLogs = _structuredLogs;
+    final legacyLogs = _legacyLogs;
     return Scaffold(
       appBar: Appbar(
         title: Text("Logs".tl),
@@ -349,26 +389,110 @@ class _LogsPageState extends State<LogsPage> {
                 position: position,
                 items: [
                   PopupMenuItem(
-                    child: Text("all"),
-                    onTap: () => setState(() => logLevelToShow = "all"),
+                    child: const Text("Structured diagnostics"),
+                    onTap: () => setState(() {
+                      sourceToShow = _LogsViewSource.structured;
+                      logLevelToShow = "all";
+                      channelToShow = "all";
+                    }),
                   ),
                   PopupMenuItem(
-                    child: Text("info"),
-                    onTap: () => setState(() => logLevelToShow = "info"),
-                  ),
-                  PopupMenuItem(
-                    child: Text("warning"),
-                    onTap: () => setState(() => logLevelToShow = "warning"),
-                  ),
-                  PopupMenuItem(
-                    child: Text("error"),
-                    onTap: () => setState(() => logLevelToShow = "error"),
+                    child: const Text("Legacy logs"),
+                    onTap: () => setState(() {
+                      sourceToShow = _LogsViewSource.legacy;
+                      logLevelToShow = "all";
+                    }),
                   ),
                 ],
               );
             },
+            icon: const Icon(Icons.layers_outlined),
+          ),
+          IconButton(
+            onPressed: () {
+              final RelativeRect position = RelativeRect.fromLTRB(
+                MediaQuery.of(context).size.width,
+                MediaQuery.of(context).padding.top + kToolbarHeight,
+                0.0,
+                0.0,
+              );
+              showMenu(
+                context: context,
+                position: position,
+                items: sourceToShow == _LogsViewSource.structured
+                    ? [
+                        PopupMenuItem(
+                          child: const Text("all"),
+                          onTap: () => setState(() => logLevelToShow = "all"),
+                        ),
+                        PopupMenuItem(
+                          child: const Text("trace"),
+                          onTap: () => setState(() => logLevelToShow = "trace"),
+                        ),
+                        PopupMenuItem(
+                          child: const Text("info"),
+                          onTap: () => setState(() => logLevelToShow = "info"),
+                        ),
+                        PopupMenuItem(
+                          child: const Text("warn"),
+                          onTap: () => setState(() => logLevelToShow = "warn"),
+                        ),
+                        PopupMenuItem(
+                          child: const Text("error"),
+                          onTap: () => setState(() => logLevelToShow = "error"),
+                        ),
+                      ]
+                    : [
+                        PopupMenuItem(
+                          child: const Text("all"),
+                          onTap: () => setState(() => logLevelToShow = "all"),
+                        ),
+                        PopupMenuItem(
+                          child: const Text("info"),
+                          onTap: () => setState(() => logLevelToShow = "info"),
+                        ),
+                        PopupMenuItem(
+                          child: const Text("warning"),
+                          onTap: () =>
+                              setState(() => logLevelToShow = "warning"),
+                        ),
+                        PopupMenuItem(
+                          child: const Text("error"),
+                          onTap: () => setState(() => logLevelToShow = "error"),
+                        ),
+                      ],
+              );
+            },
             icon: const Icon(Icons.filter_list_outlined),
           ),
+          if (sourceToShow == _LogsViewSource.structured)
+            IconButton(
+              onPressed: () {
+                final RelativeRect position = RelativeRect.fromLTRB(
+                  MediaQuery.of(context).size.width,
+                  MediaQuery.of(context).padding.top + kToolbarHeight,
+                  0.0,
+                  0.0,
+                );
+                showMenu(
+                  context: context,
+                  position: position,
+                  items: [
+                    PopupMenuItem(
+                      child: const Text("all"),
+                      onTap: () => setState(() => channelToShow = "all"),
+                    ),
+                    ..._structuredChannels.map(
+                      (channel) => PopupMenuItem(
+                        child: Text(channel),
+                        onTap: () => setState(() => channelToShow = channel),
+                      ),
+                    ),
+                  ],
+                );
+              },
+              icon: const Icon(Icons.tune_outlined),
+            ),
           IconButton(
             onPressed: () {
               final RelativeRect position = RelativeRect.fromLTRB(
@@ -383,21 +507,25 @@ class _LogsPageState extends State<LogsPage> {
                 items: [
                   PopupMenuItem(
                     child: Text("Clear".tl),
-                    onTap: () => setState(() => Log.clear()),
+                    onTap: () => setState(() {
+                      if (sourceToShow == _LogsViewSource.structured) {
+                        diag.DevDiagnosticsApi.clear();
+                      } else {
+                        Log.clear();
+                      }
+                    }),
                   ),
-                  PopupMenuItem(
-                    child: Text("Disable Length Limitation".tl),
-                    onTap: () {
-                      Log.ignoreLimitation = true;
-                      context.showMessage(
-                        message: "Only valid for this run".tl,
-                      );
-                    },
-                  ),
-                  PopupMenuItem(
-                    child: Text("Export".tl),
-                    onTap: () => saveLog(Log().toString()),
-                  ),
+                  if (sourceToShow == _LogsViewSource.legacy)
+                    PopupMenuItem(
+                      child: Text("Disable Length Limitation".tl),
+                      onTap: () {
+                        Log.ignoreLimitation = true;
+                        context.showMessage(
+                          message: "Only valid for this run".tl,
+                        );
+                      },
+                    ),
+                  PopupMenuItem(child: Text("Export".tl), onTap: saveLog),
                 ],
               );
             },
@@ -405,96 +533,195 @@ class _LogsPageState extends State<LogsPage> {
           ),
         ],
       ),
-      body: ListView.builder(
-        reverse: true,
-        itemCount: logToShow.length,
-        itemBuilder: (context, index) {
-          index = logToShow.length - index - 1;
-          return Padding(
-            padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
-            child: SelectionArea(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    children: [
-                      Container(
-                        decoration: BoxDecoration(
-                          color: Theme.of(
-                            context,
-                          ).colorScheme.surfaceContainerHighest,
-                          borderRadius: const BorderRadius.all(
-                            Radius.circular(16),
-                          ),
-                        ),
-                        child: Padding(
-                          padding: const EdgeInsets.fromLTRB(5, 0, 5, 1),
-                          child: Text(logToShow[index].title),
-                        ),
-                      ),
-                      const SizedBox(width: 3),
-                      Container(
-                        decoration: BoxDecoration(
-                          color: _logLevelColor(
-                            context,
-                            logToShow[index].level.name,
-                          ),
-                          borderRadius: const BorderRadius.all(
-                            Radius.circular(16),
-                          ),
-                        ),
-                        child: Padding(
-                          padding: const EdgeInsets.fromLTRB(5, 0, 5, 1),
-                          child: Text(
-                            logToShow[index].level.name,
-                            style: TextStyle(
-                              color: logToShow[index].level.index == 0
-                                  ? Colors.white
-                                  : Colors.black,
-                            ),
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                  Text(logToShow[index].content),
-                  Text(
-                    logToShow[index].time.toString().replaceAll(
-                      RegExp(r"\.\w+"),
-                      "",
-                    ),
-                  ),
-                  TextButton(
-                    onPressed: () {
-                      Clipboard.setData(
-                        ClipboardData(text: logToShow[index].content),
-                      );
-                    },
-                    child: Text("Copy".tl),
-                  ),
-                  const Divider(),
-                ],
-              ),
-            ),
-          );
-        },
-      ),
+      body: sourceToShow == _LogsViewSource.structured
+          ? _buildStructuredLogsList(structuredLogs)
+          : _buildLegacyLogsList(legacyLogs),
     );
   }
 
-  void saveLog(String log) async {
-    saveFile(data: utf8.encode(log), filename: Log.buildExportFileName());
+  Future<void> saveLog() async {
+    final text = await buildDiagnosticsExportText();
+    if (!mounted) {
+      return;
+    }
+    await saveFile(
+      data: utf8.encode(text),
+      filename: Log.buildExportFileName(prefix: 'venera_diagnostics_export'),
+    );
+  }
+
+  Widget _buildStructuredLogsList(List<diag.DiagnosticEvent> logs) {
+    return ListView.builder(
+      reverse: true,
+      itemCount: logs.length,
+      itemBuilder: (context, index) {
+        index = logs.length - index - 1;
+        final event = logs[index];
+        final data = event.data.isEmpty
+            ? null
+            : const JsonEncoder.withIndent("  ").convert(event.data);
+        return Padding(
+          padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+          child: SelectionArea(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Container(
+                      decoration: BoxDecoration(
+                        color: Theme.of(
+                          context,
+                        ).colorScheme.surfaceContainerHighest,
+                        borderRadius: const BorderRadius.all(
+                          Radius.circular(16),
+                        ),
+                      ),
+                      child: Padding(
+                        padding: const EdgeInsets.fromLTRB(5, 0, 5, 1),
+                        child: Text(event.channel),
+                      ),
+                    ),
+                    const SizedBox(width: 3),
+                    Container(
+                      decoration: BoxDecoration(
+                        color: _logLevelColor(context, event.level.name),
+                        borderRadius: const BorderRadius.all(
+                          Radius.circular(16),
+                        ),
+                      ),
+                      child: Padding(
+                        padding: const EdgeInsets.fromLTRB(5, 0, 5, 1),
+                        child: Text(
+                          event.level.name,
+                          style: TextStyle(
+                            color: event.level == diag.DiagnosticLevel.error
+                                ? Colors.white
+                                : Colors.black,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                Text(event.message),
+                if (data != null) Text(data),
+                if (event.errorType != null)
+                  Text("errorType: ${event.errorType}"),
+                if (event.stackTrace != null) Text(event.stackTrace!),
+                Text(
+                  event.timestamp.toString().replaceAll(RegExp(r"\.\w+"), ""),
+                ),
+                TextButton(
+                  onPressed: () {
+                    final payload = StringBuffer(event.message);
+                    if (data != null) {
+                      payload.writeln();
+                      payload.write(data);
+                    }
+                    Clipboard.setData(ClipboardData(text: payload.toString()));
+                  },
+                  child: Text("Copy".tl),
+                ),
+                const Divider(),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildLegacyLogsList(List<LogItem> logs) {
+    return ListView.builder(
+      reverse: true,
+      itemCount: logs.length,
+      itemBuilder: (context, index) {
+        index = logs.length - index - 1;
+        return Padding(
+          padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+          child: SelectionArea(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Container(
+                      decoration: BoxDecoration(
+                        color: Theme.of(
+                          context,
+                        ).colorScheme.surfaceContainerHighest,
+                        borderRadius: const BorderRadius.all(
+                          Radius.circular(16),
+                        ),
+                      ),
+                      child: Padding(
+                        padding: const EdgeInsets.fromLTRB(5, 0, 5, 1),
+                        child: Text(logs[index].title),
+                      ),
+                    ),
+                    const SizedBox(width: 3),
+                    Container(
+                      decoration: BoxDecoration(
+                        color: _logLevelColor(context, logs[index].level.name),
+                        borderRadius: const BorderRadius.all(
+                          Radius.circular(16),
+                        ),
+                      ),
+                      child: Padding(
+                        padding: const EdgeInsets.fromLTRB(5, 0, 5, 1),
+                        child: Text(
+                          logs[index].level.name,
+                          style: TextStyle(
+                            color: logs[index].level == LogLevel.error
+                                ? Colors.white
+                                : Colors.black,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                Text(logs[index].content),
+                Text(
+                  logs[index].time.toString().replaceAll(RegExp(r"\.\w+"), ""),
+                ),
+                TextButton(
+                  onPressed: () {
+                    Clipboard.setData(ClipboardData(text: logs[index].content));
+                  },
+                  child: Text("Copy".tl),
+                ),
+                const Divider(),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  diag.DiagnosticLevel? _structuredLevelFromFilter(String value) {
+    return switch (value) {
+      "trace" => diag.DiagnosticLevel.trace,
+      "info" => diag.DiagnosticLevel.info,
+      "warn" => diag.DiagnosticLevel.warn,
+      "error" => diag.DiagnosticLevel.error,
+      _ => null,
+    };
   }
 
   Color _logLevelColor(BuildContext context, String levelName) {
     final scheme = Theme.of(context).colorScheme;
     return switch (levelName) {
       "error" => scheme.error,
-      "warning" => scheme.errorContainer,
+      "warning" || "warn" => scheme.errorContainer,
       _ => scheme.primaryContainer,
     };
   }
 }
+
+enum _LogsViewSource { structured, legacy }
 
 class _WebdavSetting extends StatefulWidget {
   const _WebdavSetting();

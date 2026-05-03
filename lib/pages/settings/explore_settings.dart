@@ -171,8 +171,11 @@ class _ManageBlockingWordViewState extends State<_ManageBlockingWordView> {
   }
 
   void add() {
+    if (!mounted) {
+      return;
+    }
     showDialog(
-      context: App.rootContext,
+      context: context,
       builder: (context) {
         var controller = TextEditingController();
         String? error;
@@ -321,8 +324,11 @@ class _ManageBlockingCommentWordViewState
   }
 
   void add() {
+    if (!mounted) {
+      return;
+    }
     showDialog(
-      context: App.rootContext,
+      context: context,
       builder: (context) {
         var controller = TextEditingController();
         String? error;

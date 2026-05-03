@@ -221,7 +221,7 @@ class _ProxySettingViewState extends State<_ProxySettingView> {
               if (formKey.currentState?.validate() ?? false) {
                 appdata.settings[CommonSettingKeys.proxy.name] = toProxyStr();
                 appdata.saveData();
-                App.rootContext.pop();
+                context.pop();
               }
             },
             child: Text("Save".tl),

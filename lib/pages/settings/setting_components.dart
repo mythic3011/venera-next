@@ -463,7 +463,7 @@ class _PopupWindowSetting extends StatelessWidget {
       title: Text(title),
       trailing: const Icon(Icons.arrow_right),
       onTap: () {
-        showPopUpWidget(App.rootContext, builder());
+        showPopUpWidget(context, builder());
       },
     );
   }

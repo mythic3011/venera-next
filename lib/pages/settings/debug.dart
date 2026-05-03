@@ -65,7 +65,7 @@ class DebugPageState extends State<DebugPage> {
   }
 
   String get _serverStatusText {
-    if (!DevDiagnosticsApi.isEnabled) {
+    if (!diag.DevDiagnosticsApi.isEnabled) {
       return "Disabled".tl;
     }
     if (!App.isDesktop) {
@@ -78,7 +78,7 @@ class DebugPageState extends State<DebugPage> {
   }
 
   Future<void> _toggleServer() async {
-    if (!DevDiagnosticsApi.isEnabled || !App.isDesktop) {
+    if (!diag.DevDiagnosticsApi.isEnabled || !App.isDesktop) {
       return;
     }
     if (exporter.isRunning) {
@@ -112,7 +112,7 @@ class DebugPageState extends State<DebugPage> {
   }
 
   Future<void> _exportLogs() async {
-    final file = await Log.exportToFile();
+    final file = await exportDiagnosticsToFile();
     if (!mounted) {
       return;
     }
@@ -157,12 +157,12 @@ class DebugPageState extends State<DebugPage> {
   }
 
   void _openDiagnosticsConsole() {
-    if (!DevDiagnosticsApi.isEnabled) {
+    if (!diag.DevDiagnosticsApi.isEnabled) {
       return;
     }
     context.to(
       () => TalkerScreen(
-        talker: appTalker,
+        talker: diag.appTalker,
         appBarTitle: "Diagnostics Console".tl,
       ),
     );
@@ -176,7 +176,7 @@ class DebugPageState extends State<DebugPage> {
           return;
         }
         if (exporter.isRunning && exporter.healthUri() != null) {
-          App.rootContext.showMessage(
+          context.showMessage(
             message: "Diagnostics API is still running".tl,
           );
         }
@@ -227,7 +227,7 @@ class DebugPageState extends State<DebugPage> {
                 ).paddingLeft(16),
                 const SizedBox(height: 8),
                 Text(_serverStatusText).paddingHorizontal(16),
-                if (DevDiagnosticsApi.isEnabled) ...[
+                if (diag.DevDiagnosticsApi.isEnabled) ...[
                   const SizedBox(height: 8),
                   TextButton(
                     onPressed: _toggleServer,
