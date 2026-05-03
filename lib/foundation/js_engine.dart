@@ -492,61 +492,129 @@ mixin class _JSEngineApi {
           );
           _documents.remove(shouldDelete);
         }
-        _documents[data["key"]] = DocumentWrapper.parse(data["data"]);
+        _documents[_requireInt(data, "key")] = DocumentWrapper.parse(
+          _requireString(data, "data"),
+        );
         return null;
       case "querySelector":
-        var key = data["key"];
-        return _documents[key]!.querySelector(data["query"]);
+        return _requireDocument(
+          data,
+          "key",
+        ).querySelector(_requireString(data, "query"));
       case "querySelectorAll":
-        var key = data["key"];
-        return _documents[key]!.querySelectorAll(data["query"]);
+        return _requireDocument(
+          data,
+          "key",
+        ).querySelectorAll(_requireString(data, "query"));
       case "getText":
-        return _documents[data["doc"]]!.elementGetText(data["key"]);
+        return _requireDocument(
+          data,
+          "doc",
+        ).elementGetText(_requireInt(data, "key"));
       case "getAttributes":
-        var res = _documents[data["doc"]]!.elementGetAttributes(data["key"]);
+        var res = _requireDocument(
+          data,
+          "doc",
+        ).elementGetAttributes(_requireInt(data, "key"));
         return res;
       case "dom_querySelector":
-        var doc = _documents[data["doc"]]!;
-        return doc.elementQuerySelector(data["key"], data["query"]);
+        var doc = _requireDocument(data, "doc");
+        return doc.elementQuerySelector(
+          _requireInt(data, "key"),
+          _requireString(data, "query"),
+        );
       case "dom_querySelectorAll":
-        var doc = _documents[data["doc"]]!;
-        return doc.elementQuerySelectorAll(data["key"], data["query"]);
+        var doc = _requireDocument(data, "doc");
+        return doc.elementQuerySelectorAll(
+          _requireInt(data, "key"),
+          _requireString(data, "query"),
+        );
       case "getChildren":
-        var doc = _documents[data["doc"]]!;
-        return doc.elementGetChildren(data["key"]);
+        var doc = _requireDocument(data, "doc");
+        return doc.elementGetChildren(_requireInt(data, "key"));
       case "getNodes":
-        var doc = _documents[data["doc"]]!;
-        return doc.elementGetNodes(data["key"]);
+        var doc = _requireDocument(data, "doc");
+        return doc.elementGetNodes(_requireInt(data, "key"));
       case "getInnerHTML":
-        var doc = _documents[data["doc"]]!;
-        return doc.elementGetInnerHTML(data["key"]);
+        var doc = _requireDocument(data, "doc");
+        return doc.elementGetInnerHTML(_requireInt(data, "key"));
       case "getParent":
-        var doc = _documents[data["doc"]]!;
-        return doc.elementGetParent(data["key"]);
+        var doc = _requireDocument(data, "doc");
+        return doc.elementGetParent(_requireInt(data, "key"));
       case "node_text":
-        return _documents[data["doc"]]!.nodeGetText(data["key"]);
+        return _requireDocument(
+          data,
+          "doc",
+        ).nodeGetText(_requireInt(data, "key"));
       case "node_type":
-        return _documents[data["doc"]]!.nodeType(data["key"]);
+        return _requireDocument(data, "doc").nodeType(_requireInt(data, "key"));
       case "node_to_element":
-        return _documents[data["doc"]]!.nodeToElement(data["key"]);
+        return _requireDocument(
+          data,
+          "doc",
+        ).nodeToElement(_requireInt(data, "key"));
       case "dispose":
-        var docKey = data["key"];
+        var docKey = _requireInt(data, "key");
         _documents.remove(docKey);
         return null;
       case "getClassNames":
-        return _documents[data["doc"]]!.getClassNames(data["key"]);
+        return _requireDocument(
+          data,
+          "doc",
+        ).getClassNames(_requireInt(data, "key"));
       case "getId":
-        return _documents[data["doc"]]!.getId(data["key"]);
+        return _requireDocument(data, "doc").getId(_requireInt(data, "key"));
       case "getLocalName":
-        return _documents[data["doc"]]!.getLocalName(data["key"]);
+        return _requireDocument(
+          data,
+          "doc",
+        ).getLocalName(_requireInt(data, "key"));
       case "getElementById":
-        return _documents[data["key"]]!.getElementById(data["id"]);
+        return _requireDocument(
+          data,
+          "key",
+        ).getElementById(_requireString(data, "id"));
       case "getPreviousSibling":
-        return _documents[data["doc"]]!.getPreviousSibling(data["key"]);
+        return _requireDocument(
+          data,
+          "doc",
+        ).getPreviousSibling(_requireInt(data, "key"));
       case "getNextSibling":
-        return _documents[data["doc"]]!.getNextSibling(data["key"]);
+        return _requireDocument(
+          data,
+          "doc",
+        ).getNextSibling(_requireInt(data, "key"));
     }
     return null;
+  }
+
+  DocumentWrapper _requireDocument(Map<String, dynamic> data, String keyName) {
+    final key = _requireInt(data, keyName);
+    final document = _documents[key];
+    if (document == null) {
+      throw JavaScriptRuntimeException('DOM document not found: $key');
+    }
+    return document;
+  }
+
+  int _requireInt(Map<String, dynamic> data, String keyName) {
+    final value = data[keyName];
+    if (value is int) {
+      return value;
+    }
+    throw JavaScriptRuntimeException(
+      "Malformed JS bridge request: '$keyName' must be an int",
+    );
+  }
+
+  String _requireString(Map<String, dynamic> data, String keyName) {
+    final value = data[keyName];
+    if (value is String) {
+      return value;
+    }
+    throw JavaScriptRuntimeException(
+      "Malformed JS bridge request: '$keyName' must be a string",
+    );
   }
 
   dynamic handleCookieCallback(Map<String, dynamic> data) {
@@ -802,35 +870,35 @@ class DocumentWrapper {
   }
 
   String? elementGetText(int key) {
-    return elements[key].text;
+    return _elementAt(key).text;
   }
 
   Map<String, String> elementGetAttributes(int key) {
-    return elements[key].attributes.map(
-      (key, value) => MapEntry(key.toString(), value),
-    );
+    return _elementAt(
+      key,
+    ).attributes.map((key, value) => MapEntry(key.toString(), value));
   }
 
   String? elementGetInnerHTML(int key) {
-    return elements[key].innerHtml;
+    return _elementAt(key).innerHtml;
   }
 
   int? elementGetParent(int key) {
-    var res = elements[key].parent;
+    var res = _elementAt(key).parent;
     if (res == null) return null;
     elements.add(res);
     return elements.length - 1;
   }
 
   int? elementQuerySelector(int key, String query) {
-    var res = elements[key].querySelector(query);
+    var res = _elementAt(key).querySelector(query);
     if (res == null) return null;
     elements.add(res);
     return elements.length - 1;
   }
 
   List<int> elementQuerySelectorAll(int key, String query) {
-    var res = elements[key].querySelectorAll(query);
+    var res = _elementAt(key).querySelectorAll(query);
     var keys = <int>[];
     for (var element in res) {
       elements.add(element);
@@ -840,7 +908,7 @@ class DocumentWrapper {
   }
 
   List<int> elementGetChildren(int key) {
-    var res = elements[key].children;
+    var res = _elementAt(key).children;
     var keys = <int>[];
     for (var element in res) {
       elements.add(element);
@@ -850,7 +918,7 @@ class DocumentWrapper {
   }
 
   List<int> elementGetNodes(int key) {
-    var res = elements[key].nodes;
+    var res = _elementAt(key).nodes;
     var keys = <int>[];
     for (var node in res) {
       nodes.add(node);
@@ -860,11 +928,11 @@ class DocumentWrapper {
   }
 
   String? nodeGetText(int key) {
-    return nodes[key].text;
+    return _nodeAt(key).text;
   }
 
   String nodeType(int key) {
-    return switch (nodes[key].nodeType) {
+    return switch (_nodeAt(key).nodeType) {
       dom.Node.ELEMENT_NODE => "element",
       dom.Node.TEXT_NODE => "text",
       dom.Node.COMMENT_NODE => "comment",
@@ -874,23 +942,24 @@ class DocumentWrapper {
   }
 
   int? nodeToElement(int key) {
-    if (nodes[key] is dom.Element) {
-      elements.add(nodes[key] as dom.Element);
+    final node = _nodeAt(key);
+    if (node is dom.Element) {
+      elements.add(node);
       return elements.length - 1;
     }
     return null;
   }
 
   List<String> getClassNames(int key) {
-    return (elements[key]).classes.toList();
+    return _elementAt(key).classes.toList();
   }
 
   String? getId(int key) {
-    return (elements[key]).id;
+    return _elementAt(key).id;
   }
 
   String? getLocalName(int key) {
-    return (elements[key]).localName;
+    return _elementAt(key).localName;
   }
 
   int? getElementById(String id) {
@@ -901,34 +970,66 @@ class DocumentWrapper {
   }
 
   int? getPreviousSibling(int key) {
-    var res = elements[key].previousElementSibling;
+    var res = _elementAt(key).previousElementSibling;
     if (res == null) return null;
     elements.add(res);
     return elements.length - 1;
   }
 
   int? getNextSibling(int key) {
-    var res = elements[key].nextElementSibling;
+    var res = _elementAt(key).nextElementSibling;
     if (res == null) return null;
     elements.add(res);
     return elements.length - 1;
+  }
+
+  dom.Element _elementAt(int key) {
+    if (key < 0 || key >= elements.length) {
+      throw JavaScriptRuntimeException('DOM element not found: $key');
+    }
+    return elements[key];
+  }
+
+  dom.Node _nodeAt(int key) {
+    if (key < 0 || key >= nodes.length) {
+      throw JavaScriptRuntimeException('DOM node not found: $key');
+    }
+    return nodes[key];
   }
 }
 
 class JSAutoFreeFunction {
   final JSInvokable func;
+  bool _disposed = false;
 
   /// Automatically free the function when it's not used anymore
   JSAutoFreeFunction(this.func) {
     func.dup();
-    finalizer.attach(this, func);
+    finalizer.attach(this, func, detach: this);
+  }
+
+  void dispose() {
+    if (_disposed) {
+      return;
+    }
+    _disposed = true;
+    finalizer.detach(this);
+    func.destroy();
   }
 
   dynamic call(List<dynamic> args) {
+    if (_disposed) {
+      throw StateError('JSAutoFreeFunction has been disposed');
+    }
     return func(args);
   }
 
   static final finalizer = Finalizer<JSInvokable>((func) {
-    func.destroy();
+    try {
+      func.destroy();
+    } catch (_) {
+      // Finalizers run outside normal control flow; resource cleanup must not
+      // crash the isolate if the underlying JS runtime is already unavailable.
+    }
   });
 }
