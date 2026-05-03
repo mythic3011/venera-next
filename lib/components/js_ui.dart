@@ -11,7 +11,8 @@ import 'components.dart';
 mixin class JsUiApi {
   final Map<int, LoadingDialogController> _loadingDialogControllers = {};
   BuildContext? _resolveUiContext() {
-    return App.rootNavigatorKey.currentContext ?? App.mainNavigatorKey?.currentContext;
+    return App.rootNavigatorKey.currentState?.context ??
+        App.mainNavigatorKey?.currentState?.context;
   }
 
   void _showMessage(String message) {

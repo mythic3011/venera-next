@@ -36,12 +36,13 @@ class ComicSourcePage extends StatelessWidget {
     BuildContext? context,
     bool showLoading = true,
   }) async {
-    final uiContext = context ??
-        App.rootNavigatorKey.currentContext ??
-        App.mainNavigatorKey?.currentContext;
+    final uiContext = context;
     if (!source.url.isURL) {
       if (showLoading) {
-        uiContext?.showMessage(message: "Invalid url config");
+        if (uiContext == null || !uiContext.mounted) {
+          throw Exception("UI context is unavailable");
+        }
+        uiContext.showMessage(message: "Invalid url config");
         return;
       } else {
         throw Exception("Invalid url config");
@@ -51,7 +52,7 @@ class ComicSourcePage extends StatelessWidget {
     bool cancel = false;
     LoadingDialogController? controller;
     if (showLoading) {
-      if (uiContext == null) {
+      if (uiContext == null || !uiContext.mounted) {
         throw Exception("UI context is unavailable");
       }
       controller = showLoadingDialog(
@@ -78,7 +79,10 @@ class ComicSourcePage extends StatelessWidget {
     } catch (e) {
       if (cancel) return;
       if (showLoading) {
-        uiContext?.showMessage(message: e.toString());
+        if (uiContext == null || !uiContext.mounted) {
+          throw Exception("UI context is unavailable");
+        }
+        uiContext.showMessage(message: e.toString());
       } else {
         rethrow;
       }
@@ -1558,7 +1562,9 @@ class _LoginPageState extends State<_LoginPage> {
         );
         success = true;
         widget.config.onLoginWithWebviewSuccess?.call();
-        App.mainNavigatorKey?.currentContext?.pop();
+        if (context.mounted) {
+          context.pop();
+        }
       }
     }
 
