@@ -135,8 +135,12 @@ class _AppSettingsState extends State<AppSettings> {
               barrierDismissible: false,
               allowCancel: false,
             );
-            final res = await _gateway.setLocalComicsPath(result);
-            loadingDialog.close();
+            String? res;
+            try {
+              res = await _gateway.setLocalComicsPath(result);
+            } finally {
+              loadingDialog.close();
+            }
             if (!mounted) return;
             context.showMessage(message: res ?? "Path set successfully".tl);
             if (res == null) {
@@ -157,8 +161,11 @@ class _AppSettingsState extends State<AppSettings> {
               barrierDismissible: false,
               allowCancel: false,
             );
-            await _gateway.clearCache();
-            loadingDialog.close();
+            try {
+              await _gateway.clearCache();
+            } finally {
+              loadingDialog.close();
+            }
             if (!mounted) return;
             context.showMessage(message: "Cache cleared".tl);
             setState(() {});
@@ -187,9 +194,12 @@ class _AppSettingsState extends State<AppSettings> {
           title: "Export App Data".tl,
           callback: () async {
             var controller = showLoadingDialog(context);
-            var file = await exportAppData(false);
-            await saveFile(filename: "data.venera", file: file);
-            controller.close();
+            try {
+              var file = await exportAppData(false);
+              await saveFile(filename: "data.venera", file: file);
+            } finally {
+              controller.close();
+            }
           },
           actionTitle: 'Export'.tl,
         ).toSliver(),
@@ -242,7 +252,17 @@ class _AppSettingsState extends State<AppSettings> {
         _CallbackSetting(
           title: "Data Sync".tl,
           callback: () async {
-            showPopUpWidget(context, const _WebdavSetting());
+            showPopUpWidget(
+              context,
+              Builder(
+                builder: (dialogContext) => _WebdavSetting(
+                  onClose: () {
+                    if (!dialogContext.mounted) return;
+                    Navigator.of(dialogContext).pop();
+                  },
+                ),
+              ),
+            );
           },
           actionTitle: 'Set'.tl,
         ).toSliver(),
@@ -333,7 +353,9 @@ class _AppSettingsState extends State<AppSettings> {
 }
 
 class _WebdavSetting extends StatefulWidget {
-  const _WebdavSetting();
+  const _WebdavSetting({required this.onClose});
+
+  final VoidCallback onClose;
 
   @override
   State<_WebdavSetting> createState() => _WebdavSettingState();
@@ -354,7 +376,7 @@ class _WebdavSettingState extends State<_WebdavSetting> {
 
   void _closePopup() {
     if (!mounted) return;
-    Navigator.of(context).pop();
+    widget.onClose();
   }
 
   @override
@@ -577,24 +599,46 @@ class _WebdavSettingState extends State<_WebdavSetting> {
                   setState(() {
                     isTesting = true;
                   });
-                  var testResult = upload
-                      ? await DataSync().uploadData()
-                      : await DataSync().downloadData();
-                  if (!mounted) return;
-                  if (testResult.error) {
-                    setState(() {
-                      isTesting = false;
-                    });
+                  try {
+                    var testResult = upload
+                        ? await DataSync().uploadData()
+                        : await DataSync().downloadData();
+                    if (!mounted) return;
+                    if (testResult.error) {
+                      _gateway.setWebdavConfigRaw(oldConfig);
+                      _gateway.setDisableSyncFields(oldDisableSync);
+                      _gateway.setWebdavAutoSync(oldAutoSync);
+                      _gateway.saveAppData();
+                      context.showMessage(message: testResult.errorMessage!);
+                      context.showMessage(message: "Saved Failed".tl);
+                    } else {
+                      _gateway.saveAppData();
+                      context.showMessage(message: "Saved".tl);
+                      _closePopup();
+                    }
+                  } catch (e, s) {
+                    diag.AppDiagnostics.error(
+                      'app.webdav',
+                      e,
+                      message: 'app.webdav.test.failed',
+                      stackTrace: s,
+                      data: {
+                        'action': upload ? 'upload' : 'download',
+                        'errorType': e.runtimeType.toString(),
+                        'message': e.toString(),
+                      },
+                    );
                     _gateway.setWebdavConfigRaw(oldConfig);
                     _gateway.setDisableSyncFields(oldDisableSync);
                     _gateway.setWebdavAutoSync(oldAutoSync);
                     _gateway.saveAppData();
-                    context.showMessage(message: testResult.errorMessage!);
+                    if (!mounted) return;
                     context.showMessage(message: "Saved Failed".tl);
-                  } else {
-                    _gateway.saveAppData();
-                    context.showMessage(message: "Saved".tl);
-                    _closePopup();
+                  } finally {
+                    if (!mounted) return;
+                    setState(() {
+                      isTesting = false;
+                    });
                   }
                 },
                 child: Text("Continue".tl),
