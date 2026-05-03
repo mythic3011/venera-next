@@ -16,6 +16,7 @@ import 'package:venera/foundation/comic_type.dart';
 import 'package:venera/foundation/comments/comment_filter.dart';
 import 'package:venera/foundation/comic_detail_legacy_bridge.dart';
 import 'package:venera/foundation/consts.dart';
+import 'package:venera/foundation/favorite_runtime_authority.dart';
 import 'package:venera/foundation/favorites.dart';
 import 'package:venera/foundation/history.dart';
 import 'package:venera/foundation/image_provider/cached_image.dart';
@@ -606,6 +607,9 @@ class _ComicPageState extends LoadingState<ComicPage, ComicDetails>
     // Some sources may not set isFavorite reliably when multi-folder is enabled
     if (comicSource.favoriteData?.loadFolders != null && comicSource.isLogged) {
       var res = await comicSource.favoriteData!.loadFolders!(comic.id);
+      if (!mounted) {
+        return;
+      }
       if (!res.error) {
         if (res.subData is List) {
           var list = List<String>.from(res.subData);
@@ -621,6 +625,10 @@ class _ComicPageState extends LoadingState<ComicPage, ComicDetails>
           await App.repositories.localLibrary.hasPrimaryLocalLibraryItem(
             canonicalId,
           );
+      if (!mounted) {
+        return;
+      }
+      update();
     }
   }
 
@@ -855,7 +863,7 @@ class _ComicPageState extends LoadingState<ComicPage, ComicDetails>
     if (comic.tags.isEmpty &&
         comic.uploader == null &&
         comic.uploadTime == null &&
-        comic.uploadTime == null &&
+        comic.updateTime == null &&
         comic.maxPage == null) {
       return const SliverPadding(padding: EdgeInsets.zero);
     }
@@ -1091,21 +1099,40 @@ class _ComicPageState extends LoadingState<ComicPage, ComicDetails>
 
       final imageStream = imageProvider.resolve(const ImageConfiguration());
       final completer = Completer<Uint8List>();
+      late final ImageStreamListener listener;
 
-      imageStream.addListener(
-        ImageStreamListener((ImageInfo info, bool _) async {
-          final byteData = await info.image.toByteData(
-            format: ImageByteFormat.png,
-          );
-          if (byteData != null) {
-            completer.complete(byteData.buffer.asUint8List());
+      listener = ImageStreamListener(
+        (ImageInfo info, bool _) async {
+          try {
+            final byteData = await info.image.toByteData(
+              format: ImageByteFormat.png,
+            );
+            if (!completer.isCompleted && byteData != null) {
+              completer.complete(byteData.buffer.asUint8List());
+            }
+          } catch (error, stackTrace) {
+            if (!completer.isCompleted) {
+              completer.completeError(error, stackTrace);
+            }
+          } finally {
+            info.image.dispose();
           }
-        }),
+        },
+        onError: (Object error, StackTrace? stackTrace) {
+          if (!completer.isCompleted) {
+            completer.completeError(error, stackTrace);
+          }
+        },
       );
+      imageStream.addListener(listener);
 
-      final data = await completer.future;
-      final fileType = detectFileType(data);
-      await saveFile(filename: "cover${fileType.ext}", data: data);
+      try {
+        final data = await completer.future;
+        final fileType = detectFileType(data);
+        await saveFile(filename: "cover${fileType.ext}", data: data);
+      } finally {
+        imageStream.removeListener(listener);
+      }
     } catch (e) {
       if (context.mounted) {
         context.showMessage(message: "Error".tl);
