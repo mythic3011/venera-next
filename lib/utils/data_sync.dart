@@ -1,4 +1,3 @@
-import 'package:flutter/foundation.dart';
 import 'package:flutter/widgets.dart';
 import 'package:venera/components/components.dart';
 import 'package:venera/components/window_frame.dart';
@@ -18,7 +17,8 @@ import 'io.dart';
 
 class DataSync with ChangeNotifier {
   BuildContext? _resolveUiContext() {
-    return App.rootNavigatorKey.currentContext ?? App.mainNavigatorKey?.currentContext;
+    return App.rootNavigatorKey.currentContext ??
+        App.mainNavigatorKey?.currentContext;
   }
 
   DataSync._() {
@@ -229,8 +229,11 @@ class DataSync with ChangeNotifier {
         if (file == null) {
           throw 'No data file found';
         }
-        var version =
-            file.name!.split('-').elementAtOrNull(1)?.split('.').first;
+        var version = file.name!
+            .split('-')
+            .elementAtOrNull(1)
+            ?.split('.')
+            .first;
         if (version != null && int.tryParse(version) != null) {
           var currentVersion = appdata.settings['dataVersion'];
           if (currentVersion != null && int.parse(version) <= currentVersion) {
