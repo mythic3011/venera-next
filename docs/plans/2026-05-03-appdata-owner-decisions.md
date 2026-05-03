@@ -17,7 +17,7 @@ Decision-only slice.
 | `reader_use_resume_source_ref_snapshot` | `appdata.settings` | no runtime reader; retired migration flag residue | **Retire as runtime flag** | runtime previously read an undeclared flag; this hidden branch made resume behavior non-obvious, and `A-appdata-migrate-1a` already moved legacy resume snapshot loading behind explicit `ReaderResumeService` fallback injection | `A-appdata-migrate-1b`: keep `ReaderResumeService(loadLegacyResumeSourceRef: ...)` as the explicit compatibility path; do not add schema/default for this key |
 | `reading_resume_targets_v1` | `appdata.implicitData` | `ResumeTargetStore` resume snapshot cache | **Legacy fallback bridge** | canonical `reader_sessions` already exists in DB; this snapshot must not remain canonical authority | `A-appdata-migrate-1`: evaluate read-only fallback / sunset plan after reader session migration |
 | `comicSourceListUrl` | `appdata.settings` | legacy source repository URL, still read by init/seed and legacy UI path | **Legacy source repository bridge** | repository registry is canonical authority after M26.2; this key remains for seed/import fallback only | `A-appdata-migrate-1` or source-registry follow-up: remove direct UI authority and sunset bridge reads |
-| `followUpdatesFolder` | `appdata.settings` | follow-updates page selection / workflow state | **UI workflow state** | value selects the active updates folder but does not own source/update authority | keep in appdata unless the follow-updates workflow gets a dedicated state owner |
+| `followUpdatesFolder` | `appdata.settings` | follow-updates page selection / workflow state | **UI workflow state** | stores a user-facing grouping/filter workflow, does not define source repository authority, and does not define update/feed authority | keep in appdata unless a future UI-state store migration replaces this workflow state |
 
 ## Explicit Non-Decisions
 
@@ -28,6 +28,9 @@ These are intentionally **not** part of this slice:
 - no rewrite of `reading_resume_targets_v1` into `reader_sessions`
 - no deletion of `comicSourceListUrl`
 - no move of `followUpdatesFolder` out of `appdata.settings`
+- no runtime change for `followUpdatesFolder`
+- no schema/default change for `followUpdatesFolder`
+- no migration/deletion for `followUpdatesFolder`
 
 ## Testing Contract
 
@@ -40,7 +43,7 @@ test('resume source ref snapshot flag remains undeclared and has no default in o
 test('reader resume legacy fallback remains owned by ReaderResumeService decision', () async {});
 test('comic source list url is classified as legacy source repository bridge', () async {});
 test('reading resume targets are legacy fallback after canonical reader sessions', () async {});
-test('follow updates folder remains ui workflow state and not authority', () async {});
+test('follow updates folder owner decision remains ui workflow state and not source authority', () async {});
 ```
 
 ## Migration Boundary

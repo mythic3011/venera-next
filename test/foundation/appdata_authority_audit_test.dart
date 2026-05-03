@@ -332,7 +332,7 @@ void main() {
     );
   });
 
-  test('follow updates folder remains ui workflow state and not authority', () async {
+  test('follow updates folder owner decision remains ui workflow state and not source authority', () async {
     final entry = findAppdataAuditEntry(
       'followUpdatesFolder',
       storage: AppdataAuditStorage.settings,
@@ -340,6 +340,7 @@ void main() {
 
     expect(entry, isNotNull);
     expect(entry!.classification, AppdataAuditClassification.uiWorkflowState);
+    expect(entry.ownerAction, contains('UI workflow state'));
     expect(entry.ownerAction, contains('not source/update authority'));
   });
 

@@ -137,7 +137,7 @@ because Flutter route transition throws and then Reader gets disposed.
 ## 2. Active Bug Tracker
 ### BUG-A1 - application data.json authority still mixed with DB authority
 
-- **Status:** Open
+- **Status:** Closed for audit / owner / migration phase
 - **Priority:** P2
 - **Area:** AppData / settings authority
 
@@ -178,7 +178,7 @@ Audit-only scope for A-appdata-1:
 | `local_favorites_read_filter` | `appdata.implicitData` | local favorites page filter selection | UI preference / safe to stay in appdata | retain as view preference |
 | `local_favorites_update_page_num` | `appdata.implicitData` | local favorites page pagination/filter state | UI preference / safe to stay in appdata | retain as view preference |
 | `localDirectoryBookmark` | `appdata.implicitData` | iOS local directory restore path | device integration / safe to stay in appdata | retain as device-local integration data |
-| `followUpdatesFolder` | `appdata.settings` | follow-updates page + favorites manager | UI workflow preference / safe to stay in appdata | retain until follow-up workflow owner changes |
+| `followUpdatesFolder` | `appdata.settings` | follow-updates page + favorites manager | UI workflow preference / safe to stay in appdata | owner decision recorded: UI workflow state only; not source/update authority; keep in appdata unless future UI-state store migration happens |
 | `webdavAutoSync` | `appdata.implicitData` | init/bootstrap + settings gateway | feature toggle / safe to stay in appdata | retain as device/runtime preference |
 | `lastCheckUpdate` | `appdata.implicitData` | startup update check throttle | runtime cache / safe to stay in appdata | retain as cache-like throttle state |
 
@@ -201,6 +201,11 @@ test('appdata audit classifies local history and favorite keys as non-authoritat
 test('local library loads without appdata local authority keys', () async {});
 test('ui preferences remain available from appdata', () async {});
 ```
+
+Backlog after BUG-A1 phase close:
+
+- future UI-state store migration, optional
+- remove legacy appdata residues after migration window
 
 ---
 
