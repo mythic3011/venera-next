@@ -1,7 +1,7 @@
 part of 'home_page.dart';
 
 List<String> readLocalFavoriteFolderNames() {
-  return LocalFavoritesManager().folderNames;
+  return FavoriteRuntimeAuthority.folderNames();
 }
 
 class _Local extends StatefulWidget {

@@ -42,8 +42,8 @@ class _FavoritePanelState extends State<_FavoritePanel>
   @override
   void initState() {
     comicSource = widget.type.comicSource;
-    localFolders = legacyLocalFavoriteFolderNames();
-    added = legacyLocalFavoriteMembership(widget.cid, widget.type);
+    localFolders = FavoriteRuntimeAuthority.folderNames();
+    added = FavoriteRuntimeAuthority.membershipForComic(widget.cid, widget.type);
     hasNetwork = comicSource?.favoriteData != null && comicSource!.isLogged;
     super.initState();
   }
@@ -329,31 +329,36 @@ class _NetworkSectionState extends State<_NetworkSection> {
                     setState(() {
                       isLoading = true;
                     });
-
-                    var res = await widget
-                        .comicSource
-                        .favoriteData!
-                        .addOrDelFavorite!(widget.cid, '', !isFavorite, null);
-                    if (!mounted) {
-                      return;
-                    }
-                    if (res.success) {
-                      setState(() {
-                        localIsFavorite = !isFavorite;
-                      });
-                      widget.onFavorite(!isFavorite);
-                      context.showMessage(
-                        message: isFavorite ? "Removed".tl : "Added".tl,
-                      );
-                      if (appdata.settings['autoCloseFavoritePanel'] ?? false) {
-                        context.pop();
+                    try {
+                      var res = await widget
+                          .comicSource
+                          .favoriteData!
+                          .addOrDelFavorite!(widget.cid, '', !isFavorite, null);
+                      if (!mounted) {
+                        return;
                       }
-                    } else {
-                      context.showMessage(message: res.errorMessage!);
+                      if (res.success) {
+                        setState(() {
+                          localIsFavorite = !isFavorite;
+                        });
+                        widget.onFavorite(!isFavorite);
+                        context.showMessage(
+                          message: isFavorite ? "Removed".tl : "Added".tl,
+                        );
+                        if (appdata.settings['autoCloseFavoritePanel'] ??
+                            false) {
+                          context.pop();
+                        }
+                      } else {
+                        context.showMessage(message: res.errorMessage!);
+                      }
+                    } finally {
+                      if (mounted) {
+                        setState(() {
+                          isLoading = false;
+                        });
+                      }
                     }
-                    setState(() {
-                      isLoading = false;
-                    });
                   },
                 ),
         ),
@@ -419,38 +424,43 @@ class _NetworkSectionState extends State<_NetworkSection> {
                       setState(() {
                         _itemLoading[id] = true;
                       });
-                      var res = await widget
-                          .comicSource
-                          .favoriteData!
-                          .addOrDelFavorite!(widget.cid, id, !isAdded, null);
-                      if (!mounted) {
-                        return;
-                      }
-                      if (res.success) {
-                        // Invalidate network cache so folders/pages reload with fresh data
-                        NetworkCacheManager().clear();
-                        setState(() {
-                          if (isAdded) {
-                            addedFolders.remove(id);
-                          } else {
-                            addedFolders.add(id);
-                          }
-                          // sync local flag for single-folder-per-comic logic and parent
-                          localIsFavorite = addedFolders.isNotEmpty;
-                        });
-                        // notify parent so page state updates when closing and reopening panel
-                        widget.onFavorite(addedFolders.isNotEmpty);
-                        context.showMessage(message: "Success".tl);
-                        if (appdata.settings['autoCloseFavoritePanel'] ??
-                            false) {
-                          context.pop();
+                      try {
+                        var res = await widget
+                            .comicSource
+                            .favoriteData!
+                            .addOrDelFavorite!(widget.cid, id, !isAdded, null);
+                        if (!mounted) {
+                          return;
                         }
-                      } else {
-                        context.showMessage(message: res.errorMessage!);
+                        if (res.success) {
+                          // Invalidate network cache so folders/pages reload with fresh data
+                          NetworkCacheManager().clear();
+                          setState(() {
+                            if (isAdded) {
+                              addedFolders.remove(id);
+                            } else {
+                              addedFolders.add(id);
+                            }
+                            // sync local flag for single-folder-per-comic logic and parent
+                            localIsFavorite = addedFolders.isNotEmpty;
+                          });
+                          // notify parent so page state updates when closing and reopening panel
+                          widget.onFavorite(addedFolders.isNotEmpty);
+                          context.showMessage(message: "Success".tl);
+                          if (appdata.settings['autoCloseFavoritePanel'] ??
+                              false) {
+                            context.pop();
+                          }
+                        } else {
+                          context.showMessage(message: res.errorMessage!);
+                        }
+                      } finally {
+                        if (mounted) {
+                          setState(() {
+                            _itemLoading[id] = false;
+                          });
+                        }
                       }
-                      setState(() {
-                        _itemLoading[id] = false;
-                      });
                     },
                   ),
           );
@@ -535,13 +545,17 @@ class _LocalSectionState extends State<_LocalSection> {
               isFavorite: isAdded,
               onTap: () {
                 if (isAdded) {
-                  legacyDeleteLocalFavorite(folder, widget.cid, widget.type);
+                  FavoriteRuntimeAuthority.deleteComic(
+                    folder,
+                    widget.cid,
+                    widget.type,
+                  );
                   setState(() {
                     localAdded.remove(folder);
                   });
                   widget.onFavorite(false);
                 } else {
-                  legacyAddLocalFavorite(
+                  FavoriteRuntimeAuthority.addComic(
                     folder,
                     widget.favoriteItem,
                     widget.updateTime,
@@ -568,11 +582,13 @@ class _LocalSectionState extends State<_LocalSection> {
               Text("New Folder".tl),
             ],
           ),
-          onTap: () {
-            newFolder(context).then((v) {
-              setState(() {
-                localFolders = legacyLocalFavoriteFolderNames();
-              });
+          onTap: () async {
+            await newFolder(context);
+            if (!mounted) {
+              return;
+            }
+            setState(() {
+              localFolders = FavoriteRuntimeAuthority.folderNames();
             });
           },
         ),

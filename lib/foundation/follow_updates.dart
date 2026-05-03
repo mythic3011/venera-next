@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'package:venera/foundation/favorite_runtime_authority.dart';
 import 'package:venera/foundation/favorites.dart';
 import 'package:venera/foundation/log.dart';
 import 'package:venera/utils/channel.dart';
@@ -45,12 +46,12 @@ Future<ComicUpdateResult> updateComic(
         tags: newTags,
       );
 
-      LocalFavoritesManager().updateInfo(folder, item, false);
+      FavoriteRuntimeAuthority.updateInfo(folder, item, false);
 
       var updated = false;
       var updateTime = newInfo.findUpdateTime();
       if (updateTime != null && updateTime != c.updateTime) {
-        LocalFavoritesManager().updateUpdateTime(
+        FavoriteRuntimeAuthority.updateUpdateTime(
           folder,
           c.id,
           c.type,
@@ -58,7 +59,7 @@ Future<ComicUpdateResult> updateComic(
         );
         updated = true;
       } else {
-        LocalFavoritesManager().updateCheckTime(folder, c.id, c.type);
+        FavoriteRuntimeAuthority.updateCheckTime(folder, c.id, c.type);
       }
       return ComicUpdateResult(updated, null);
     } catch (e, s) {
@@ -89,7 +90,7 @@ void updateFolderBase(
   StreamController<UpdateProgress> stream,
   bool ignoreCheckTime,
 ) async {
-  var comics = LocalFavoritesManager().getComicsWithUpdatesInfo(folder);
+  var comics = FavoriteRuntimeAuthority.comicsWithUpdatesInfo(folder);
   int total = comics.length;
   int current = 0;
   int errors = 0;
@@ -162,7 +163,7 @@ void updateFolderBase(
   await Future.wait(updateFutures);
 
   if (updated > 0) {
-    LocalFavoritesManager().notifyChanges();
+    FavoriteRuntimeAuthority.notifyChanges();
   }
 
   stream.close();
@@ -176,7 +177,7 @@ Stream<UpdateProgress> updateFolder(String folder, bool ignoreCheckTime) {
 }
 
 Future<String> getUpdatedComicsAsJson(String folder) async {
-  var comics = LocalFavoritesManager().getComicsWithUpdatesInfo(folder);
+  var comics = FavoriteRuntimeAuthority.comicsWithUpdatesInfo(folder);
   var updatedComics = comics.where((c) => c.hasNewUpdate).toList();
   var jsonList = updatedComics.map((c) => {
     'id': c.id,

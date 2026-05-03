@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:venera/components/components.dart';
 import 'package:venera/foundation/app.dart';
 import 'package:venera/foundation/appdata.dart';
+import 'package:venera/foundation/favorite_runtime_authority.dart';
 import 'package:venera/foundation/favorites.dart';
 import 'package:venera/utils/data_sync.dart';
 import 'package:venera/utils/translations.dart';
@@ -29,14 +30,14 @@ class _FollowUpdatesWidgetState
       _count = 0;
       return;
     }
-    if (!LocalFavoritesManager().folderNames.contains(folder)) {
+    if (!FavoriteRuntimeAuthority.folderNames().contains(folder)) {
       _count = 0;
       appdata.settings["followUpdatesFolder"] = null;
       Future.microtask(() {
         appdata.saveData();
       });
     } else {
-      _count = LocalFavoritesManager().countUpdates(folder!);
+      _count = FavoriteRuntimeAuthority.countUpdates(folder!);
     }
   }
 
@@ -58,7 +59,7 @@ class _FollowUpdatesWidgetState
     }
     setState(() {
       _isReady = true;
-      if (LocalFavoritesManager().isInitialized) {
+      if (FavoriteRuntimeAuthority.isInitialized) {
         getCount();
       } else {
         _count = 0;
@@ -172,13 +173,13 @@ class _FollowUpdatesPageState extends AutomaticGlobalState<FollowUpdatesPage> {
   }
 
   Future<void> _initialize() async {
-    await LocalFavoritesManager().init();
+    await FavoriteRuntimeAuthority.ensureInitialized();
     if (!mounted) {
       return;
     }
     setState(() {
       if (folder != null) {
-        allComics = LocalFavoritesManager().getComicsWithUpdatesInfo(folder!);
+        allComics = FavoriteRuntimeAuthority.comicsWithUpdatesInfo(folder!);
         sortComics();
         updatedComics = allComics.where((c) => c.hasNewUpdate).toList();
       }
@@ -313,7 +314,7 @@ class _FollowUpdatesPageState extends AutomaticGlobalState<FollowUpdatesPage> {
                         content: "Do you want to mark all as read?".tl,
                         onConfirm: () {
                           for (var comic in updatedComics) {
-                            LocalFavoritesManager().markAsRead(
+                            FavoriteRuntimeAuthority.markAsRead(
                               comic.id,
                               comic.type,
                             );
@@ -396,7 +397,7 @@ class _FollowUpdatesPageState extends AutomaticGlobalState<FollowUpdatesPage> {
   }
 
   void showSelector() {
-    var folders = LocalFavoritesManager().folderNames;
+    var folders = FavoriteRuntimeAuthority.folderNames();
     if (folders.isEmpty) {
       context.showMessage(message: "No folders available".tl);
       return;
@@ -460,9 +461,9 @@ class _FollowUpdatesPageState extends AutomaticGlobalState<FollowUpdatesPage> {
 
   void setFolder(String folder) async {
     FollowUpdatesService._cancelChecking?.call();
-    LocalFavoritesManager().prepareTableForFollowUpdates(folder);
+    FavoriteRuntimeAuthority.prepareTableForFollowUpdates(folder);
 
-    var count = LocalFavoritesManager().count(folder);
+    var count = FavoriteRuntimeAuthority.count(folder);
 
     if (count > 0) {
       bool isCanceled = false;
@@ -491,7 +492,7 @@ class _FollowUpdatesPageState extends AutomaticGlobalState<FollowUpdatesPage> {
     setState(() {
       appdata.settings["followUpdatesFolder"] = folder;
       updatedComics = [];
-      allComics = LocalFavoritesManager().getComicsWithUpdatesInfo(folder);
+      allComics = FavoriteRuntimeAuthority.comicsWithUpdatesInfo(folder);
       sortComics();
     });
     appdata.saveData();
@@ -540,7 +541,7 @@ class _FollowUpdatesPageState extends AutomaticGlobalState<FollowUpdatesPage> {
       return;
     }
     setState(() {
-      allComics = LocalFavoritesManager().getComicsWithUpdatesInfo(folder!);
+      allComics = FavoriteRuntimeAuthority.comicsWithUpdatesInfo(folder!);
       sortComics();
       updatedComics = allComics.where((c) => c.hasNewUpdate).toList();
     });

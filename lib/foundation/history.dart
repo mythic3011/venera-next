@@ -11,7 +11,7 @@ import 'package:venera/foundation/comic_type.dart';
 import 'package:venera/foundation/db/history_store.dart';
 import 'package:venera/foundation/db/unified_comics_store.dart';
 import 'package:venera/foundation/diagnostics/diagnostics.dart';
-import 'package:venera/foundation/favorites.dart';
+import 'package:venera/foundation/favorite_runtime_authority.dart';
 import 'package:venera/foundation/image_provider/image_favorites_provider.dart';
 import 'package:venera/foundation/log.dart';
 import 'package:venera/foundation/source_ref.dart';
@@ -373,7 +373,7 @@ class HistoryManager with ChangeNotifier {
     for (var element in _historyMap.values) {
       final id = element.id;
       final type = element.type;
-      if (!LocalFavoritesManager().isExist(id, type)) {
+      if (!FavoriteRuntimeAuthority.exists(id, type)) {
         toDelete.add((id, type.value));
       }
     }

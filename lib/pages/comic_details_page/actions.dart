@@ -169,7 +169,11 @@ mixin _ComicPageActions on State<ComicPage> {
     if (folder is! String) {
       return;
     }
-    legacyAddLocalFavorite(folder, _toFavoriteItem(), comic.findUpdateTime());
+    FavoriteRuntimeAuthority.addComic(
+      folder,
+      _toFavoriteItem(),
+      comic.findUpdateTime(),
+    );
     isAddToLocalFav = true;
     update();
     context.showMessage(message: "Added".tl);
