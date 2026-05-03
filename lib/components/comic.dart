@@ -156,7 +156,7 @@ class ComicTile extends StatelessWidget {
   }
 
   void showMenu(Offset location, BuildContext context) {
-    showMenuX(App.rootContext, location, [
+    showMenuX(context, location, [
       MenuEntry(
         icon: Icons.chrome_reader_mode_outlined,
         text: 'Details'.tl,
@@ -176,14 +176,14 @@ class ComicTile extends StatelessWidget {
         text: 'Copy Title'.tl,
         onClick: () {
           Clipboard.setData(ClipboardData(text: comic.title));
-          App.rootContext.showMessage(message: 'Title copied'.tl);
+          context.showMessage(message: 'Title copied'.tl);
         },
       ),
       MenuEntry(
         icon: Icons.stars_outlined,
         text: 'Add to favorites'.tl,
         onClick: () {
-          addFavorite([comic]);
+          addFavorite(context, [comic]);
         },
       ),
       MenuEntry(
@@ -497,7 +497,7 @@ class ComicTile extends StatelessWidget {
 
   void block(BuildContext comicTileContext) {
     showDialog(
-      context: App.rootContext,
+      context: comicTileContext,
       builder: (context) {
         var words = <String>[];
         var all = <String>[];
@@ -1189,7 +1189,7 @@ class ComicListState extends State<ComicList> {
                 onTap: () {
                   String value = '';
                   showDialog(
-                    context: App.rootContext,
+                    context: context,
                     builder: (context) {
                       return ContentDialog(
                         title: "Jump to page".tl,

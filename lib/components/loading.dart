@@ -161,6 +161,35 @@ String _redactLogs(String raw) {
 
 String redactLoadingDiagnosticsForExport(String raw) => _redactLogs(raw);
 
+void _emitUiErrorVisible({
+  required BuildContext context,
+  required String owner,
+  required Object exception,
+  StackTrace? stackTrace,
+  String? diagnosticCode,
+  String? rawMessage,
+  String? exceptionType,
+}) {
+  final route = ModalRoute.of(context);
+  final routeIdentity = describeRouteDiagnosticIdentity(route);
+  AppDiagnostics.error(
+    'ui.error',
+    exception,
+    stackTrace: stackTrace,
+    message: 'ui.error.visible',
+    data: {
+      'routeHash': route?.hashCode,
+      'routeDiagnosticIdentity': routeIdentity,
+      'pageOwner': owner,
+      'tabOwner': owner,
+      'exceptionType': exceptionType ?? exception.runtimeType.toString(),
+      'sanitizedMessage': _redactLogs(rawMessage ?? exception.toString()),
+      if (diagnosticCode != null) 'diagnosticCode': diagnosticCode,
+      if (stackTrace != null) 'stackTrace': stackTrace.toString(),
+    },
+  );
+}
+
 class NetworkError extends StatelessWidget {
   NetworkError({
     super.key,
@@ -352,11 +381,20 @@ abstract class LoadingState<T extends StatefulWidget, S extends Object>
         });
       } else {
         if (!mounted || generation != _loadGeneration) return;
+        final appError = AppLoadError.fromMessage(
+          value.errorMessage ?? 'Unknown error',
+        );
+        _emitUiErrorVisible(
+          context: context,
+          owner: '$T',
+          exception: appError,
+          diagnosticCode: appError.diagnosticCode,
+          rawMessage: value.errorMessage ?? 'Unknown error',
+          exceptionType: 'LoadError',
+        );
         setState(() {
           isLoading = false;
-          error = AppLoadError.fromMessage(
-            value.errorMessage ?? 'Unknown error',
-          );
+          error = appError;
         });
       }
     });
@@ -488,19 +526,38 @@ abstract class MultiPageLoadingState<T extends StatefulWidget, S extends Object>
                 data = value.data;
               });
             } else {
+              final appError = AppLoadError.fromMessage(
+                value.errorMessage ?? 'Unknown error',
+              );
+              _emitUiErrorVisible(
+                context: context,
+                owner: '$T',
+                exception: appError,
+                diagnosticCode: appError.diagnosticCode,
+                rawMessage: value.errorMessage ?? 'Unknown error',
+                exceptionType: 'LoadError',
+              );
               setState(() {
                 _isFirstLoading = false;
-                _error = AppLoadError.fromMessage(
-                  value.errorMessage ?? 'Unknown error',
-                );
+                _error = appError;
               });
             }
           })
           .catchError((e) {
             if (!mounted || generation != _loadGeneration) return;
+            final appError = AppLoadError.fromMessage(e.toString());
+            _emitUiErrorVisible(
+              context: context,
+              owner: '$T',
+              exception: appError,
+              stackTrace: e is Error ? e.stackTrace : null,
+              diagnosticCode: appError.diagnosticCode,
+              rawMessage: e.toString(),
+              exceptionType: e.runtimeType.toString(),
+            );
             setState(() {
               _isFirstLoading = false;
-              _error = AppLoadError.fromMessage(e.toString());
+              _error = appError;
             });
           });
     });

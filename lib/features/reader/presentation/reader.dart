@@ -145,6 +145,9 @@ class _ReaderState extends State<Reader>
         _VolumeListener,
         _ImagePerPageHandler {
   @override
+  BuildContext get readerBuildContext => context;
+
+  @override
   void update() {
     if (!mounted) {
       return;
@@ -991,7 +994,9 @@ abstract mixin class _ReaderLocation {
   }
 }
 
-mixin class _ReaderWindow {
+abstract mixin class _ReaderWindow {
+  BuildContext get readerBuildContext;
+
   bool isFullscreen = false;
 
   WindowFrameController? windowFrame;
@@ -999,19 +1004,20 @@ mixin class _ReaderWindow {
   bool _isInit = false;
 
   void initReaderWindow() {
-    if (!App.isDesktop || _isInit) return;
-    windowFrame = WindowFrame.of(App.rootContext);
+    if (!App.isDesktop || _isInit || !readerBuildContext.mounted) return;
+    windowFrame = WindowFrame.of(readerBuildContext);
     windowFrame?.addCloseListener(onWindowClose);
     _isInit = true;
   }
 
-  void fullscreen() async {
+  Future<void> fullscreen() async {
     if (!App.isDesktop) return;
     await windowManager.hide();
     await windowManager.setFullScreen(!isFullscreen);
     await windowManager.show();
+    if (!readerBuildContext.mounted) return;
     isFullscreen = !isFullscreen;
-    WindowFrame.of(App.rootContext).setWindowFrame(!isFullscreen);
+    WindowFrame.of(readerBuildContext).setWindowFrame(!isFullscreen);
   }
 
   Future<void> restoreReaderWindowFrame() async {
@@ -1020,8 +1026,9 @@ mixin class _ReaderWindow {
       await windowManager.hide();
       await windowManager.setFullScreen(false);
       await windowManager.show();
+      if (!readerBuildContext.mounted) return;
       isFullscreen = false;
-      WindowFrame.of(App.rootContext).setWindowFrame(true);
+      WindowFrame.of(readerBuildContext).setWindowFrame(true);
     } catch (error, stackTrace) {
       AppDiagnostics.warn(
         'reader.lifecycle',
@@ -1032,12 +1039,15 @@ mixin class _ReaderWindow {
   }
 
   bool onWindowClose() {
-    if (Navigator.of(App.rootContext).canPop()) {
-      Navigator.of(App.rootContext).pop();
-      return false;
-    } else {
+    if (!readerBuildContext.mounted) {
       return true;
     }
+    final navigator = Navigator.maybeOf(readerBuildContext);
+    if (navigator?.canPop() ?? false) {
+      navigator!.pop();
+      return false;
+    }
+    return true;
   }
 
   void disposeReaderWindow() {

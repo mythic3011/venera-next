@@ -10,13 +10,23 @@ import 'components.dart';
 
 mixin class JsUiApi {
   final Map<int, LoadingDialogController> _loadingDialogControllers = {};
+  BuildContext? _resolveUiContext() {
+    return App.rootNavigatorKey.currentContext ?? App.mainNavigatorKey?.currentContext;
+  }
+
+  void _showMessage(String message) {
+    final context = _resolveUiContext();
+    if (context != null && context.mounted) {
+      context.showMessage(message: message);
+    }
+  }
 
   dynamic handleUIMessage(Map<String, dynamic> message) {
     switch (message['function']) {
       case 'showMessage':
         var m = message['message'];
         if (m.toString().isNotEmpty) {
-          App.rootContext.showMessage(message: m.toString());
+          _showMessage(m.toString());
         }
       case 'showDialog':
         return _showDialog(message);
@@ -59,6 +69,10 @@ mixin class JsUiApi {
   }
 
   Future<void> _showDialog(Map<String, dynamic> message) {
+    final uiContext = _resolveUiContext();
+    if (uiContext == null) {
+      return Future.value();
+    }
     BuildContext? dialogContext;
     var title = message['title'];
     var content = message['content'];
@@ -92,7 +106,7 @@ mixin class JsUiApi {
       );
     }
     return showDialog(
-      context: App.rootContext,
+      context: uiContext,
       builder: (context) {
         dialogContext = context;
         return ContentDialog(
@@ -107,9 +121,13 @@ mixin class JsUiApi {
   }
 
   int _showLoading(JSInvokable? onCancel) {
+    final uiContext = _resolveUiContext();
+    if (uiContext == null) {
+      return -1;
+    }
     var func = onCancel == null ? null : JSAutoFreeFunction(onCancel);
     var controller = showLoadingDialog(
-      App.rootContext,
+      uiContext,
       barrierDismissible: onCancel != null,
       allowCancel: onCancel != null,
       onCancel: onCancel == null
@@ -149,8 +167,12 @@ mixin class JsUiApi {
         imageData = Uint8List.fromList(image);
       }
     }
+    final uiContext = _resolveUiContext();
+    if (uiContext == null) {
+      return null;
+    }
     await showInputDialog(
-      context: App.rootContext,
+      context: uiContext,
       title: title,
       image: imageUrl,
       imageData: imageData,
@@ -184,6 +206,7 @@ mixin class JsUiApi {
       initialIndex = null;
     }
     return showSelectDialog(
+      context: _resolveUiContext(),
       title: title,
       options: options,
       initialIndex: initialIndex,

@@ -94,17 +94,17 @@ class _Tag {
       if (link != null && link.isURL) {
         recognizer = TapGestureRecognizer()
           ..onTap = () {
-            handleLink(link);
+            handleLink(context, link);
           };
       }
     }
     return TextSpan(text: s.text, style: style, recognizer: recognizer);
   }
 
-  static void handleLink(String link) async {
+  static void handleLink(BuildContext context, String link) async {
     if (link.isURL) {
       if (await handleAppLink(Uri.parse(link))) {
-        Navigator.of(App.rootContext).maybePop();
+        Navigator.of(context).maybePop();
       } else {
         launchUrlString(link);
       }
@@ -285,7 +285,7 @@ class _RichCommentContentState extends State<RichCommentContent> {
               style: ts.withColor(context.colorScheme.primary),
               recognizer: TapGestureRecognizer()
                 ..onTap = () {
-                  _Tag.handleLink(url);
+                  _Tag.handleLink(context, url);
                 },
             ),
           );
@@ -329,7 +329,7 @@ class _RichCommentContentState extends State<RichCommentContent> {
               if (e.link != null) {
                 image = InkWell(
                   onTap: () {
-                    _Tag.handleLink(e.link!);
+                    _Tag.handleLink(context, e.link!);
                   },
                   child: image,
                 );
