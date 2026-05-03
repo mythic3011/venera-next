@@ -14,7 +14,6 @@ void main() {
       'lib/network/cloudflare.dart': 'background_service',
       'lib/pages/comic_source_page.dart': 'ui_navigation',
       'lib/pages/favorites/local_favorites_page.dart': 'ui_navigation',
-      'lib/pages/image_favorites_page/image_favorites_item.dart': 'ui_navigation',
       'lib/pages/local_comics_page.dart': 'ui_navigation',
       'lib/utils/data_sync.dart': 'background_service',
       'lib/utils/import_comic.dart': 'background_service',
@@ -29,7 +28,6 @@ void main() {
       'lib/network/cloudflare.dart': 'network',
       'lib/pages/comic_source_page.dart': 'sources-ui',
       'lib/pages/favorites/local_favorites_page.dart': 'favorites-ui',
-      'lib/pages/image_favorites_page/image_favorites_item.dart': 'favorites-ui',
       'lib/pages/local_comics_page.dart': 'library-ui',
       'lib/utils/data_sync.dart': 'data-sync',
       'lib/utils/import_comic.dart': 'import',
@@ -52,8 +50,6 @@ void main() {
           'Use local BuildContext path and mounted checks for pop/navigation actions.',
       'lib/pages/favorites/local_favorites_page.dart':
           'Pass item action context from widget tree for navigation.',
-      'lib/pages/image_favorites_page/image_favorites_item.dart':
-          'Remove global navigator fallback and use widget-owned context.',
       'lib/pages/local_comics_page.dart':
           'Replace global context fallback with caller-owned context route.',
       'lib/utils/data_sync.dart':

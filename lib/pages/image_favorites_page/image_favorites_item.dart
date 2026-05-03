@@ -22,8 +22,8 @@ class _ImageFavoritesItem extends StatefulWidget {
 class _ImageFavoritesItemState extends State<_ImageFavoritesItem> {
   late final imageFavorites = widget.imageFavoritesComic.images.toList();
 
-  void goComicInfo(ImageFavoritesComic comic) {
-    App.mainNavigatorKey?.currentContext?.to(
+  void goComicInfo(BuildContext context, ImageFavoritesComic comic) {
+    context.to(
       () => ComicPage(id: comic.id, sourceKey: comic.sourceKey),
     );
   }
@@ -76,7 +76,7 @@ class _ImageFavoritesItemState extends State<_ImageFavoritesItem> {
         icon: Icons.chrome_reader_mode_outlined,
         text: 'Details'.tl,
         onClick: () {
-          goComicInfo(widget.imageFavoritesComic);
+          goComicInfo(context, widget.imageFavoritesComic);
         },
       ),
       MenuEntry(
@@ -127,7 +127,7 @@ class _ImageFavoritesItemState extends State<_ImageFavoritesItem> {
             }
           } else {
             // 单击跳转漫画详情
-            goComicInfo(widget.imageFavoritesComic);
+            goComicInfo(context, widget.imageFavoritesComic);
           }
         },
         child: Column(
