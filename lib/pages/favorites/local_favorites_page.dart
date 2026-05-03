@@ -216,6 +216,20 @@ class _LocalFavoritesPageState extends State<_LocalFavoritesPage> {
     setState(() {});
   }
 
+  Future<void> _syncNetworkFolder(int updatePageNum) async {
+    await importNetworkFolder(
+      context,
+      networkSource!,
+      updatePageNum,
+      widget.folder,
+      networkFolder!,
+    );
+    if (!mounted) {
+      return;
+    }
+    updateComics();
+  }
+
   Future<void> _loadStatuses(List<FavoriteItem> target) async {
     final requestId = ++_statusRequestId;
     if (target.isEmpty) {
@@ -477,19 +491,13 @@ class _LocalFavoritesPageState extends State<_LocalFavoritesPage> {
                         actions: [
                           Button.filled(
                             child: Text("Update".tl),
-                            onPressed: () {
+                            onPressed: () async {
                               context.pop();
-                              importNetworkFolder(
-                                context,
-                                networkSource!,
+                              await _syncNetworkFolder(
                                 selectUpdatePageNumKey
                                     .currentState!
                                     .updatePageNum,
-                                widget.folder,
-                                networkFolder!,
-                              ).then((value) {
-                                updateComics();
-                              });
+                              );
                             },
                           ),
                         ],
@@ -576,19 +584,17 @@ class _LocalFavoritesPageState extends State<_LocalFavoritesPage> {
                       icon: Icons.reorder,
                       text: "Reorder".tl,
                       onClick: () {
-                        context
-                            .to(() {
-                              return _ReorderComicsPage(widget.folder, (
-                                comics,
-                              ) {
-                                this.comics = comics;
-                              });
-                            })
-                            .then((value) {
-                              if (mounted) {
-                                setState(() {});
-                              }
+                        unawaited(() async {
+                          await context.to(() {
+                            return _ReorderComicsPage(widget.folder, (comics) {
+                              this.comics = comics;
                             });
+                          });
+                          if (!mounted) {
+                            return;
+                          }
+                          setState(() {});
+                        }());
                       },
                     ),
                     MenuEntry(
@@ -605,13 +611,16 @@ class _LocalFavoritesPageState extends State<_LocalFavoritesPage> {
                     MenuEntry(
                       icon: Icons.update,
                       text: "Update Comics Info".tl,
-                      onClick: () {
-                        updateComicsInfo(context, widget.folder).then((newComics) {
-                          if (mounted) {
-                            setState(() {
-                              comics = newComics;
-                            });
-                          }
+                      onClick: () async {
+                        final newComics = await updateComicsInfo(
+                          context,
+                          widget.folder,
+                        );
+                        if (!mounted) {
+                          return;
+                        }
+                        setState(() {
+                          comics = newComics;
                         });
                       },
                     ),
@@ -761,9 +770,7 @@ class _LocalFavoritesPageState extends State<_LocalFavoritesPage> {
                 icon: const Icon(Icons.close),
                 onPressed: () {
                   setState(() {
-                    setState(() {
-                      searchMode = false;
-                    });
+                    searchMode = false;
                   });
                 },
               ),
@@ -962,7 +969,11 @@ class _LocalFavoritesPageState extends State<_LocalFavoritesPage> {
                               child: Center(
                                 child: TextButton(
                                   onPressed: () {
-                                    newFolder(context).then((v) {
+                                    unawaited(() async {
+                                      await newFolder(context);
+                                      if (!context.mounted) {
+                                        return;
+                                      }
                                       setState(() {
                                         targetFolders = favoritesRepo
                                             .folderNames
@@ -972,7 +983,7 @@ class _LocalFavoritesPageState extends State<_LocalFavoritesPage> {
                                             )
                                             .toList();
                                       });
-                                    });
+                                    }());
                                   },
                                   child: Row(
                                     mainAxisSize: MainAxisSize.min,
@@ -1126,10 +1137,14 @@ class _ReorderComicsPageState extends State<_ReorderComicsPage> {
   @override
   void dispose() {
     if (changed) {
+      final reorderedComics = List<FavoriteItem>.of(comics);
+      final folderName = widget.name;
       // Delay to ensure navigation is completed
-      Future.delayed(const Duration(milliseconds: 200), () {
-        favoritesRepo.reorder(comics, widget.name);
-      });
+      unawaited(
+        Future<void>.delayed(const Duration(milliseconds: 200), () {
+          favoritesRepo.reorder(reorderedComics, folderName);
+        }),
+      );
     }
     super.dispose();
   }
@@ -1335,7 +1350,7 @@ class _LocalFavoritesFilterDialogState
     ).paddingTop(context.padding.top);
     return ContentDialog(
       content: DefaultTabController(
-        length: 2,
+        length: optionTypes.length,
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [

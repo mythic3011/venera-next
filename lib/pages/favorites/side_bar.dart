@@ -20,13 +20,34 @@ class _LeftBarState extends State<_LeftBar> implements FolderList {
 
   var networkFolders = <String>[];
 
+  Future<void> _createFolder() async {
+    await newFolder(context);
+    if (!mounted) {
+      return;
+    }
+    setState(() {
+      folders = favoritesRepo.folderNames;
+    });
+  }
+
+  Future<void> _sortFolders() async {
+    await sortFolders(context);
+    if (!mounted) {
+      return;
+    }
+    setState(() {
+      folders = favoritesRepo.folderNames;
+    });
+  }
+
   void findNetworkFolders() {
     networkFolders.clear();
     var all = ComicSource.all()
         .where((e) => e.favoriteData != null)
         .map((e) => e.favoriteData!.key)
         .toList();
-    var settings = appdata.settings['favorites'] as List;
+    final rawFavorites = appdata.settings['favorites'];
+    final settings = rawFavorites is List ? rawFavorites : const [];
     for (var p in settings) {
       if (all.contains(p) && !networkFolders.contains(p)) {
         networkFolders.add(p);
@@ -132,24 +153,12 @@ class _LeftBarState extends State<_LeftBar> implements FolderList {
               MenuEntry(
                 icon: Icons.add,
                 text: 'Create Folder'.tl,
-                onClick: () {
-                  newFolder(context).then((value) {
-                    setState(() {
-                      folders = favoritesRepo.folderNames;
-                    });
-                  });
-                },
+                onClick: _createFolder,
               ),
               MenuEntry(
                 icon: Icons.reorder,
                 text: 'Sort'.tl,
-                onClick: () {
-                  sortFolders(context).then((value) {
-                    setState(() {
-                      folders = favoritesRepo.folderNames;
-                    });
-                  });
-                },
+                onClick: _sortFolders,
               ),
             ],
           ),
