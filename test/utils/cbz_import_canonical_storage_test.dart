@@ -10,6 +10,7 @@ import 'package:venera/foundation/local.dart';
 import 'package:venera/utils/cbz.dart';
 import 'package:venera/utils/import_comic.dart';
 import 'package:venera/utils/local_import_storage.dart';
+import 'package:venera/utils/translations.dart';
 
 class _FakeImportStorage implements LocalImportStoragePort {
   Future<void> Function(String comicTitle)? onAssertReady;
@@ -63,6 +64,14 @@ Future<File> _writeImageFile(String path) {
 }
 
 void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
+
+  try {
+    AppTranslation.translations;
+  } catch (_) {
+    AppTranslation.translations = {'en_US': <String, String>{}};
+  }
+
   setUp(() {
     AppDiagnostics.configureSinksForTesting(const []);
   });
@@ -322,6 +331,101 @@ void main() {
       expect(importedCount, 1);
       expect(storage.registerCalls, 1);
       expect(favorites.single.id, 'canonical-1');
+    },
+  );
+
+  test(
+    'registerComics creates missing canonical local root before copy',
+    () async {
+      final tempRoot = await Directory.systemTemp.createTemp(
+        'import-local-root-missing',
+      );
+      addTearDown(() => tempRoot.delete(recursive: true));
+
+      final sourceDir = Directory('${tempRoot.path}/source/comic-a')
+        ..createSync(recursive: true);
+      await _writeImageFile('${sourceDir.path}/cover.png');
+
+      final localRoot = '${tempRoot.path}/runtimeRoot/local';
+      final storage = _FakeImportStorage();
+      storage.onRequireRootPath = () async => localRoot;
+      storage.onRegisterImportedComic = (comic) async => comic;
+
+      final importer = ImportComic(
+        localImportStorage: storage,
+        copyToLocal: true,
+      );
+
+      final success = await importer.registerComics({
+        null: [
+          LocalComic(
+            id: '0',
+            title: 'Comic A',
+            subtitle: '',
+            tags: const [],
+            directory: sourceDir.path,
+            chapters: null,
+            cover: 'cover.png',
+            comicType: ComicType.local,
+            downloadedChapters: const [],
+            createdAt: DateTime.utc(2026, 5, 3),
+          ),
+        ],
+      }, true);
+
+      expect(success, isTrue);
+      expect(Directory(localRoot).existsSync(), isTrue);
+      expect(File('$localRoot/comic-a/cover.png').existsSync(), isTrue);
+    },
+  );
+
+  test(
+    'registerComics fails when copy path throws and emits import.local.copyFailed',
+    () async {
+      final tempRoot = await Directory.systemTemp.createTemp(
+        'import-copy-failed',
+      );
+      addTearDown(() => tempRoot.delete(recursive: true));
+
+      final localRoot = '${tempRoot.path}/runtimeRoot/local';
+      final storage = _FakeImportStorage();
+      storage.onRequireRootPath = () async => localRoot;
+      storage.onRegisterImportedComic = (comic) async => comic;
+
+      final importer = ImportComic(
+        localImportStorage: storage,
+        copyToLocal: true,
+      );
+
+      final success = await importer.registerComics({
+        null: [
+          LocalComic(
+            id: '0',
+            title: 'Comic A',
+            subtitle: '',
+            tags: const [],
+            directory: '${tempRoot.path}/does-not-exist/comic-a',
+            chapters: null,
+            cover: 'cover.png',
+            comicType: ComicType.local,
+            downloadedChapters: const [],
+            createdAt: DateTime.utc(2026, 5, 3),
+          ),
+        ],
+      }, true);
+
+      expect(success, isFalse);
+      expect(storage.registerCalls, 0);
+
+      final events = DevDiagnosticsApi.recent(channel: 'import.local');
+      final copyFailedEvent = events.firstWhere(
+        (event) => event.message == 'import.local.copyFailed',
+      );
+      expect(copyFailedEvent.data['destinationRoot'], localRoot);
+      expect(copyFailedEvent.data['sourcePaths'], [
+        '${tempRoot.path}/does-not-exist/comic-a',
+      ]);
+      expect(copyFailedEvent.data['errorType'], isNotEmpty);
     },
   );
 

@@ -8,6 +8,7 @@ import 'package:venera/components/components.dart';
 import 'package:venera/foundation/app.dart';
 import 'package:venera/features/sources/comic_source/comic_source.dart';
 import 'package:venera/foundation/comic_type.dart';
+import 'package:venera/foundation/diagnostics/diagnostics.dart';
 import 'package:venera/foundation/favorites.dart';
 import 'package:venera/foundation/local.dart';
 import 'package:venera/foundation/local_comics_legacy_bridge.dart';
@@ -108,6 +109,23 @@ String? selectCoverPathForImport({
   return null;
 }
 
+void ensureImportCopyRoot(String destinationPath) {
+  Directory(destinationPath).createSync(recursive: true);
+}
+
+@visibleForTesting
+void ensureImportCopyRootForTesting(String destinationPath) {
+  ensureImportCopyRoot(destinationPath);
+}
+
+@visibleForTesting
+bool shouldAbortImportWhenNoComics({
+  required Map<String?, List<LocalComic>> imported,
+  required String? selectedFolder,
+}) {
+  return (imported[selectedFolder] ?? const <LocalComic>[]).isEmpty;
+}
+
 class _ImportBatchResult {
   final Map<String?, List<LocalComic>> imported;
   int failed = 0;
@@ -121,6 +139,19 @@ class _ExtractedArchive {
   final Directory root;
 
   const _ExtractedArchive(this.cache, this.root);
+}
+
+class ImportFailure implements Exception {
+  const ImportFailure._(this.code, this.message);
+
+  final String code;
+  final String message;
+
+  const ImportFailure.copyFailed(String message)
+    : this._('IMPORT_COPY_FAILED', message);
+
+  @override
+  String toString() => '$code: $message';
 }
 
 class ImportComic {
@@ -194,7 +225,10 @@ class ImportComic {
       Log.error("Import Comic", e.toString(), s);
       _showMessage(e.toString());
     }
-    if (result.imported[selectedFolder]!.isEmpty) {
+    if (shouldAbortImportWhenNoComics(
+      imported: result.imported,
+      selectedFolder: selectedFolder,
+    )) {
       controller.close();
       return false;
     }
@@ -259,8 +293,13 @@ class ImportComic {
         result.failed++;
       }
     }
-    if (result.imported[selectedFolder]!.isEmpty) {
+    if (shouldAbortImportWhenNoComics(
+      imported: result.imported,
+      selectedFolder: selectedFolder,
+    )) {
+      controller.close();
       _showMessage("No valid comics found".tl);
+      return false;
     }
     controller.setMessage("Saving library".tl);
     controller.setProgress(0.99);
@@ -850,6 +889,7 @@ class ImportComic {
     } catch (e, s) {
       Log.error("Import Comic", e.toString(), s);
       _showMessage(e.toString());
+      return false;
     }
     return registerComics(imported, copyToLocal);
   }
@@ -981,6 +1021,7 @@ class ImportComic {
     return overrideIO(() async {
       var toBeCopied = data['toBeCopied'] as List<String>;
       var destination = data['destination'] as String;
+      ensureImportCopyRoot(destination);
       Map<String, String> result = {};
       for (var dir in toBeCopied) {
         var source = Directory(dir);
@@ -996,7 +1037,7 @@ class ImportComic {
             findValidDirectoryName(dest.parent.path, "${dest.path}_old"),
           );
         }
-        dest.createSync();
+        dest.createSync(recursive: true);
         await copyDirectory(source, dest);
         result[source.path] = dest.path;
       }
@@ -1050,9 +1091,24 @@ class ImportComic {
           );
         }
       } catch (e, s) {
+        AppDiagnostics.error(
+          'import.local',
+          e,
+          stackTrace: s,
+          message: 'import.local.copyFailed',
+          data: {
+            'sourcePaths': comics[favoriteFolder]!
+                .map((comic) => comic.directory)
+                .toList(),
+            'destinationRoot': destPath,
+            'errorType': e.runtimeType.toString(),
+          },
+        );
         _showMessage("Failed to copy comics".tl);
         Log.error("Import Comic", e.toString(), s);
-        return result;
+        throw ImportFailure.copyFailed(
+          'Failed to copy comics to canonical local root: $destPath',
+        );
       }
     }
     return result;
