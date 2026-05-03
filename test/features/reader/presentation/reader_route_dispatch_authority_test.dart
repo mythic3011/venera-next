@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:venera/foundation/diagnostics/diagnostics.dart';
 import 'package:venera/features/reader/presentation/reader.dart';
@@ -15,8 +17,9 @@ void main() {
     () async {
       ReaderOpenRequest? openedRequest;
       final authority = ReaderRouteDispatchAuthority(
-        openLegacyRoute: (request) async {
+        openLegacyRoute: (request, context) async {
           openedRequest = request;
+          return true;
         },
       );
       final request = ReaderOpenRequest(
@@ -36,24 +39,96 @@ void main() {
       expect(events.single.message, 'reader.route.dispatch');
       expect(events.single.data['target'], 'legacy');
       expect(events.single.data['entrypoint'], 'test.entry');
-      expect(events.single.data['navigatorTarget'], 'root');
+      expect(events.single.data['navigatorTarget'], 'main');
+      expect(events.single.data['routeFactory'], 'AppRouter.openReader');
     },
   );
+
+  test('legacy dispatch returns opener status', () async {
+    final authority = ReaderRouteDispatchAuthority(
+      openLegacyRoute: (request, context) async => false,
+    );
+    final request = ReaderOpenRequest(
+      comicId: '646922',
+      sourceKey: 'nhentai',
+      initialEp: 2,
+      initialPage: 3,
+    );
+
+    final opened = await authority.openLegacy(request);
+    expect(opened, isFalse);
+  });
+
+  test('legacy dispatch fail-closed when main navigator is unavailable', () async {
+    final authority = const ReaderRouteDispatchAuthority();
+    final request = ReaderOpenRequest(
+      comicId: '646922',
+      sourceKey: 'nhentai',
+      initialEp: 2,
+      initialPage: 3,
+      diagnosticEntrypoint: 'test.blocked',
+      diagnosticCaller: 'reader_route_dispatch_authority_test',
+    );
+
+    final opened = await authority.openLegacy(request);
+    expect(opened, isFalse);
+    final events = AppDiagnostics.recent(channel: 'reader.route');
+    expect(events.map((event) => event.message), contains('open_blocked'));
+    final blockedEvent = events.firstWhere(
+      (event) => event.message == 'open_blocked',
+    );
+    expect(blockedEvent.data['selectedNavigatorRole'], 'main');
+    expect(blockedEvent.data['observerExpected'], true);
+    expect(
+      blockedEvent.data['selectedNavigatorSource'],
+      'App.mainNavigatorKey.currentState',
+    );
+    expect(blockedEvent.data['requestedRootNavigator'], false);
+  });
+
+  test('reader route opens are centralized through router/dispatch authority', () {
+    final repoRoot = Directory.current.path;
+    final allowedFiles = <String>{
+      'lib/features/reader/presentation/loading.dart',
+      'lib/app/router.dart',
+    };
+    final matches = <String>[];
+    for (final entity in Directory('$repoRoot/lib')
+        .listSync(recursive: true, followLinks: false)
+        .whereType<File>()) {
+      final relative = entity.path.replaceFirst('$repoRoot/', '');
+      if (!relative.endsWith('.dart')) {
+        continue;
+      }
+      final content = entity.readAsStringSync();
+      if (content.contains('ReaderWithLoading.fromRequest(')) {
+        matches.add(relative);
+      }
+    }
+    expect(matches.toSet(), equals(allowedFiles));
+    expect(
+      matches,
+      everyElement(isNot(contains('reader_route_dispatch_authority.dart'))),
+    );
+    expect(
+      matches,
+      everyElement(isNot(contains('local/local_comic.dart'))),
+    );
+  });
 
   test(
     'approved ReaderNext dispatch uses injected executor through one centralized executor path',
     () async {
       ReaderNextOpenRequest? dispatchedRequest;
       ReaderNextApprovedExecutor? dispatchedExecutor;
-      final injectedExecutor = (ReaderNextOpenRequest request) async {};
-      final ReaderNextExecutorDispatcher dispatcher =
-          ({
-            required ReaderNextOpenRequest request,
-            required ReaderNextApprovedExecutor executor,
-          }) async {
-            dispatchedRequest = request;
-            dispatchedExecutor = executor;
-          };
+      Future<void> injectedExecutor(ReaderNextOpenRequest request) async {}
+      Future<void> dispatcher({
+        required ReaderNextOpenRequest request,
+        required ReaderNextApprovedExecutor executor,
+      }) async {
+        dispatchedRequest = request;
+        dispatchedExecutor = executor;
+      }
       final authority = ReaderRouteDispatchAuthority(
         dispatchApprovedReaderNextExecutor: dispatcher,
       );
@@ -90,15 +165,14 @@ void main() {
       ReaderNextOpenRequest? dispatchedRequest;
       ReaderNextApprovedExecutor? dispatchedExecutor;
       var approvedFactoryCalls = 0;
-      final approvedExecutor = (ReaderNextOpenRequest request) async {};
-      final ReaderNextExecutorDispatcher dispatcher =
-          ({
-            required ReaderNextOpenRequest request,
-            required ReaderNextApprovedExecutor executor,
-          }) async {
-            dispatchedRequest = request;
-            dispatchedExecutor = executor;
-          };
+      Future<void> approvedExecutor(ReaderNextOpenRequest request) async {}
+      Future<void> dispatcher({
+        required ReaderNextOpenRequest request,
+        required ReaderNextApprovedExecutor executor,
+      }) async {
+        dispatchedRequest = request;
+        dispatchedExecutor = executor;
+      }
       final authority = ReaderRouteDispatchAuthority(
         dispatchApprovedReaderNextExecutor: dispatcher,
       );

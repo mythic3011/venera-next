@@ -20,6 +20,7 @@ import 'package:venera/foundation/reader/reader_open_target.dart';
 import 'package:venera/foundation/source_ref.dart';
 import 'package:venera/network/download.dart';
 import 'package:venera/features/reader/presentation/reader.dart';
+import 'package:venera/features/reader/presentation/reader_route_dispatch_authority.dart';
 import 'package:venera/utils/import_sort.dart';
 import 'package:venera/utils/io.dart';
 

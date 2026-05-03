@@ -1,11 +1,13 @@
+import 'package:venera/app/router.dart';
 import 'package:venera/foundation/app.dart';
 import 'package:venera/foundation/diagnostics/diagnostics.dart';
 import 'package:venera/features/reader/presentation/reader.dart';
 import 'package:venera/features/reader_next/bridge/approved_reader_next_navigation_executor.dart';
 import 'package:venera/features/reader_next/runtime/models.dart';
+import 'package:flutter/widgets.dart';
 
 typedef ReaderLegacyRouteOpener =
-    Future<void> Function(ReaderOpenRequest request);
+    Future<bool> Function(ReaderOpenRequest request, BuildContext? context);
 typedef ReaderNextExecutorResolver =
     ReaderNextApprovedExecutor? Function({
       ReaderNextApprovedExecutor? injectedExecutor,
@@ -35,9 +37,9 @@ class ReaderRouteDispatchAuthority {
   final ReaderNextExecutorResolver _resolveApprovedReaderNextExecutor;
   final ReaderNextExecutorDispatcher _dispatchApprovedReaderNextExecutor;
 
-  Future<void> openLegacy(ReaderOpenRequest request) async {
+  Future<bool> openLegacy(ReaderOpenRequest request, {BuildContext? context}) async {
     _emitLegacyDispatchDiagnostic(request);
-    await _openLegacyRoute(request);
+    return _openLegacyRoute(request, context);
   }
 
   Future<void> openApprovedReaderNext({
@@ -65,10 +67,28 @@ class ReaderRouteDispatchAuthority {
     );
   }
 
-  static Future<void> _defaultOpenLegacyRoute(ReaderOpenRequest request) async {
-    await App.rootContext.to(
-      () => ReaderWithLoading.fromRequest(request: request),
-    );
+  static Future<bool> _defaultOpenLegacyRoute(
+    ReaderOpenRequest request,
+    BuildContext? context,
+  ) {
+    final navigator = App.mainNavigatorKey?.currentState;
+    if (navigator == null) {
+      AppDiagnostics.info(
+        'reader.route',
+        'open_blocked',
+        data: <String, Object?>{
+          'target': 'legacy',
+          'selectedNavigatorRole': 'main',
+          'observerExpected': true,
+          'selectedNavigatorSource': 'App.mainNavigatorKey.currentState',
+          'requestedRootNavigator': false,
+          'entrypoint': request.diagnosticEntrypoint ?? '<unknown>',
+          'caller': request.diagnosticCaller ?? '<unknown>',
+        },
+      );
+      return Future<bool>.value(false);
+    }
+    return AppRouter.openReader(context ?? navigator.context, request);
   }
 
   static ReaderNextApprovedExecutor _defaultResolveApprovedReaderNextExecutor({
@@ -100,8 +120,8 @@ class ReaderRouteDispatchAuthority {
       'reader.route.dispatch',
       data: <String, Object?>{
         'target': 'legacy',
-        'navigatorTarget': 'root',
-        'routeFactory': 'ReaderWithLoading.fromRequest',
+        'navigatorTarget': 'main',
+        'routeFactory': 'AppRouter.openReader',
         'entrypoint': request.diagnosticEntrypoint ?? '<unknown>',
         'caller': request.diagnosticCaller ?? '<unknown>',
         'comicId': _redact(request.comicId),

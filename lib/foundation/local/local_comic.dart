@@ -165,11 +165,7 @@ class LocalComic with HistoryMixin implements Comic {
       diagnosticEntrypoint: 'local_comic.read',
       diagnosticCaller: 'LocalComic.read',
     );
-    App.rootContext.to(
-      () => ReaderWithLoading.fromRequest(
-        request: request,
-      ),
-    );
+    await const ReaderRouteDispatchAuthority().openLegacy(request);
   }
 
   @override
