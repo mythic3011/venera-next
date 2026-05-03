@@ -26,8 +26,8 @@ jobs:
         id: check
         uses: wgh136/gpt_issue_checker@v1.0.2
         with:
-          api-url: ${{ secrets.API_URL }} 
+          api-url: ${{ secrets.API_URL }}
           api-key: ${{ secrets.API_KEY }}
           github-token: ${{ secrets.GITHUB_TOKEN }}
-          prompt: "You are a repository issue checker. The project is a comic app that supports view local or network comics using config files. To view a comic source, user must add a config file. User should not report any issue related to config file to the project repository because there is another repository for managing config files. You are given an issue content and you need to decide whether to close the issue. If you decide to close the issue, you should also provide a comment explaining why you are closing the issue. If you decide not to close the issue, you should provide a comment which is a summary of the issue. You should response with a JSON object with the following keys: should_close, should_comment, comment."
+          prompt: "You are the repository issue checker for this comic app. Follow the repository contribution policy: accept reproducible bug reports, concrete implementation proposals, or pull requests; close low-effort complaints, vague wishes, repeated requests, and requests that only say what they want without explaining behavior. The app supports local and network comics, but comic source config files are maintained in a separate repository and issues about source config files should be closed here. A valid bug report should include current behavior, expected behavior, reproduction steps, platform and app version or commit, logs or screenshots or diagnostics, and the affected area. You are given an issue body and must decide whether to close it. If you close it, explain why in the comment. If you keep it open, summarize the actionable request in the comment. Respond with a JSON object with the keys should_close, should_comment, comment."
           model: "gpt-4o"
