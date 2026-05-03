@@ -42,7 +42,8 @@ This fork is not a conservative maintenance fork.
 
 The current refactor direction is to simplify and replace legacy architecture
 where it blocks local/remote comic management, source citation, tags, chapters,
-reader sessions, page ordering, and reliable debugging.
+reader sessions, page ordering, source installation, routing ownership, and
+reliable debugging.
 
 In particular, this fork does **not** intend to keep the old fragmented data
 model as a permanent compatibility layer.
@@ -56,7 +57,10 @@ local_favorite.db
 implicitData.json
 mixed app/domain state in JSON files
 platform-specific if/else source handling
+scattered route helpers without a single reader navigation owner
+page-local classes/models used as cross-feature contracts
 legacy integer/source-key identity mapping used as runtime identity
+logs that contain events but not enough decision-useful correlation data
 ```
 
 The intended direction is:
@@ -65,6 +69,9 @@ The intended direction is:
 - source/platform resolver
 - unified local/remote `ComicDetailPage(comicId)`
 - local/remote shared management model
+- explicit reader open contracts and centralized reader navigation ownership
+- ownership-based placement for feature contracts, view models, and runtime models
+- diagnostics that include identity, authority, lifecycle phase, and correlation IDs
 
 SQLite is a small, self-contained relational database engine, which fits this
 type of local app domain model better than scattering core domain state across
@@ -72,13 +79,22 @@ multiple feature-specific stores. Foreign key enforcement, WAL mode, and proper
 schema ownership should be treated as part of the baseline DB design.
 Reference: [SQLite official documentation](https://www.sqlite.org/docs.html).
 
+The reader refactor also exposed a broader architectural rule used by this
+fork: critical flows should have one declared owner. UI pages should express
+user intent, feature modules should own request/model contracts, routing should
+own navigation and route diagnostics, and storage layers should declare whether
+they are canonical authority, compatibility fallback, cache, preference, or
+diagnostic-only state.
+
+See also: [Ownership Lessons From Reader Debugging](./docs/tech-notes/routing-model-storage-diagnostics-ownership.md).
+
 ### 中文說明
 
 此 fork 不是保守維護版。
 
 目前重構方向是：只要舊架構阻礙 local/remote comic 管理、source citation、
-tags、chapters、reader sessions、page ordering、debug / smoke
-verification，就會直接簡化、替換或移除。
+tags、chapters、reader sessions、page ordering、source installation、routing
+ownership、debug / smoke verification，就會直接簡化、替換或移除。
 
 此 fork 不打算長期維護舊有分散式 data model 作為 compatibility layer。
 
@@ -91,7 +107,10 @@ local_favorite.db
 implicitData.json
 JSON 內混入 app state / domain state
 針對 platform/source 的大量 if/else
+routing helpers 分散，缺少單一 reader navigation owner
+page-local classes/models 被其他 feature 當成 contract 使用
 把 legacy int / source key 當 runtime identity
+log 有事件但缺少足夠 decision/debug correlation context
 ```
 
 目標方向是：
@@ -100,6 +119,15 @@ JSON 內混入 app state / domain state
 - source/platform resolver
 - 統一 local/remote `ComicDetailPage(comicId)`
 - local/remote 共用管理模型
+- 明確 reader open contract 與集中式 reader navigation ownership
+- 以 ownership 劃分 feature contracts、view models、runtime models 的放置位置
+- diagnostics 需要包含 identity、authority、lifecycle phase 與 correlation IDs
+
+Reader refactor 亦暴露一個更大的架構規則：critical flows 必須有明確 owner。
+UI page 只應表達 user intent；feature module 應擁有 request/model contract；
+routing layer 應擁有 navigation 與 route diagnostics；storage layer 必須標明
+自己是 canonical authority、compatibility fallback、cache、preference，還是
+diagnostic-only state。
 
 ## Data Compatibility Policy
 
@@ -115,6 +143,11 @@ New versions may:
 
 Old local data stores are treated as optional import sources only, not as a
 permanent runtime contract.
+
+A storage surface should not become authoritative just because a function can
+read it. New storage-backed work should identify its domain authority before
+adding reads or writes. Compatibility reads should be explicit, narrow, and
+removable.
 
 Expected future direction:
 
@@ -150,6 +183,10 @@ implicitData.json
 
 舊 local data stores 只會被視為 optional import sources，不會被視為永久
 runtime contract。
+
+一個 storage surface 不應只因為某個 function 可以讀取它，就變成 runtime
+authority。新增 storage-backed 功能前，必須先定義 domain authority；
+compatibility reads 應保持明確、狹窄，而且日後可移除。
 
 預期未來方向：
 
