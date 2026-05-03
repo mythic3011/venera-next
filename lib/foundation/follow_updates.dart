@@ -2,7 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'package:venera/foundation/favorite_runtime_authority.dart';
 import 'package:venera/foundation/favorites.dart';
-import 'package:venera/foundation/log.dart';
+import 'package:venera/foundation/diagnostics/diagnostics.dart';
 import 'package:venera/utils/channel.dart';
 
 class ComicUpdateResult {
@@ -63,7 +63,7 @@ Future<ComicUpdateResult> updateComic(
       }
       return ComicUpdateResult(updated, null);
     } catch (e, s) {
-      Log.error("Check Updates", e, s);
+      AppDiagnostics.error('updates.follow', e, stackTrace: s, message: 'check_updates_failed');
       await Future.delayed(const Duration(seconds: 2));
       retries--;
       if (retries == 0) {

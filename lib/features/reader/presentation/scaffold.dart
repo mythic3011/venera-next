@@ -478,7 +478,7 @@ class _ReaderScaffoldState extends State<_ReaderScaffold> {
       }
       update();
     } catch (e, stackTrace) {
-      Log.error("Image Favorite", e, stackTrace);
+      AppDiagnostics.error('reader.image_favorite', e, stackTrace: stackTrace);
       showToast(message: e.toString(), context: context, seconds: 1);
     }
   }

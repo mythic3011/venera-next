@@ -138,16 +138,19 @@ class _LocalFavoritesPageState extends State<_LocalFavoritesPage> {
       },
       onDiagnostic: (packet) {
         favPage.widget.onDiagnostic?.call(packet);
-        Log.info(
-          'FavoritesReaderNextPreflight',
-          'routeDecision=${packet.routeDecision.name} '
-              'recordKind=${packet.recordKind} '
-              'folderName=${packet.folderName} '
-              'recordId=${packet.recordIdRedacted} '
-              'sourceKey=${packet.sourceKey} '
-              'validation=${packet.currentSourceRefValidationCode} '
-              'schema=${packet.readinessArtifactSchemaVersion} '
-              'blockedReason=${packet.blockedReason}',
+        AppDiagnostics.info(
+          'reader.preflight',
+          'favorites_reader_next_preflight',
+          data: {
+            'routeDecision': packet.routeDecision.name,
+            'recordKind': packet.recordKind,
+            'folderName': packet.folderName,
+            'recordId': packet.recordIdRedacted,
+            'sourceKey': packet.sourceKey,
+            'validation': packet.currentSourceRefValidationCode,
+            'schema': packet.readinessArtifactSchemaVersion,
+            'blockedReason': packet.blockedReason,
+          },
         );
       },
     );

@@ -635,10 +635,11 @@ class _WebdavSettingState extends State<_WebdavSetting> {
                     if (!mounted) return;
                     context.showMessage(message: "Saved Failed".tl);
                   } finally {
-                    if (!mounted) return;
-                    setState(() {
-                      isTesting = false;
-                    });
+                    if (mounted) {
+                      setState(() {
+                        isTesting = false;
+                      });
+                    }
                   }
                 },
                 child: Text("Continue".tl),

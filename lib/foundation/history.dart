@@ -13,7 +13,6 @@ import 'package:venera/foundation/db/unified_comics_store.dart';
 import 'package:venera/foundation/diagnostics/diagnostics.dart';
 import 'package:venera/foundation/favorite_runtime_authority.dart';
 import 'package:venera/foundation/image_provider/image_favorites_provider.dart';
-import 'package:venera/foundation/log.dart';
 import 'package:venera/foundation/sources/source_ref.dart';
 import 'package:venera/foundation/sources/identity/source_identity.dart';
 import 'package:venera/foundation/reader/resume_target_store.dart';
@@ -308,7 +307,7 @@ class HistoryManager with ChangeNotifier {
   SourceRef? findResumeSourceRef(String comicId, ComicType type) {
     final result = _resumeStore.readWithDiagnostic(comicId, type);
     if (result.diagnostic != null) {
-      Log.info("History", _mapSnapshotDiagnostic(result.diagnostic!));
+      AppDiagnostics.info('history.refresh', _mapSnapshotDiagnostic(result.diagnostic!));
     }
     return result.snapshot?.sourceRef;
   }
@@ -526,7 +525,7 @@ class HistoryManager with ChangeNotifier {
         await addHistory(updatedHistory);
         return true;
       } catch (e, s) {
-        Log.error("History", "Exception while refreshing history info: $e\n$s");
+        AppDiagnostics.error('history.refresh', e, stackTrace: s, message: 'refresh_history_info_failed');
         await Future.delayed(const Duration(seconds: 2));
         retries--;
         if (retries == 0) {

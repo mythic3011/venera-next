@@ -149,7 +149,7 @@ class DebugPageState extends State<DebugPage> {
         await launchUrlString('file://$folderPath');
       }
     } catch (e, s) {
-      Log.error("Open App Data Directory", e, s);
+      diag.AppDiagnostics.error('ui.settings.debug', e, stackTrace: s, message: 'open_app_data_directory_failed');
       if (mounted) {
         context.showMessage(message: "Failed to open folder: $e");
       }

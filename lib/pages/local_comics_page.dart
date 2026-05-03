@@ -6,9 +6,9 @@ import 'package:venera/foundation/app/app.dart';
 import 'package:venera/foundation/appdata.dart';
 import 'package:venera/foundation/appdata_authority_audit.dart';
 import 'package:venera/foundation/comic_type.dart';
+import 'package:venera/foundation/diagnostics/diagnostics.dart';
 import 'package:venera/foundation/local.dart';
 import 'package:venera/foundation/local_comics_legacy_bridge.dart';
-import 'package:venera/foundation/log.dart';
 import 'package:venera/foundation/repositories/local_library_repository.dart';
 import 'package:venera/pages/comic_details_page/comic_page.dart';
 import 'package:venera/pages/downloading_page.dart';
@@ -796,7 +796,7 @@ class _LocalComicsPageState extends State<LocalComicsPage> {
         return;
       }
     } catch (e, s) {
-      Log.error("Export Comics", e, s);
+      AppDiagnostics.error('ui.local_comics', e, stackTrace: s, message: 'export_comics_failed');
       context.showMessage(message: e.toString());
       loadingController.close();
       return;
@@ -847,7 +847,7 @@ Future<void> openComicFolder(BuildContext context, LocalComic comic) async {
       await launchUrlString('file://$folderPath');
     }
   } catch (e, s) {
-    Log.error("Open Folder", "Failed to open comic folder: $e", s);
+    AppDiagnostics.error('ui.local_comics', e, stackTrace: s, message: 'open_comic_folder_failed');
     if (context.mounted) {
       context.showMessage(message: "Failed to open folder: $e");
     }

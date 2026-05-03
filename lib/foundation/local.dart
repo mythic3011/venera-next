@@ -14,7 +14,6 @@ import 'package:venera/foundation/db/local_comic_sync.dart';
 import 'package:venera/foundation/db/unified_comics_store.dart';
 import 'package:venera/foundation/diagnostics/diagnostics.dart';
 import 'package:venera/foundation/favorites.dart';
-import 'package:venera/foundation/log.dart';
 import 'package:venera/foundation/local_metadata/local_metadata.dart';
 import 'package:venera/foundation/reader/reader_open_target.dart';
 import 'package:venera/foundation/sources/source_ref.dart';
@@ -122,7 +121,7 @@ class LocalManager with ChangeNotifier {
         appdata.writeImplicitData();
       }
     } catch (e, s) {
-      Log.error("IO", e, s);
+      AppDiagnostics.error('io.runtime', e, stackTrace: s);
       return e.toString();
     }
     await directory.deleteContents(recursive: true);
@@ -159,9 +158,10 @@ class LocalManager with ChangeNotifier {
       testFile.createSync();
       testFile.deleteSync();
     } catch (e) {
-      Log.error(
-        "IO",
-        "Failed to create test file in local path: $e\nUsing default path instead.",
+      AppDiagnostics.error(
+        'io.runtime',
+        e,
+        message: 'create_test_file_failed_fallback_default_path',
       );
       path = await findDefaultPath();
     }
@@ -239,7 +239,7 @@ class LocalManager with ChangeNotifier {
         await directory.create();
       }
     } catch (e, s) {
-      Log.error("IO", "Failed to create local folder: $e", s);
+      AppDiagnostics.error('io.runtime', e, stackTrace: s, message: 'create_local_folder_failed');
     }
     _checkPathValidation();
     _checkNoMedia();
@@ -267,8 +267,8 @@ class LocalManager with ChangeNotifier {
     if (bookmark == null) {
       return null;
     }
-    Log.warning(
-      "IO",
+    AppDiagnostics.warn(
+      'io.runtime',
       "iOS local directory bookmark restore is unavailable; falling back to default path.",
     );
     return null;
@@ -957,7 +957,7 @@ class LocalManager with ChangeNotifier {
         }
       } catch (e) {
         file.delete();
-        Log.error("LocalManager", "Failed to restore downloading tasks: $e");
+        AppDiagnostics.error('local.manager', e, message: 'restore_downloading_tasks_failed');
       }
     }
   }
@@ -1294,7 +1294,7 @@ class LocalManager with ChangeNotifier {
         );
       }
     } catch (e, s) {
-      Log.error("LocalManager", "Failed to batch delete comics: $e", s);
+      AppDiagnostics.error('local.manager', e, stackTrace: s, message: 'batch_delete_comics_failed');
       _db.execute('ROLLBACK;');
       return;
     }

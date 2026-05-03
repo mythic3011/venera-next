@@ -4,7 +4,6 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_qjs/flutter_qjs.dart';
 import 'package:venera/foundation/diagnostics/diagnostics.dart';
-import 'package:venera/foundation/log.dart';
 import 'package:venera/foundation/js/js_engine.dart';
 import 'package:venera/foundation/reader/reader_diagnostics.dart';
 import 'package:venera/foundation/sources/source_ref.dart';
@@ -250,10 +249,12 @@ class ReaderImageProvider
         imageKey: imageKey,
         error: e,
       );
-      Log.error(
-        "ReaderImageProvider",
-        "Failed to load reader image: $diagnosticContext\n$e",
-        s,
+      AppDiagnostics.error(
+        'reader.image_provider',
+        e,
+        stackTrace: s,
+        message: 'load_reader_image_failed',
+        data: {'diagnosticContext': diagnosticContext.toString()},
       );
       rethrow;
     }

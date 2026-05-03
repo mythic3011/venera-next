@@ -305,7 +305,7 @@ class ComicSourceParser {
           source.saveData();
           return const Res(true);
         } catch (e, s) {
-          Log.error("Network", "$e\n$s");
+          AppDiagnostics.error('source.network', e, stackTrace: s);
           return Res.error(e.toString());
         }
       };
@@ -346,7 +346,7 @@ class ComicSourceParser {
           """);
           return res;
         } catch (e, s) {
-          Log.error("Network", "$e\n$s");
+          AppDiagnostics.error('source.network', e, stackTrace: s);
           return false;
         }
       };
@@ -399,7 +399,7 @@ class ComicSourceParser {
               ),
             );
           } catch (e, s) {
-            Log.error("Data Analysis", "$e\n$s");
+            AppDiagnostics.error('source.data_analysis', e, stackTrace: s);
             return Res.error(e.toString());
           }
         };
@@ -418,7 +418,7 @@ class ComicSourceParser {
                 subData: res["maxPage"],
               );
             } catch (e, s) {
-              Log.error("Network", "$e\n$s");
+              AppDiagnostics.error('source.network', e, stackTrace: s);
               return Res.error(e.toString());
             }
           };
@@ -436,7 +436,7 @@ class ComicSourceParser {
                 subData: res[_jsonKeyNext],
               );
             } catch (e, s) {
-              Log.error("Network", "$e\n$s");
+              AppDiagnostics.error('source.network', e, stackTrace: s);
               return Res.error(e.toString());
             }
           };
@@ -461,7 +461,7 @@ class ComicSourceParser {
               ),
             );
           } catch (e, s) {
-            Log.error("Data Analysis", "$e\n$s");
+            AppDiagnostics.error('source.data_analysis', e, stackTrace: s);
             return Res.error(e.toString());
           }
         };
@@ -489,7 +489,7 @@ class ComicSourceParser {
             }
             return Res(list, subData: res[_jsonKeyMaxPage]);
           } catch (e, s) {
-            Log.error("Network", "$e\n$s");
+            AppDiagnostics.error('source.network', e, stackTrace: s);
             return Res.error(e.toString());
           }
         };
@@ -686,7 +686,7 @@ class ComicSourceParser {
           }
           return Res(options);
         } catch (e) {
-          Log.error("Data Analysis", "Failed to load category options.\n$e");
+          AppDiagnostics.error('source.data_analysis', e, message: 'category_options_load_failed');
           return Res.error(e.toString());
         }
       };
@@ -722,7 +722,7 @@ class ComicSourceParser {
               subData: res["maxPage"],
             );
           } catch (e, s) {
-            Log.error("Network", "$e\n$s");
+            AppDiagnostics.error('source.network', e, stackTrace: s);
             return Res.error(e.toString());
           }
         };
@@ -741,7 +741,7 @@ class ComicSourceParser {
               subData: res["next"],
             );
           } catch (e, s) {
-            Log.error("Network", "$e\n$s");
+            AppDiagnostics.error('source.network', e, stackTrace: s);
             return Res.error(e.toString());
           }
         };
@@ -774,7 +774,7 @@ class ComicSourceParser {
             subData: res["maxPage"],
           );
         } catch (e, s) {
-          Log.error("Network", "$e\n$s");
+          AppDiagnostics.error('source.network', e, stackTrace: s);
           return Res.error(e.toString());
         }
       },
@@ -825,7 +825,7 @@ class ComicSourceParser {
             subData: res["maxPage"],
           );
         } catch (e, s) {
-          Log.error("Network", "$e\n$s");
+          AppDiagnostics.error('source.network', e, stackTrace: s);
           return Res.error(e.toString());
         }
       };
@@ -844,7 +844,7 @@ class ComicSourceParser {
             subData: res["next"],
           );
         } catch (e, s) {
-          Log.error("Network", "$e\n$s");
+          AppDiagnostics.error('source.network', e, stackTrace: s);
           return Res.error(e.toString());
         }
       };
@@ -864,7 +864,7 @@ class ComicSourceParser {
         res['sourceKey'] = _key;
         return Res(ComicDetails.fromJson(res));
       } catch (e, s) {
-        Log.error("Network", "$e\n$s");
+        AppDiagnostics.error('source.network', e, stackTrace: s);
         return Res.error(e.toString());
       }
     };
@@ -878,7 +878,7 @@ class ComicSourceParser {
         """);
         return Res(List.from(res["images"]));
       } catch (e, s) {
-        Log.error("Network", "$e\n$s");
+        AppDiagnostics.error('source.network', e, stackTrace: s);
         return Res.error(e.toString());
       }
     };
@@ -923,7 +923,7 @@ class ComicSourceParser {
           """);
           return const Res(true);
         } catch (e, s) {
-          Log.error("Network", "$e\n$s");
+          AppDiagnostics.error('source.network', e, stackTrace: s);
           return Res<bool>.error(e.toString());
         }
       }
@@ -951,7 +951,7 @@ class ComicSourceParser {
               subData: res["maxPage"],
             );
           } catch (e, s) {
-            Log.error("Network", "$e\n$s");
+            AppDiagnostics.error('source.network', e, stackTrace: s);
             return Res.error(e.toString());
           }
         }
@@ -976,7 +976,7 @@ class ComicSourceParser {
               subData: res["next"],
             );
           } catch (e, s) {
-            Log.error("Network", "$e\n$s");
+            AppDiagnostics.error('source.network', e, stackTrace: s);
             return Res.error(e.toString());
           }
         }
@@ -1004,7 +1004,7 @@ class ComicSourceParser {
             }
             return Res(Map.from(res["folders"]), subData: subData);
           } catch (e, s) {
-            Log.error("Network", "$e\n$s");
+            AppDiagnostics.error('source.network', e, stackTrace: s);
             return Res.error(e.toString());
           }
         }
@@ -1019,7 +1019,7 @@ class ComicSourceParser {
           """);
             return const Res(true);
           } catch (e, s) {
-            Log.error("Network", "$e\n$s");
+            AppDiagnostics.error('source.network', e, stackTrace: s);
             return Res.error(e.toString());
           }
         };
@@ -1032,7 +1032,7 @@ class ComicSourceParser {
           """);
             return const Res(true);
           } catch (e, s) {
-            Log.error("Network", "$e\n$s");
+            AppDiagnostics.error('source.network', e, stackTrace: s);
             return Res.error(e.toString());
           }
         };
@@ -1067,7 +1067,7 @@ class ComicSourceParser {
           subData: res["maxPage"],
         );
       } catch (e, s) {
-        Log.error("Network", "$e\n$s");
+        AppDiagnostics.error('source.network', e, stackTrace: s);
         return Res.error(e.toString());
       }
     };
@@ -1084,7 +1084,7 @@ class ComicSourceParser {
           """);
           return const Res(true);
         } catch (e, s) {
-          Log.error("Network", "$e\n$s");
+          AppDiagnostics.error('source.network', e, stackTrace: s);
           return Res.error(e.toString());
         }
       }
@@ -1115,7 +1115,7 @@ class ComicSourceParser {
           subData: res["maxPage"],
         );
       } catch (e, s) {
-        Log.error("Network", "$e\n$s");
+        AppDiagnostics.error('source.network', e, stackTrace: s);
         return Res.error(e.toString());
       }
     };
@@ -1132,7 +1132,7 @@ class ComicSourceParser {
           """);
           return const Res(true);
         } catch (e, s) {
-          Log.error("Network", "$e\n$s");
+          AppDiagnostics.error('source.network', e, stackTrace: s);
           return Res.error(e.toString());
         }
       }
@@ -1175,7 +1175,7 @@ class ComicSourceParser {
           ComicSource.sources.$_key.comic.onThumbnailLoad(${jsonEncode(imageKey)})
         """);
       if (res is! Map) {
-        Log.error("Network", "function onThumbnailLoad return invalid data");
+        AppDiagnostics.error('source.network', 'function onThumbnailLoad return invalid data', message: 'invalid_thumbnail_loader_result');
         throw "function onThumbnailLoad return invalid data";
       }
       return res as Map<String, dynamic>;
@@ -1196,7 +1196,7 @@ class ComicSourceParser {
           subData: res[_jsonKeyNext],
         );
       } catch (e, s) {
-        Log.error("Network", "$e\n$s");
+        AppDiagnostics.error('source.network', e, stackTrace: s);
         return Res.error(e.toString());
       }
     };
@@ -1213,7 +1213,7 @@ class ComicSourceParser {
         """);
         return const Res(true);
       } catch (e, s) {
-        Log.error("Network", "$e\n$s");
+        AppDiagnostics.error('source.network', e, stackTrace: s);
         return Res.error(e.toString());
       }
     };
@@ -1230,7 +1230,7 @@ class ComicSourceParser {
         """);
         return Res(res is num ? res.toInt() : 0);
       } catch (e, s) {
-        Log.error("Network", "$e\n$s");
+        AppDiagnostics.error('source.network', e, stackTrace: s);
         return Res.error(e.toString());
       }
     };
@@ -1247,7 +1247,7 @@ class ComicSourceParser {
         """);
         return Res(res is num ? res.toInt() : 0);
       } catch (e, s) {
-        Log.error("Network", "$e\n$s");
+        AppDiagnostics.error('source.network', e, stackTrace: s);
         return Res.error(e.toString());
       }
     };
@@ -1354,7 +1354,7 @@ class ComicSourceParser {
         """);
         return const Res(true);
       } catch (e, s) {
-        Log.error("Network", "$e\n$s");
+        AppDiagnostics.error('source.network', e, stackTrace: s);
         return Res.error(e.toString());
       }
     };
@@ -1374,7 +1374,7 @@ class ComicSourceParser {
             (res as List).map((e) => ArchiveInfo.fromJson(e)).toList(),
           );
         } catch (e, s) {
-          Log.error("Network", "$e\n$s");
+          AppDiagnostics.error('source.network', e, stackTrace: s);
           return Res.error(e.toString());
         }
       },
@@ -1385,7 +1385,7 @@ class ComicSourceParser {
             """);
           return Res(res as String);
         } catch (e, s) {
-          Log.error("Network", "$e\n$s");
+          AppDiagnostics.error('source.network', e, stackTrace: s);
           return Res.error(e.toString());
         }
       },

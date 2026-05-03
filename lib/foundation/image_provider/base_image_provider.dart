@@ -6,7 +6,7 @@ import 'dart:ui';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:venera/foundation/cache_manager.dart';
-import 'package:venera/foundation/log.dart';
+import 'package:venera/foundation/diagnostics/diagnostics.dart';
 
 abstract class BaseImageProvider<T extends BaseImageProvider<T>>
     extends ImageProvider<T> {
@@ -135,7 +135,7 @@ abstract class BaseImageProvider<T extends BaseImageProvider<T>>
       scheduleMicrotask(() {
         PaintingBinding.instance.imageCache.evict(key);
       });
-      Log.error("Image Loading", e, s);
+      AppDiagnostics.error('image.loading', e, stackTrace: s);
       rethrow;
     } finally {
       chunkEvents.close();

@@ -11,7 +11,6 @@ import 'package:venera/foundation/cache_manager.dart';
 import 'package:venera/features/sources/comic_source/comic_source.dart';
 import 'package:venera/foundation/diagnostics/diagnostics.dart';
 import 'package:venera/foundation/js/js_engine.dart';
-import 'package:venera/foundation/log.dart';
 import 'package:venera/network/cookie_jar.dart';
 import 'package:venera/pages/comic_source_page.dart';
 import 'package:venera/pages/follow_updates_page.dart';
@@ -31,7 +30,7 @@ extension _FutureInit<T> on Future<T> {
     try {
       await this;
     } catch (e, s) {
-      Log.error("init", "$e\n$s");
+      AppDiagnostics.error('app.init', e, stackTrace: s);
     }
   }
 }
@@ -53,7 +52,7 @@ Future<void> init() async {
     await Future.wait(futures);
     await TagsTranslation.readData().wait();
   } catch (e, s) {
-    Log.error("init", "$e\n$s");
+    AppDiagnostics.error('app.init', e, stackTrace: s);
   }
   CacheManager().setLimitSize(appdata.settings['cacheSize']);
   _checkOldConfigs();
@@ -63,7 +62,7 @@ Future<void> init() async {
     try {
       await FlutterDisplayMode.setHighRefreshRate();
     } catch (e) {
-      Log.error("Display Mode", "Failed to set high refresh rate: $e");
+      AppDiagnostics.error('app.init', e, message: 'set_high_refresh_rate_failed');
     }
   }
   FlutterError.onError = (details) {

@@ -4,7 +4,7 @@ import 'dart:isolate';
 import 'package:flutter/services.dart';
 import 'package:flutter_qjs/flutter_qjs.dart';
 import 'package:venera/foundation/js/js_compute_engine.dart';
-import 'package:venera/foundation/log.dart';
+import 'package:venera/foundation/diagnostics/diagnostics.dart';
 
 class JSPool {
   static const int _maxInstances = 4;
@@ -48,7 +48,7 @@ class JSPool {
         await worker.close(force: true);
       }
       _initFuture = null;
-      Log.error('JSPool', 'Failed to initialize JS pool:\n$e\n$s');
+      AppDiagnostics.error('js.pool', e, stackTrace: s, message: 'initialize_js_pool_failed');
       rethrow;
     }
   }
@@ -227,7 +227,7 @@ class IsolateJsEngine {
       );
       return;
     }
-    Log.warning('IsolateJsEngine', 'Unknown worker message: $message');
+    AppDiagnostics.warn('js.pool', 'unknown_worker_message', data: {'message': '$message'});
   }
 
   Future<dynamic> execute(
@@ -312,9 +312,12 @@ class IsolateJsEngine {
   }
 
   void _failAll(Object error, [StackTrace? stackTrace]) {
-    Log.error(
-      'IsolateJsEngine',
-      'Worker $id failed:\n$error\n${stackTrace ?? ''}',
+    AppDiagnostics.error(
+      'js.pool',
+      error,
+      stackTrace: stackTrace,
+      message: 'worker_failed',
+      data: {'workerId': id},
     );
     _completeAllPending(error, stackTrace);
   }

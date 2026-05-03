@@ -532,6 +532,6 @@ Future<void> importNetworkFolder(
     await Future.delayed(const Duration(milliseconds: 500));
     closeDialog?.call();
   } catch (e, stackTrace) {
-    Log.error("Unhandled Exception", e.toString(), stackTrace);
+    AppDiagnostics.error('ui.favorites', e, stackTrace: stackTrace, message: 'unhandled_exception');
   }
 }

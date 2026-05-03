@@ -362,9 +362,11 @@ class _ReaderImagesState extends State<_ReaderImages> {
             pageKeys: res.data,
           );
         } catch (e, s) {
-          Log.error(
-            'RemoteComicCanonicalSyncService',
-            'Failed to sync remote reader pages: $e\n$s',
+          AppDiagnostics.error(
+            'reader.remote_sync',
+            e,
+            stackTrace: s,
+            message: 'sync_remote_reader_pages_failed',
           );
         }
       }

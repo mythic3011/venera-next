@@ -1,6 +1,6 @@
 import 'dart:convert';
 
-import 'package:venera/foundation/log.dart';
+import 'package:venera/foundation/diagnostics/diagnostics.dart';
 import 'package:venera/features/local_library/data/local_metadata_models.dart';
 import 'package:venera/utils/io.dart';
 
@@ -27,9 +27,10 @@ class LocalMetadataRepository {
       }
       _doc = LocalMetadataDocument.fromJson(decoded);
     } catch (e) {
-      Log.warning(
-        'LocalMetadata',
-        'Invalid metadata sidecar; using empty fallback document: $e',
+      AppDiagnostics.warn(
+        'local.metadata',
+        'invalid_metadata_sidecar_fallback',
+        data: {'error': '$e'},
       );
       _doc = LocalMetadataDocument.empty();
     }

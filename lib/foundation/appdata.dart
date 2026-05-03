@@ -5,7 +5,7 @@ import 'package:path_provider/path_provider.dart';
 import 'package:uuid/uuid.dart';
 import 'package:venera/foundation/app/app.dart';
 import 'package:venera/foundation/db/unified_comics_store.dart';
-import 'package:venera/foundation/log.dart';
+import 'package:venera/foundation/diagnostics/diagnostics.dart';
 import 'package:venera/utils/data_sync.dart';
 import 'package:venera/utils/init.dart';
 import 'package:venera/utils/io.dart';
@@ -153,7 +153,7 @@ class Appdata with Init {
     try {
       loadedFromDb = await _loadFromDb();
     } catch (e) {
-      Log.warning("Appdata", "DB app settings load failed; fallback to JSON: $e");
+      AppDiagnostics.warn('appdata.runtime', 'db_load_failed_fallback_json', data: {'error': '$e'});
       loadedFromDb = false;
     }
 
@@ -190,7 +190,7 @@ class Appdata with Init {
         loadedAny = true;
         await _writeLegacyBackup(appDataFile);
       } catch (e) {
-        Log.error("Appdata", "Failed to load appdata JSON", e);
+        AppDiagnostics.error('appdata.runtime', e, message: 'load_appdata_json_failed');
       }
     }
     if (await implicitDataFile.exists()) {
@@ -198,7 +198,7 @@ class Appdata with Init {
         implicitData = jsonDecode(await implicitDataFile.readAsString());
         loadedAny = true;
       } catch (e) {
-        Log.error("Appdata", "Failed to load implicit data JSON", e);
+        AppDiagnostics.error('appdata.runtime', e, message: 'load_implicit_data_json_failed');
       }
     }
     return loadedAny;
@@ -231,17 +231,19 @@ class Appdata with Init {
       try {
         final decoded = _decodeSettingValue(row);
         if (!_isCompatibleWithDefaultShape(row.key, decoded)) {
-          Log.warning(
-            "Appdata",
-            "Skip DB setting with incompatible shape for key=${row.key}, valueType=${row.valueType}",
+          AppDiagnostics.warn(
+            'appdata.runtime',
+            'skip_db_setting_incompatible_shape',
+            data: {'key': row.key, 'valueType': row.valueType},
           );
           continue;
         }
         settings[row.key] = decoded;
       } catch (e) {
-        Log.warning(
-          "Appdata",
-          "Skip invalid DB setting key=${row.key}, valueType=${row.valueType}: $e",
+        AppDiagnostics.warn(
+          'appdata.runtime',
+          'skip_invalid_db_setting',
+          data: {'key': row.key, 'valueType': row.valueType, 'error': '$e'},
         );
       }
     }

@@ -23,7 +23,6 @@ import 'package:venera/utils/io.dart';
 import 'package:venera/utils/translations.dart';
 
 import 'package:venera/foundation/js/js_engine.dart';
-import 'package:venera/foundation/log.dart';
 
 part 'category.dart';
 
@@ -101,7 +100,7 @@ class ComicSourceManager with ChangeNotifier, Init {
             message: 'Failed to parse comic source',
             data: {'stage': 'parseSourceFile', 'path': entity.absolute.path},
           );
-          Log.error("ComicSource", "$e\n$s");
+          AppDiagnostics.error('source.runtime', e, stackTrace: s);
         }
       }
     }
@@ -284,7 +283,7 @@ class ComicSource {
         'Invalid source data payload, fallback to empty data',
         data: {'sourceKey': key, 'stage': 'loadSourceData', 'error': '$e'},
       );
-      Log.error('ComicSource', 'Failed to load source data: $e', s);
+      AppDiagnostics.error('source.runtime', e, stackTrace: s, message: 'load_source_data_failed');
       data = <String, dynamic>{};
     }
   }
@@ -329,7 +328,7 @@ class ComicSource {
           'errorMessage': res.errorMessage,
         },
       );
-      Log.error("Failed to re-login", res.errorMessage ?? "Error");
+      AppDiagnostics.error('source.runtime', res.errorMessage ?? 'Error', message: 'relogin_failed');
     }
     return !res.error;
   }
@@ -369,7 +368,7 @@ class ComicSource {
         message: 'Failed to get dynamic settings',
         data: {'sourceKey': key, 'stage': 'dynamicSettings'},
       );
-      Log.error("ComicSource", "Failed to get dynamic settings: $e");
+      AppDiagnostics.error('source.runtime', e, message: 'load_dynamic_settings_failed');
       return settings;
     }
   }

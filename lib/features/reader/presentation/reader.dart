@@ -31,7 +31,6 @@ import 'package:venera/foundation/app/global_state.dart';
 import 'package:venera/foundation/history.dart';
 import 'package:venera/foundation/image_provider/cached_image.dart';
 import 'package:venera/foundation/image_provider/reader_image.dart';
-import 'package:venera/foundation/log.dart';
 import 'package:venera/foundation/res.dart';
 import 'package:venera/foundation/reader/reader_diagnostics.dart';
 import 'package:venera/foundation/reader/canonical_reader_pages.dart';
@@ -382,9 +381,13 @@ class _ReaderState extends State<Reader>
     } else {
       maxImageCacheSize = 500 << 20;
     }
-    Log.info(
-      "Reader",
-      "Detect available RAM: $availableRAM, set image cache size to $maxImageCacheSize",
+    AppDiagnostics.info(
+      'reader.runtime',
+      'set_image_cache_size_by_ram',
+      data: {
+        'availableRAM': availableRAM,
+        'maxImageCacheSize': maxImageCacheSize,
+      },
     );
     PaintingBinding.instance.imageCache.maximumSizeBytes = maxImageCacheSize;
   }

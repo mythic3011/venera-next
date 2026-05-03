@@ -247,15 +247,18 @@ mixin _ComicPageActions on State<ComicPage> {
       comicId: request.comicId,
       chapterRefId: request.chapterRefId,
       onDiagnostic: (packet) {
-        Log.info(
-          'ReaderNextCutoverDryRun',
-          'routeDecision=${packet.routeDecision.name} '
-              'featureFlagEnabled=${packet.featureFlagEnabled} '
-              'sourceKey=${packet.sourceKey} '
-              'canonicalComicId=${packet.canonicalComicIdRedacted} '
-              'upstreamComicRefId=${packet.upstreamComicRefIdRedacted} '
-              'chapterRefId=${packet.chapterRefIdRedacted} '
-              'bridgeResultCode=${packet.bridgeResultCode}',
+        AppDiagnostics.info(
+          'reader.cutover',
+          'reader_next_cutover_dry_run',
+          data: {
+            'routeDecision': packet.routeDecision.name,
+            'featureFlagEnabled': packet.featureFlagEnabled,
+            'sourceKey': packet.sourceKey,
+            'canonicalComicId': packet.canonicalComicIdRedacted,
+            'upstreamComicRefId': packet.upstreamComicRefIdRedacted,
+            'chapterRefId': packet.chapterRefIdRedacted,
+            'bridgeResultCode': packet.bridgeResultCode,
+          },
         );
       },
       openLegacy: openLegacyReader,
@@ -457,7 +460,6 @@ mixin _ComicPageActions on State<ComicPage> {
 
   void onTapTag(String tag, String namespace) {
     var target = comicSource.handleClickTagEvent?.call(namespace, tag);
-    var context = App.mainNavigatorKey!.currentContext!;
     target?.jump(context);
   }
 

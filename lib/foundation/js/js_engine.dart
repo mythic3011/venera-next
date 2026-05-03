@@ -32,7 +32,7 @@ import 'package:venera/network/proxy.dart';
 import 'package:venera/utils/init.dart';
 
 import 'package:venera/foundation/consts.dart';
-import 'package:venera/foundation/log.dart';
+import 'package:venera/foundation/diagnostics/diagnostics.dart';
 import 'package:venera/features/sources/comic_source/comic_source.dart';
 
 class JavaScriptRuntimeException implements Exception {
@@ -147,7 +147,7 @@ class JsEngine with _JSEngineApi, JsUiApi, Init {
       }
       _engine!.evaluate(utf8.decode(jsInit), name: "<init>");
     } catch (e, s) {
-      Log.error('JS Engine', 'JS Engine Init Error:\n$e\n$s');
+      AppDiagnostics.error('js.engine', e, stackTrace: s, message: 'init_failed');
     }
   }
 
@@ -164,16 +164,18 @@ class JsEngine with _JSEngineApi, JsUiApi, Init {
         case "log":
           final level = request.payload["level"];
           final title = request.payload["title"];
-          Log.addLog(
-            switch (level) {
-              "error" => LogLevel.error,
-              "warning" => LogLevel.warning,
-              "info" => LogLevel.info,
-              _ => LogLevel.warning,
-            },
-            title is String ? title : "js.log",
-            request.payload["content"].toString(),
-          );
+          final channel = title is String && title.isNotEmpty
+              ? 'js.log.${title.toLowerCase().replaceAll(' ', '.')}'
+              : 'js.log';
+          final content = request.payload["content"].toString();
+          switch (level) {
+            case "error":
+              AppDiagnostics.error(channel, content, message: 'js_bridge_log');
+            case "info":
+              AppDiagnostics.info(channel, 'js_bridge_log', data: {'content': content});
+            default:
+              AppDiagnostics.warn(channel, 'js_bridge_log', data: {'content': content});
+          }
           return null;
         case 'load_data':
           final key = request.requireString("key");
@@ -294,7 +296,13 @@ class JsEngine with _JSEngineApi, JsUiApi, Init {
         method: request.method,
       );
     } catch (e, s) {
-      Log.error("Failed to handle message: $message\n$e\n$s", "JsEngine");
+      AppDiagnostics.error(
+        'js.engine',
+        e,
+        stackTrace: s,
+        message: 'handle_bridge_message_failed',
+        data: {'rawMessage': '$message'},
+      );
       return _bridgeError(
         code: "bridge_error",
         message: "Unexpected JS bridge failure",
@@ -485,10 +493,13 @@ mixin class _JSEngineApi {
       case "parse":
         if (_documents.length > 8) {
           var shouldDelete = _documents.keys.first;
-          Log.warning(
-            "JS Engine",
-            "Too many documents, deleting the oldest: $shouldDelete\n"
-                "Current documents: ${_documents.keys}",
+          AppDiagnostics.warn(
+            'js.engine',
+            'document_cache_trimmed',
+            data: {
+              'evictedKey': shouldDelete,
+              'currentKeys': _documents.keys.toList(),
+            },
           );
           _documents.remove(shouldDelete);
         }
@@ -763,7 +774,13 @@ mixin class _JSEngineApi {
           return value;
       }
     } catch (e, s) {
-      Log.error("JS Engine", "Failed to convert $type: $e", s);
+      AppDiagnostics.error(
+        'js.engine',
+        e,
+        stackTrace: s,
+        message: 'convert_value_failed',
+        data: {'type': type},
+      );
       return null;
     }
   }

@@ -1,5 +1,5 @@
 import 'package:flutter/foundation.dart';
-import 'package:venera/foundation/log.dart';
+import 'package:venera/foundation/diagnostics/diagnostics.dart';
 import 'package:venera/features/reader_next/runtime/models.dart';
 
 typedef ReaderNextOpenExecutor = Future<void> Function(
@@ -89,7 +89,7 @@ class OpenReaderController extends ChangeNotifier {
   }
 
   static void _defaultProductionLog(String title, Map<String, String> fields) {
-    Log.info(title, fields.entries.map((e) => '${e.key}=${e.value}').join(' '));
+    AppDiagnostics.info('reader.next.open', 'open_reader_fields', data: fields);
   }
 
   static Map<String, String> _buildRedactedIdentityFields(

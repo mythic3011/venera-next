@@ -3,7 +3,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:venera/foundation/comic_type.dart';
 import 'package:venera/foundation/local_comics_legacy_bridge.dart';
-import 'package:venera/foundation/log.dart';
+import 'package:venera/foundation/diagnostics/diagnostics.dart';
 import 'package:venera/network/images.dart';
 import 'package:venera/utils/io.dart';
 import 'base_image_provider.dart';
@@ -152,7 +152,7 @@ class CachedImageProvider
           }
         }
       }
-      Log.error("Image Loading", e.toString());
+      AppDiagnostics.error('image.loading', e, message: 'image_loading_failed');
       return _kTransparentPixel;
     } finally {
       loadingCount--;

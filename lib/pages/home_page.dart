@@ -7,11 +7,11 @@ import 'package:venera/components/components.dart';
 import 'package:venera/foundation/app/app.dart';
 import 'package:venera/features/sources/comic_source/comic_source.dart';
 import 'package:venera/foundation/consts.dart';
+import 'package:venera/foundation/diagnostics/diagnostics.dart';
 import 'package:venera/foundation/favorite_runtime_authority.dart';
 import 'package:venera/foundation/history.dart';
 import 'package:venera/foundation/local.dart';
 import 'package:venera/foundation/local_comics_legacy_bridge.dart';
-import 'package:venera/foundation/log.dart';
 import 'package:venera/features/downloads/data/download_queue_repository.dart';
 import 'package:venera/features/reader/data/reader_activity_models.dart';
 import 'package:venera/features/reader/data/reader_activity_repository.dart';
@@ -764,7 +764,7 @@ class _ImageFavoritesState extends State<ImageFavorites> {
         setState(() {});
       }
     } catch (e, stackTrace) {
-      Log.error("Unhandled Exception", e.toString(), stackTrace);
+      AppDiagnostics.error('ui.home', e, stackTrace: stackTrace, message: 'unhandled_exception');
     }
   }
 

@@ -12,7 +12,6 @@ import 'package:venera/foundation/db/remote_comic_sync.dart';
 import 'package:venera/foundation/db/unified_comics_store.dart';
 import 'package:venera/foundation/image_provider/local_favorite_image.dart';
 import 'package:venera/foundation/local_comics_legacy_bridge.dart';
-import 'package:venera/foundation/log.dart';
 import 'package:venera/foundation/sources/identity/source_identity.dart';
 import 'package:venera/pages/follow_updates_page.dart';
 import 'package:venera/utils/tags_translation.dart';
@@ -1065,7 +1064,7 @@ class LocalFavoritesManager with ChangeNotifier {
       }
       notifyListeners();
     } catch (e) {
-      Log.error("Batch Move Favorites", e.toString());
+      AppDiagnostics.error('favorites.batch', e, message: 'batch_move_failed');
       return;
     }
 
@@ -1120,7 +1119,7 @@ class LocalFavoritesManager with ChangeNotifier {
       }
       notifyListeners();
     } catch (e) {
-      Log.error("Batch Copy Favorites", e.toString());
+      AppDiagnostics.error('favorites.batch', e, message: 'batch_copy_failed');
       return;
     }
 
@@ -1205,7 +1204,7 @@ class LocalFavoritesManager with ChangeNotifier {
         counts[folder] = count(folder);
       }
     } catch (e) {
-      Log.error("Batch Delete Comics", e.toString());
+      AppDiagnostics.error('favorites.batch', e, message: 'batch_delete_failed');
       return;
     }
     for (var comic in comics) {
@@ -1237,7 +1236,7 @@ class LocalFavoritesManager with ChangeNotifier {
         }
       }
     } catch (e) {
-      Log.error("Batch Delete Comics in All Folders", e.toString());
+      AppDiagnostics.error('favorites.batch', e, message: 'batch_delete_all_folders_failed');
       _db.execute("ROLLBACK");
       return;
     }
@@ -1312,7 +1311,7 @@ class LocalFavoritesManager with ChangeNotifier {
         );
       }
     } catch (e) {
-      Log.error("Reorder", e.toString());
+      AppDiagnostics.error('favorites.batch', e, message: 'reorder_failed');
       _db.execute("ROLLBACK");
       return;
     }
@@ -1553,7 +1552,7 @@ class LocalFavoritesManager with ChangeNotifier {
       try {
         addComic(folder, FavoriteItem.fromJson(comic));
       } catch (e) {
-        Log.error("Import Data", e.toString());
+        AppDiagnostics.error('favorites.import', e, message: 'import_data_failed');
       }
     }
   }

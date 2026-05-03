@@ -747,13 +747,13 @@ class PageJumpTarget {
       final source = ComicSource.find(sourceKey);
       final categoryData = source?.categoryData;
       if (categoryData == null) {
-        Log.error("Page Jump", "Category source unavailable: $sourceKey");
+        AppDiagnostics.error('source.page_jump', 'Category source unavailable', message: 'category_source_unavailable', data: {'sourceKey': sourceKey});
         context.showMessage(message: "Comic source is unavailable".tl);
         return;
       }
       final category = attributes?[_ModelJsonKey.category]?.toString();
       if (category == null || category.isEmpty) {
-        Log.error("Page Jump", "Category name is required for source: $sourceKey");
+        AppDiagnostics.error('source.page_jump', 'Category name required', message: 'category_name_required', data: {'sourceKey': sourceKey});
         context.showMessage(message: "Category is unavailable".tl);
         return;
       }
@@ -766,7 +766,7 @@ class PageJumpTarget {
         ),
       );
     } else {
-      Log.error("Page Jump", "Unknown page: $page");
+      AppDiagnostics.error('source.page_jump', 'Unknown page', message: 'unknown_page', data: {'page': page.toString()});
     }
   }
 }
