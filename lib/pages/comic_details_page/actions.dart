@@ -188,12 +188,7 @@ abstract mixin class _ComicPageActions {
   ///
   /// [group] the chapter group number, start from 1
   Future<void> read([int? ep, int? page, int? group]) async {
-    await _readWithEntrypoint(
-      ep,
-      page,
-      group,
-      entrypoint: 'comic_detail.read',
-    );
+    await _readWithEntrypoint(ep, page, group, entrypoint: 'comic_detail.read');
   }
 
   Future<void> _readWithEntrypoint(
@@ -224,17 +219,15 @@ abstract mixin class _ComicPageActions {
       diagnosticCaller: '_ComicPageActions._readWithEntrypoint',
     );
     Future<void> openLegacyReader() async {
-      await App.rootContext
-          .to(
-            () => ReaderWithLoading.fromRequest(
-              request: request.toReaderOpenRequest(),
-            ),
-          )
-          .then((_) {
-            onReadEnd();
-          });
+      await const ReaderRouteDispatchAuthority().openLegacy(
+        request.toReaderOpenRequest(),
+      );
+      onReadEnd();
     }
-    if (shouldBypassReaderNextForComicDetailRead(sourceKey: request.sourceKey)) {
+
+    if (shouldBypassReaderNextForComicDetailRead(
+      sourceKey: request.sourceKey,
+    )) {
       await openLegacyReader();
       return;
     }
@@ -273,12 +266,7 @@ abstract mixin class _ComicPageActions {
     var ep = history?.ep ?? 1;
     var page = history?.page ?? 1;
     var group = history?.group;
-    _readWithEntrypoint(
-      ep,
-      page,
-      group,
-      entrypoint: 'comic_detail.continue',
-    );
+    _readWithEntrypoint(ep, page, group, entrypoint: 'comic_detail.continue');
   }
 
   void onReadEnd();

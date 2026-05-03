@@ -387,6 +387,14 @@ class _ReaderWithLoadingState
     );
   }
 
+  int? _currentDiagnosticChapterIndex(ReaderProps? data) {
+    final currentIndex = data?.history.ep;
+    if (currentIndex == null || currentIndex < 0) {
+      return null;
+    }
+    return currentIndex;
+  }
+
   Future<void> _recordParentShellBuild({
     required String branch,
     required bool readerChildMounted,
@@ -399,12 +407,19 @@ class _ReaderWithLoadingState
     }
     final type = ComicType.fromKey(sourceRef.sourceKey);
     final chapterIds = data?.chapters?.ids;
+    final currentChapterIndex = _currentDiagnosticChapterIndex(data);
+    final currentChapterId = currentChapterIndex == null
+        ? null
+        : safeElementAtOrNullForDiagnostics(
+            chapterIds,
+            currentChapterIndex - 1,
+          );
     final runtimeContext = buildReaderRuntimeContext(
       comicId: widget.normalizedRequest.comicId,
       type: type,
-      chapterIndex: data?.history.ep ?? 0,
+      chapterIndex: currentChapterIndex ?? 0,
       page: data?.history.page ?? 0,
-      chapterId: chapterIds?.elementAtOrNull((data?.history.ep ?? 1) - 1),
+      chapterId: currentChapterId,
       sourceRef: sourceRef,
     );
     final activeTab = await App.repositories.readerSession.loadActiveReaderTab(
@@ -417,8 +432,8 @@ class _ReaderWithLoadingState
       comicId: runtimeContext.canonicalComicId,
       loadMode: runtimeContext.loadMode,
       sourceKey: runtimeContext.sourceKey,
-      chapterId: runtimeContext.chapterId,
-      chapterIndex: runtimeContext.chapterIndex,
+      chapterId: currentChapterId,
+      chapterIndex: currentChapterIndex,
       page: runtimeContext.page,
       selectedIndex: data?.history.ep,
       currentPage: data?.history.page,
@@ -461,12 +476,19 @@ class _ReaderWithLoadingState
     }
     final type = ComicType.fromKey(sourceRef.sourceKey);
     final chapterIds = data?.chapters?.ids;
+    final currentChapterIndex = _currentDiagnosticChapterIndex(data);
+    final currentChapterId = currentChapterIndex == null
+        ? null
+        : safeElementAtOrNullForDiagnostics(
+            chapterIds,
+            currentChapterIndex - 1,
+          );
     final runtimeContext = buildReaderRuntimeContext(
       comicId: widget.normalizedRequest.comicId,
       type: type,
-      chapterIndex: data?.history.ep ?? 0,
+      chapterIndex: currentChapterIndex ?? 0,
       page: data?.history.page ?? 0,
-      chapterId: chapterIds?.elementAtOrNull((data?.history.ep ?? 1) - 1),
+      chapterId: currentChapterId,
       sourceRef: sourceRef,
     );
     final activeTab = await App.repositories.readerSession.loadActiveReaderTab(
@@ -485,8 +507,8 @@ class _ReaderWithLoadingState
         comicId: runtimeContext.canonicalComicId,
         loadMode: runtimeContext.loadMode,
         sourceKey: runtimeContext.sourceKey,
-        chapterId: runtimeContext.chapterId,
-        chapterIndex: runtimeContext.chapterIndex,
+        chapterId: currentChapterId,
+        chapterIndex: currentChapterIndex,
         page: runtimeContext.page,
         selectedIndex: data?.history.ep,
         currentPage: data?.history.page,
@@ -748,6 +770,18 @@ class _ReaderWithLoadingState
       ),
     );
   }
+}
+
+@visibleForTesting
+T? safeElementAtOrNullForDiagnostics<T>(Iterable<T>? items, int index) {
+  if (items == null || index < 0) {
+    return null;
+  }
+  final itemList = items is List<T> ? items : items.toList(growable: false);
+  if (index >= itemList.length) {
+    return null;
+  }
+  return itemList[index];
 }
 
 class ReaderProps {

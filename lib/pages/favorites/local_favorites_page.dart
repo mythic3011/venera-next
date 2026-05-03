@@ -114,35 +114,26 @@ class _LocalFavoritesPageState extends State<_LocalFavoritesPage> {
       readerNextEnabled: readerNextEnabled,
       readerNextFavoritesEnabled: readerNextFavoritesEnabled,
       openLegacy: () async {
-        await App.mainNavigatorKey?.currentContext?.to(
-          () => ReaderWithLoading.fromRequest(
-            request: ReaderOpenRequest(
-              comicId: comic.id,
-              sourceKey: comic.sourceKey,
-              diagnosticEntrypoint: 'local_favorites.item',
-              diagnosticCaller: '_LocalFavoritesPageState._openFavoriteComic',
-            ),
+        await const ReaderRouteDispatchAuthority().openLegacy(
+          ReaderOpenRequest(
+            comicId: comic.id,
+            sourceKey: comic.sourceKey,
+            diagnosticEntrypoint: 'local_favorites.item',
+            diagnosticCaller: '_LocalFavoritesPageState._openFavoriteComic',
           ),
         );
       },
       openReaderNext: (request) async {
-        final executor = resolveFavoritesReaderNextExecutor(
+        await const ReaderRouteDispatchAuthority().openApprovedReaderNext(
+          request: request,
           injectedExecutor: favPage.widget.readerNextOpenExecutor,
           injectedFactory: favPage.widget.readerNextOpenExecutorFactory,
         );
-        if (executor == null) {
-          App.rootContext.showMessage(
-            message: 'ReaderNext blocked (missing executor)'.tl,
-          );
-          return;
-        }
-        await executor(request);
         App.rootContext.showMessage(message: 'ReaderNext open dispatched'.tl);
       },
       onBlocked: (result) async {
         App.rootContext.showMessage(
-          message:
-              'ReaderNext blocked (${result.diagnostic.blockedReason})'.tl,
+          message: 'ReaderNext blocked (${result.diagnostic.blockedReason})'.tl,
         );
       },
       onDiagnostic: (packet) {
@@ -340,7 +331,9 @@ class _LocalFavoritesPageState extends State<_LocalFavoritesPage> {
 
   @override
   void initState() {
-    readFilterSelect = readLocalFavoritesReadFilterPreference(readFilterList[0]);
+    readFilterSelect = readLocalFavoritesReadFilterPreference(
+      readFilterList[0],
+    );
     favPage = context.findAncestorStateOfType<_FavoritesPageState>()!;
     if (!isAllFolder) {
       var (a, b) = favoritesRepo.findLinked(widget.folder);

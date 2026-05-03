@@ -32,6 +32,7 @@ import 'package:venera/network/cache.dart';
 import 'package:venera/pages/comic_detail_page.dart';
 import 'package:venera/pages/favorites/favorites_page.dart';
 import 'package:venera/features/reader/presentation/reader.dart';
+import 'package:venera/features/reader/presentation/reader_route_dispatch_authority.dart';
 import 'package:venera/utils/file_type.dart';
 import 'package:venera/utils/io.dart';
 import 'package:venera/utils/tags_translation.dart';

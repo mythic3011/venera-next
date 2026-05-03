@@ -17,6 +17,7 @@ import 'package:venera/features/favorites/data/favorites_runtime_repository.dart
 import 'package:venera/foundation/download_queue_legacy_bridge.dart';
 import 'package:venera/foundation/log.dart';
 import 'package:venera/features/reader/data/reader_status_repository.dart';
+import 'package:venera/features/reader/presentation/reader_route_dispatch_authority.dart';
 import 'package:venera/features/reader_next/bridge/approved_reader_next_navigation_executor.dart';
 import 'package:venera/features/reader_next/bridge/favorites_route_cutover_controller.dart';
 import 'package:venera/features/reader_next/preflight/history_favorites_identity_preflight.dart';

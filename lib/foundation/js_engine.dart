@@ -46,6 +46,38 @@ class JavaScriptRuntimeException implements Exception {
   }
 }
 
+class JsBridgeRequest {
+  JsBridgeRequest._(this.payload, this.method);
+
+  final Map<String, dynamic> payload;
+  final String method;
+
+  static JsBridgeRequest? tryParse(dynamic raw) {
+    if (raw is! Map) {
+      return null;
+    }
+    final payload = <String, dynamic>{};
+    raw.forEach((key, value) {
+      payload[key.toString()] = value;
+    });
+    final method = payload["method"];
+    if (method is! String || method.isEmpty) {
+      return null;
+    }
+    return JsBridgeRequest._(payload, method);
+  }
+
+  String requireString(String key) {
+    final value = payload[key];
+    if (value is String) {
+      return value;
+    }
+    throw JavaScriptRuntimeException(
+      "Malformed JS bridge request: '$key' must be a string",
+    );
+  }
+}
+
 class JsEngine with _JSEngineApi, JsUiApi, Init {
   factory JsEngine() => _cache ?? (_cache = JsEngine._create());
 
@@ -120,107 +152,250 @@ class JsEngine with _JSEngineApi, JsUiApi, Init {
   }
 
   Object? _messageReceiver(dynamic message) {
+    final request = JsBridgeRequest.tryParse(message);
+    if (request == null) {
+      return _bridgeError(
+        code: "malformed_request",
+        message: "Request must be a map with non-empty string method",
+      );
+    }
     try {
-      if (message is Map<dynamic, dynamic>) {
-        if (message["method"] == null) return null;
-        String method = message["method"] as String;
-        switch (method) {
-          case "log":
-            String level = message["level"];
-            Log.addLog(
-              switch (level) {
-                "error" => LogLevel.error,
-                "warning" => LogLevel.warning,
-                "info" => LogLevel.info,
-                _ => LogLevel.warning,
-              },
-              message["title"],
-              message["content"].toString(),
+      switch (request.method) {
+        case "log":
+          final level = request.payload["level"];
+          final title = request.payload["title"];
+          Log.addLog(
+            switch (level) {
+              "error" => LogLevel.error,
+              "warning" => LogLevel.warning,
+              "info" => LogLevel.info,
+              _ => LogLevel.warning,
+            },
+            title is String ? title : "js.log",
+            request.payload["content"].toString(),
+          );
+          return null;
+        case 'load_data':
+          final key = request.requireString("key");
+          final dataKey = request.requireString("data_key");
+          return ComicSource.find(key)?.data[dataKey];
+        case 'save_data':
+          final key = request.requireString("key");
+          final dataKey = request.requireString("data_key");
+          if (dataKey == 'setting') {
+            throw JavaScriptRuntimeException(
+              "setting is not allowed to be saved",
             );
-          case 'load_data':
-            String key = message["key"];
-            String dataKey = message["data_key"];
-            return ComicSource.find(key)?.data[dataKey];
-          case 'save_data':
-            String key = message["key"];
-            String dataKey = message["data_key"];
-            if (dataKey == 'setting') {
-              throw "setting is not allowed to be saved";
-            }
-            var data = message["data"];
-            var source = ComicSource.find(key)!;
-            source.data[dataKey] = data;
-            source.saveData();
-          case 'delete_data':
-            String key = message["key"];
-            String dataKey = message["data_key"];
-            var source = ComicSource.find(key);
-            source?.data.remove(dataKey);
-            source?.saveData();
-          case 'http':
-            return _http(Map.from(message));
-          case 'html':
-            return handleHtmlCallback(Map.from(message));
-          case 'convert':
-            return _convert(Map.from(message));
-          case "random":
-            return _random(
-              message["min"] ?? 0,
-              message["max"] ?? 1,
-              message["type"],
+          }
+          final source = ComicSource.find(key);
+          if (source == null) {
+            throw JavaScriptRuntimeException("Source not found: $key");
+          }
+          source.data[dataKey] = request.payload["data"];
+          source.saveData();
+          return null;
+        case 'delete_data':
+          final key = request.requireString("key");
+          final dataKey = request.requireString("data_key");
+          final source = ComicSource.find(key);
+          source?.data.remove(dataKey);
+          source?.saveData();
+          return null;
+        case 'http':
+          final httpRequest = Map<String, dynamic>.from(request.payload);
+          _validateHttpBridgeRequest(httpRequest);
+          return _http(httpRequest);
+        case 'html':
+          return handleHtmlCallback(Map<String, dynamic>.from(request.payload));
+        case 'convert':
+          return _convert(Map<String, dynamic>.from(request.payload));
+        case "random":
+          return _random(
+            request.payload["min"] is num ? request.payload["min"] : 0,
+            request.payload["max"] is num ? request.payload["max"] : 1,
+            request.payload["type"] is String ? request.payload["type"] : "",
+          );
+        case "cookie":
+          return handleCookieCallback(
+            Map<String, dynamic>.from(request.payload),
+          );
+        case "uuid":
+          return const Uuid().v4();
+        case "load_setting":
+          final key = request.requireString("key");
+          final settingKey = request.requireString("setting_key");
+          final source = ComicSource.find(key);
+          if (source == null) {
+            throw JavaScriptRuntimeException("Source not found: $key");
+          }
+          return source.data["settings"]?[settingKey] ??
+              source.settings?[settingKey]?['default'] ??
+              (throw JavaScriptRuntimeException(
+                "Setting not found: $settingKey",
+              ));
+        case "isLogged":
+          final key = request.requireString("key");
+          return ComicSource.find(key)?.isLogged ?? false;
+        case "delay":
+          final time = request.payload["time"];
+          if (time is! int) {
+            throw JavaScriptRuntimeException(
+              "Malformed JS bridge request: 'time' must be an int",
             );
-          case "cookie":
-            return handleCookieCallback(Map.from(message));
-          case "uuid":
-            return const Uuid().v4();
-          case "load_setting":
-            String key = message["key"];
-            String settingKey = message["setting_key"];
-            var source = ComicSource.find(key)!;
-            return source.data["settings"]?[settingKey] ??
-                source.settings?[settingKey]!['default'] ??
-                (throw "Setting not found: $settingKey");
-          case "isLogged":
-            return ComicSource.find(message["key"])!.isLogged;
-          // temporary solution for [setTimeout] function
-          // TODO: implement [setTimeout] in quickjs project
-          case "delay":
-            return Future.delayed(Duration(milliseconds: message["time"]));
-          case "UI":
-            return handleUIMessage(Map.from(message));
-          case "getLocale":
-            return "${App.locale.languageCode}_${App.locale.countryCode}";
-          case "getPlatform":
-            return Platform.operatingSystem;
-          case "setClipboard":
-            return Clipboard.setData(ClipboardData(text: message["text"]));
-          case "getClipboard":
-            return Future.sync(() async {
-              var res = await Clipboard.getData(Clipboard.kTextPlain);
-              return res?.text;
-            });
-          case "compute":
-            final func = message["function"];
-            final args = message["args"];
-            if (func is JSInvokable) {
-              func.free();
-              throw "Function must be a string";
-            }
-            if (func is! String) {
-              throw "Function must be a string";
-            }
-            if (args != null && args is! List) {
-              throw "Args must be a list";
-            }
-            final sourceKey = message["key"] is String ? message["key"] : null;
-            return JSPool().execute(func, args ?? [], sourceKey: sourceKey);
-        }
+          }
+          return Future.delayed(Duration(milliseconds: time));
+        case "UI":
+          return handleUIMessage(Map<String, dynamic>.from(request.payload));
+        case "getLocale":
+          return "${App.locale.languageCode}_${App.locale.countryCode}";
+        case "getPlatform":
+          return Platform.operatingSystem;
+        case "setClipboard":
+          final text = request.payload["text"];
+          if (text is! String) {
+            throw JavaScriptRuntimeException(
+              "Malformed JS bridge request: 'text' must be a string",
+            );
+          }
+          return Clipboard.setData(ClipboardData(text: text));
+        case "getClipboard":
+          return Future.sync(() async {
+            final res = await Clipboard.getData(Clipboard.kTextPlain);
+            return res?.text;
+          });
+        case "compute":
+          final func = request.payload["function"];
+          final args = request.payload["args"];
+          if (func is JSInvokable) {
+            func.free();
+            throw JavaScriptRuntimeException("Function must be a string");
+          }
+          if (func is! String) {
+            throw JavaScriptRuntimeException("Function must be a string");
+          }
+          if (args != null && args is! List) {
+            throw JavaScriptRuntimeException("Args must be a list");
+          }
+          final sourceKey = request.payload["key"] is String
+              ? request.payload["key"] as String
+              : null;
+          return JSPool().execute(func, args ?? [], sourceKey: sourceKey);
+        default:
+          return _bridgeError(
+            code: "unsupported_method",
+            message: "Unsupported JS bridge method: ${request.method}",
+            method: request.method,
+          );
       }
-      return null;
+    } on JavaScriptRuntimeException catch (e) {
+      return _bridgeError(
+        code: "bridge_error",
+        message: e.message,
+        method: request.method,
+      );
     } catch (e, s) {
       Log.error("Failed to handle message: $message\n$e\n$s", "JsEngine");
-      rethrow;
+      return _bridgeError(
+        code: "bridge_error",
+        message: "Unexpected JS bridge failure",
+        method: request.method,
+      );
     }
+  }
+
+  Map<String, dynamic> _bridgeError({
+    required String code,
+    required String message,
+    String? method,
+  }) {
+    return {
+      "ok": false,
+      "code": code,
+      "error": message,
+      if (method != null) "method": method,
+    };
+  }
+
+  void _validateHttpBridgeRequest(Map<String, dynamic> req) {
+    final rawUrl = req["url"];
+    if (rawUrl is! String || rawUrl.isEmpty) {
+      throw JavaScriptRuntimeException(
+        "Malformed JS bridge request: 'url' must be a non-empty string",
+      );
+    }
+    final uri = Uri.tryParse(rawUrl);
+    if (uri == null || !uri.hasScheme || uri.host.isEmpty) {
+      throw JavaScriptRuntimeException("Malformed HTTP URL");
+    }
+    final scheme = uri.scheme.toLowerCase();
+    if (scheme != "http" && scheme != "https") {
+      throw JavaScriptRuntimeException(
+        "HTTP bridge only supports http/https URLs",
+      );
+    }
+    final sourceKey = req["key"];
+    final allowPrivateTarget =
+        sourceKey is String &&
+        sourceKey.isNotEmpty &&
+        canUsePrivateHttpTargets(sourceKey: sourceKey);
+    if (!allowPrivateTarget && _isRestrictedHttpHost(uri.host)) {
+      throw JavaScriptRuntimeException(
+        "HTTP bridge target is blocked by capability policy",
+      );
+    }
+  }
+
+  bool _isRestrictedHttpHost(String host) {
+    final normalized = host.toLowerCase();
+    if (normalized == "localhost") {
+      return true;
+    }
+    final address = InternetAddress.tryParse(normalized);
+    if (address == null) {
+      return false;
+    }
+    if (address.type == InternetAddressType.IPv4) {
+      final octets = normalized.split('.').map(int.tryParse).toList();
+      if (octets.length != 4 || octets.any((v) => v == null)) {
+        return false;
+      }
+      final a = octets[0]!;
+      final b = octets[1]!;
+      if (a == 10 || a == 127 || a == 0) {
+        return true;
+      }
+      if (a == 169 && b == 254) {
+        return true;
+      }
+      if (a == 172 && b >= 16 && b <= 31) {
+        return true;
+      }
+      if (a == 192 && b == 168) {
+        return true;
+      }
+      if (a == 100 && b >= 64 && b <= 127) {
+        return true;
+      }
+      return false;
+    }
+    if (address.type == InternetAddressType.IPv6) {
+      if (normalized == "::1") {
+        return true;
+      }
+      if (normalized.startsWith("fe80:")) {
+        return true;
+      }
+      final compact = normalized.replaceAll(':', '');
+      if (compact.startsWith('fc') || compact.startsWith('fd')) {
+        return true;
+      }
+      return false;
+    }
+    return false;
+  }
+
+  Object? handleBridgeMessageForTesting(dynamic message) {
+    return _messageReceiver(message);
   }
 
   Future<Map<String, dynamic>> _http(Map<String, dynamic> req) async {

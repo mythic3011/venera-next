@@ -440,6 +440,72 @@ void main() {
   );
 
   test(
+    'navigator ownership diagnostic handles missing route index without throwing',
+    () {
+      expect(
+        () => buildReaderParentShellDiagnosticForTesting(
+          owner: 'ReaderWithLoading.buildFrame',
+          branch: 'content',
+          readerChildMounted: true,
+          comicId: 'comic-1',
+          loadMode: 'remote',
+          sourceKey: 'nhentai',
+          chapterId: safeElementAtOrNullForDiagnostics(
+            const ['ch-1'],
+            -1,
+          ),
+          chapterIndex: null,
+          page: 1,
+          selectedIndex: -1,
+          currentPage: 1,
+          routeName: '/reader',
+          expectedReaderTabId: 'tab-1',
+          activeReaderTabId: 'tab-1',
+          pageOrderId: 'order-1',
+        ),
+        returnsNormally,
+      );
+      final data = buildReaderParentShellDiagnosticForTesting(
+        owner: 'ReaderWithLoading.buildFrame',
+        branch: 'content',
+        readerChildMounted: true,
+        comicId: 'comic-1',
+        loadMode: 'remote',
+        sourceKey: 'nhentai',
+        chapterId: safeElementAtOrNullForDiagnostics(
+          const ['ch-1'],
+          -1,
+        ),
+        chapterIndex: null,
+        page: 1,
+        selectedIndex: -1,
+        currentPage: 1,
+        routeName: '/reader',
+        expectedReaderTabId: 'tab-1',
+        activeReaderTabId: 'tab-1',
+        pageOrderId: 'order-1',
+      );
+
+      expect(data['chapterId'], isNull);
+      expect(data['chapterIndex'], isNull);
+    },
+  );
+
+  test(
+    'navigator ownership diagnostic does not call elementAtOrNull with negative index',
+    () {
+      expect(
+        safeElementAtOrNullForDiagnostics(const ['ch-1', 'ch-2'], -1),
+        isNull,
+      );
+      expect(
+        safeElementAtOrNullForDiagnostics(const ['ch-1', 'ch-2'], 0),
+        'ch-1',
+      );
+    },
+  );
+
+  test(
     'shell keeps reader child mounted when active tab id matches expected local reader tab',
     () {
       final data = buildReaderParentShellDiagnosticForTesting(

@@ -49,8 +49,9 @@ class _ImageFavoritesPhotoViewState extends State<ImageFavoritesPhotoView> {
     if (tempList.isNotEmpty) {
       ImageFavoriteManager().deleteImageFavorite(tempList);
       showToast(
-          message: "Delete @a images".tlParams({'a': tempList.length}),
-          context: context);
+        message: "Delete @a images".tlParams({'a': tempList.length}),
+        context: context,
+      );
     }
   }
 
@@ -92,54 +93,60 @@ class _ImageFavoritesPhotoViewState extends State<ImageFavoritesPhotoView> {
                 return;
               }
               controller.nextPage(
-                  duration: Duration(milliseconds: 180), curve: Curves.ease);
+                duration: Duration(milliseconds: 180),
+                curve: Curves.ease,
+              );
             } else {
               if (controller.page! <= 0) {
                 return;
               }
               controller.previousPage(
-                  duration: Duration(milliseconds: 180), curve: Curves.ease);
+                duration: Duration(milliseconds: 180),
+                curve: Curves.ease,
+              );
             }
           }
         },
-        child: Stack(children: [
-          Positioned.fill(
-            child: PhotoViewGallery.builder(
-              backgroundDecoration: BoxDecoration(
-                color: context.colorScheme.surface,
-              ),
-              builder: _buildItem,
-              itemCount: images.length,
-              loadingBuilder: (context, event) => Center(
-                child: SizedBox(
-                  width: 20.0,
-                  height: 20.0,
-                  child: CircularProgressIndicator(
-                    backgroundColor: context.colorScheme.surfaceContainerHigh,
-                    value: event == null || event.expectedTotalBytes == null
-                        ? null
-                        : event.cumulativeBytesLoaded /
-                            event.expectedTotalBytes!,
+        child: Stack(
+          children: [
+            Positioned.fill(
+              child: PhotoViewGallery.builder(
+                backgroundDecoration: BoxDecoration(
+                  color: context.colorScheme.surface,
+                ),
+                builder: _buildItem,
+                itemCount: images.length,
+                loadingBuilder: (context, event) => Center(
+                  child: SizedBox(
+                    width: 20.0,
+                    height: 20.0,
+                    child: CircularProgressIndicator(
+                      backgroundColor: context.colorScheme.surfaceContainerHigh,
+                      value: event == null || event.expectedTotalBytes == null
+                          ? null
+                          : event.cumulativeBytesLoaded /
+                                event.expectedTotalBytes!,
+                    ),
                   ),
                 ),
+                pageController: controller,
+                onPageChanged: (index) {
+                  setState(() {
+                    currentPage = index;
+                  });
+                },
               ),
-              pageController: controller,
-              onPageChanged: (index) {
-                setState(() {
-                  currentPage = index;
-                });
-              },
             ),
-          ),
-          buildPageInfo(),
-          AnimatedPositioned(
-            top: isAppBarShow ? 0 : -(context.padding.top + 52),
-            left: 0,
-            right: 0,
-            duration: Duration(milliseconds: 180),
-            child: buildAppBar(),
-          ),
-        ]),
+            buildPageInfo(),
+            AnimatedPositioned(
+              top: isAppBarShow ? 0 : -(context.padding.top + 52),
+              left: 0,
+              right: 0,
+              duration: Duration(milliseconds: 180),
+              child: buildAppBar(),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -196,15 +203,9 @@ class _ImageFavoritesPhotoViewState extends State<ImageFavoritesPhotoView> {
               ),
               const SizedBox(width: 8),
               Expanded(
-                child: Text(
-                  widget.comic.title,
-                  style: TextStyle(fontSize: 18),
-                ),
+                child: Text(widget.comic.title, style: TextStyle(fontSize: 18)),
               ),
-              IconButton(
-                icon: Icon(Icons.more_vert),
-                onPressed: showMenu,
-              ),
+              IconButton(icon: Icon(Icons.more_vert), onPressed: showMenu),
               const SizedBox(width: 8),
             ],
           ),
@@ -214,44 +215,38 @@ class _ImageFavoritesPhotoViewState extends State<ImageFavoritesPhotoView> {
   }
 
   void showMenu() {
-    showMenuX(
-      context,
-      Offset(context.width, context.padding.top),
-      [
-        MenuEntry(
-          icon: Icons.image_outlined,
-          text: "Save Image".tl,
-          onClick: () async {
-            var temp = images[currentPage];
-            var imageProvider = ImageFavoritesProvider(temp);
-            var data = await imageProvider.load(null, null);
-            var fileType = detectFileType(data);
-            var fileName = "${currentPage + 1}.${fileType.ext}";
-            await saveFile(filename: fileName, data: data);
-          },
-        ),
-        MenuEntry(
-          icon: Icons.menu_book_outlined,
-          text: "Read".tl,
-          onClick: () async {
-            var comic = widget.comic;
-            var ep = images[currentPage].ep;
-            var page = images[currentPage].page;
-            App.rootContext.to(
-              () => ReaderWithLoading.fromRequest(
-                request: ReaderOpenRequest(
-                  comicId: comic.id,
-                  sourceKey: comic.sourceKey,
-                  initialEp: ep,
-                  initialPage: page,
-                  diagnosticEntrypoint: 'image_favorites.item',
-                  diagnosticCaller: 'ImageFavoritesPhotoView.read',
-                ),
-              ),
-            );
-          },
-        ),
-      ],
-    );
+    showMenuX(context, Offset(context.width, context.padding.top), [
+      MenuEntry(
+        icon: Icons.image_outlined,
+        text: "Save Image".tl,
+        onClick: () async {
+          var temp = images[currentPage];
+          var imageProvider = ImageFavoritesProvider(temp);
+          var data = await imageProvider.load(null, null);
+          var fileType = detectFileType(data);
+          var fileName = "${currentPage + 1}.${fileType.ext}";
+          await saveFile(filename: fileName, data: data);
+        },
+      ),
+      MenuEntry(
+        icon: Icons.menu_book_outlined,
+        text: "Read".tl,
+        onClick: () async {
+          var comic = widget.comic;
+          var ep = images[currentPage].ep;
+          var page = images[currentPage].page;
+          await const ReaderRouteDispatchAuthority().openLegacy(
+            ReaderOpenRequest(
+              comicId: comic.id,
+              sourceKey: comic.sourceKey,
+              initialEp: ep,
+              initialPage: page,
+              diagnosticEntrypoint: 'image_favorites.item',
+              diagnosticCaller: 'ImageFavoritesPhotoView.read',
+            ),
+          );
+        },
+      ),
+    ]);
   }
 }
