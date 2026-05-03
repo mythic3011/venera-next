@@ -92,9 +92,14 @@ class PopupIndicatorWidget extends InheritedWidget {
   }
 }
 
-Future<T> showPopUpWidget<T>(BuildContext context, Widget widget) async {
-  return await Navigator.of(context, rootNavigator: true)
-      .push(PopUpWidget(widget));
+Future<T> showPopUpWidget<T>(
+  BuildContext context,
+  Widget widget, {
+  bool useRootNavigator = false,
+}) async {
+  return await Navigator.of(context, rootNavigator: useRootNavigator).push(
+    PopUpWidget(widget),
+  );
 }
 
 class PopUpWidgetScaffold extends StatefulWidget {

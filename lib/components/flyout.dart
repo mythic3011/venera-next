@@ -27,6 +27,7 @@ class Flyout extends StatefulWidget {
     this.borderRadius = 0,
     this.controller,
     this.navigator,
+    this.useRootNavigator = false,
   });
 
   final WidgetBuilder flyoutBuilder;
@@ -46,6 +47,7 @@ class Flyout extends StatefulWidget {
   final double borderRadius;
 
   final NavigatorState? navigator;
+  final bool useRootNavigator;
 
   final FlyoutController? controller;
 
@@ -99,10 +101,7 @@ class FlyoutState extends State<Flyout> {
     var renderBox = context.findRenderObject() as RenderBox;
     var rect = renderBox.localToGlobal(Offset.zero) & renderBox.size;
     var navigator = widget.navigator ??
-        Navigator.of(
-          context,
-          rootNavigator: true,
-        );
+        Navigator.of(context, rootNavigator: widget.useRootNavigator);
     navigator.push(PageRouteBuilder(
         fullscreenDialog: true,
         barrierDismissible: true,

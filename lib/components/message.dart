@@ -210,6 +210,7 @@ LoadingDialogController showLoadingDialog(
   String? message,
   String cancelButtonText = "Cancel",
   bool withProgress = false,
+  bool useRootNavigator = false,
 }) {
   var controller = LoadingDialogController();
   controller._message = message;
@@ -257,7 +258,7 @@ LoadingDialogController showLoadingDialog(
     },
   );
 
-  var navigator = Navigator.of(context, rootNavigator: true);
+  var navigator = Navigator.of(context, rootNavigator: useRootNavigator);
 
   navigator.push(loadingDialogRoute).then((value) => controller.closed = true);
 
@@ -476,14 +477,20 @@ void showInfoDialog({
 }
 
 Future<int?> showSelectDialog({
+  BuildContext? context,
   required String title,
   required List<String> options,
   int? initialIndex,
 }) async {
   int? current = initialIndex;
+  final dialogContext =
+      context ?? App.rootNavigatorKey.currentContext ?? App.mainNavigatorKey?.currentContext;
+  if (dialogContext == null) {
+    return null;
+  }
 
   await showDialog(
-    context: App.rootContext,
+    context: dialogContext,
     builder: (context) {
       return StatefulBuilder(
         builder: (context, setState) {
