@@ -10,9 +10,10 @@ import 'dart:isolate';
 import 'dart:ui';
 
 import 'package:flutter/services.dart';
+import 'package:flutter/widgets.dart';
 import 'package:venera/foundation/app/app.dart';
 import 'package:venera/foundation/db/unified_comics_store.dart';
-import 'package:venera/foundation/log.dart';
+import 'package:venera/foundation/diagnostics/diagnostics.dart';
 import 'package:venera/utils/ext.dart';
 import 'package:venera/utils/opencc.dart';
 
@@ -25,6 +26,13 @@ const _ehTagProviderKey = 'ehentai';
 enum _TagLocale { simplified, traditional }
 
 typedef EhTagTranslationDownloader = Future<String> Function();
+
+class _LatestTagPackage {
+  const _LatestTagPackage({required this.source, required this.sourceKey});
+
+  final Map<String, Map<String, String>> source;
+  final String? sourceKey;
+}
 
 Map<String, Map<String, String>> _decodeTagData(List<int> bytes) {
   final decoded = jsonDecode(utf8.decode(bytes)) as Map<String, dynamic>;
@@ -78,6 +86,12 @@ String? _latestTagSourceKey(String text) {
   return sha is String && sha.isNotEmpty ? sha : null;
 }
 
+_LatestTagPackage _decodeLatestTagPackage(String text) {
+  final source = _decodeLatestTagData(text);
+  final sourceKey = _latestTagSourceKey(text);
+  return _LatestTagPackage(source: source, sourceKey: sourceKey);
+}
+
 Map<String, Map<String, String>> _convertTagData(
   Map<String, Map<String, String>> source,
   _TagLocale locale,
@@ -110,8 +124,9 @@ extension TagsTranslation on String {
   static Future<void> readData({
     bool forceReload = false,
     UnifiedComicsStore? store,
+    Locale? localeOverride,
   }) async {
-    final locale = App.locale;
+    final locale = localeOverride ?? App.locale;
     final tagLocale = _tagLocaleFrom(locale);
     final cacheKey = _cacheKeyFrom(locale, tagLocale);
     if (!forceReload && _loadedKey == cacheKey && _data.isNotEmpty) {
@@ -155,8 +170,9 @@ extension TagsTranslation on String {
       throw StateError('UnifiedComicsStore is not available');
     }
     final text = await (downloader ?? _downloader)();
-    final source = await Isolate.run(() => _decodeLatestTagData(text));
-    final sourceKey = await Isolate.run(() => _latestTagSourceKey(text));
+    final latest = await Isolate.run(() => _decodeLatestTagPackage(text));
+    final source = latest.source;
+    final sourceKey = latest.sourceKey;
     final existing = await targetStore.loadEhTagTaxonomy(
       providerKey: _ehTagProviderKey,
       locale: 'zh_CN',
@@ -219,10 +235,20 @@ extension TagsTranslation on String {
       return null;
     }
     try {
-      final rows = await store.loadEhTagTaxonomy(
+      final requestedLocale = _dbLocaleForCacheKey(cacheKey);
+      var rows = await store.loadEhTagTaxonomy(
         providerKey: _ehTagProviderKey,
-        locale: _dbLocaleForCacheKey(cacheKey),
+        locale: requestedLocale,
       );
+      final usedZhCnFallback = rows.isEmpty && requestedLocale != 'zh_CN';
+      if (usedZhCnFallback) {
+        // Keep DB-backed reads deterministic when global locale was changed by
+        // other flows/tests but only zh_CN records exist.
+        rows = await store.loadEhTagTaxonomy(
+          providerKey: _ehTagProviderKey,
+          locale: 'zh_CN',
+        );
+      }
       if (rows.isEmpty) {
         return null;
       }
@@ -231,9 +257,41 @@ extension TagsTranslation on String {
         data.putIfAbsent(row.namespace, () => <String, String>{})[row.tagKey] =
             row.translatedLabel;
       }
-      return data.isEmpty ? null : data;
+      if (data.isEmpty) {
+        return null;
+      }
+      if (usedZhCnFallback &&
+          (cacheKey == 'zh_HK' || cacheKey == 'zh_TW')) {
+        final converted = _convertTagData(data, _TagLocale.traditional);
+        try {
+          final bundledTraditional = await _loadBundledTagData(
+            _TagLocale.traditional,
+          );
+          for (final namespace in converted.entries) {
+            final bundledNamespace = bundledTraditional[namespace.key];
+            if (bundledNamespace == null) {
+              continue;
+            }
+            for (final tag in namespace.value.keys.toList()) {
+              final bundledTranslation = bundledNamespace[tag];
+              if (bundledTranslation != null &&
+                  bundledTranslation.trim().isNotEmpty) {
+                namespace.value[tag] = bundledTranslation;
+              }
+            }
+          }
+        } catch (_) {
+          // Keep OpenCC-converted fallback when bundled traditional assets are unavailable.
+        }
+        return converted;
+      }
+      return data;
     } catch (e) {
-      Log.warning("Tags Translation", "Failed to read DB tag data: $e");
+      AppDiagnostics.warn(
+        'tags.translation',
+        'tags.translation.db_load_failed',
+        data: {'cacheKey': cacheKey, 'error': '$e'},
+      );
       return null;
     }
   }
@@ -249,7 +307,11 @@ extension TagsTranslation on String {
       final bytes = await cacheFile.readAsBytes();
       return await Isolate.run(() => _decodeTagData(bytes));
     } catch (e) {
-      Log.warning("Tags Translation", "Failed to read cached tag data: $e");
+      AppDiagnostics.warn(
+        'tags.translation',
+        'tags.translation.cache_load_failed',
+        data: {'cacheKey': cacheKey, 'error': '$e'},
+      );
       return null;
     }
   }
@@ -289,9 +351,10 @@ extension TagsTranslation on String {
       // Backward compatibility for older assets layout.
       data = await rootBundle.load(legacyFileName);
     }
-    final bytes = data.buffer.asUint8List(
+    final bytes = Uint8List.sublistView(
+      data.buffer.asUint8List(),
       data.offsetInBytes,
-      data.lengthInBytes,
+      data.offsetInBytes + data.lengthInBytes,
     );
     return Isolate.run(() => _decodeTagData(bytes));
   }
@@ -410,23 +473,26 @@ extension TagsTranslation on String {
   }
 
   static String translationTagWithNamespace(String text, String namespace) {
-    text = text.toLowerCase();
-    if (text != "reclass" && text.endsWith('s')) {
-      text.replaceLast('s', '');
-    }
+    final original = text.toLowerCase();
+    final normalized =
+        namespace != "reclass" && original.endsWith('s')
+            ? original.replaceLast('s', '')
+            : original;
+    String pick(Map<String, String> map) =>
+        map[original] ?? map[normalized] ?? original;
     return switch (namespace) {
-      "male" => maleTags[text] ?? text,
-      "female" => femaleTags[text] ?? text,
-      "mixed" => mixedTags[text] ?? text,
-      "other" => otherTags[text] ?? text,
-      "parody" => parodyTags[text] ?? text,
-      "character" => characterTranslations[text] ?? text,
-      "group" => groupTags[text] ?? text,
-      "cosplayer" => cosplayerTags[text] ?? text,
-      "reclass" => reclassTags[text] ?? text,
-      "language" => languageTranslations[text] ?? text,
-      "artist" => artistTags[text] ?? text,
-      _ => text.translateTagsToCN,
+      "male" => pick(maleTags),
+      "female" => pick(femaleTags),
+      "mixed" => pick(mixedTags),
+      "other" => pick(otherTags),
+      "parody" => pick(parodyTags),
+      "character" => pick(characterTranslations),
+      "group" => pick(groupTags),
+      "cosplayer" => pick(cosplayerTags),
+      "reclass" => pick(reclassTags),
+      "language" => pick(languageTranslations),
+      "artist" => pick(artistTags),
+      _ => original.translateTagsToCN,
     };
   }
 

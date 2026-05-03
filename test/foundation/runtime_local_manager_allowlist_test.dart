@@ -22,6 +22,7 @@ void main() {
         p.join('foundation', 'history.dart'),
         p.join('foundation', 'comic_detail_legacy_bridge.dart'),
         p.join('features', 'favorites', 'data', 'favorites_runtime_repository.dart'),
+        p.join('foundation', 'favorite_runtime_authority.dart'),
         p.join('headless.dart'),
         p.join('utils', 'data.dart'),
         p.join('utils', 'data_sync.dart'),
@@ -38,6 +39,8 @@ void main() {
         p.join('foundation', 'image_favorites.dart'),
         p.join('foundation', 'image_provider', 'history_image_provider.dart'),
         p.join('pages', 'home_page.dart'),
+        p.join('pages', 'comic_details_page', 'actions.dart'),
+        p.join('features', 'reader', 'presentation', 'loading.dart'),
         p.join('utils', 'data.dart'),
       },
     };

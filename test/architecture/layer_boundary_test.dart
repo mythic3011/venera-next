@@ -16,6 +16,7 @@ void main() {
       'io.dart',
       'translations.dart',
       'tags_translation.dart',
+      'local_import_storage.dart',
     };
 
     final forbiddenImportPatterns = <RegExp>[

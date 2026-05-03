@@ -1,5 +1,6 @@
 import 'dart:io';
 
+import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:venera/foundation/db/unified_comics_store.dart';
 import 'package:venera/utils/tags_translation.dart';
@@ -52,6 +53,40 @@ void main() {
         TagsTranslation.translationTagWithNamespace('glasses', 'female'),
         '眼镜',
       );
+    },
+  );
+
+  test(
+    'HK locale DB miss fallback keeps traditional translations',
+    () async {
+      await store.replaceEhTagTaxonomyRecords('ehentai', const [
+        EhTagTaxonomyRecord(
+          providerKey: 'ehentai',
+          locale: 'zh_CN',
+          namespace: 'female',
+          tagKey: 'glasses',
+          translatedLabel: '眼镜',
+          sourceSha: 'db-sha',
+          sourceVersion: 7,
+        ),
+      ]);
+
+      await TagsTranslation.readData(
+        forceReload: true,
+        store: store,
+        localeOverride: const Locale('zh', 'HK'),
+      );
+
+      final namespaced = TagsTranslation.translationTagWithNamespace(
+        'glasses',
+        'female',
+      );
+      final tagged = TagsTranslation.translateTag('female:glasses');
+      expect(namespaced.startsWith('眼鏡'), isTrue);
+      expect(tagged.startsWith('眼鏡'), isTrue);
+      expect(namespaced.contains('眼镜'), isFalse);
+      expect(tagged.contains('眼镜'), isFalse);
+      expect('female'.translateTagsCategoryToCN, isNot('female'));
     },
   );
 
