@@ -564,7 +564,7 @@ class _LocalComicsPageState extends State<LocalComicsPage> {
                   c.id,
                   ComicType.fromKey(c.sourceKey),
                 )!;
-                App.mainNavigatorKey?.currentContext?.to(
+                context.to(
                   () => buildLocalComicDetailEntry(comic, heroTag: heroTag),
                 );
               }
@@ -720,10 +720,14 @@ class _LocalComicsPageState extends State<LocalComicsPage> {
         onClick: () async {
           final localPath = legacyReadLocalComicsRootPath();
           exportComics(comics, (comic, outFilePath) {
+            final resolvedComicDirectory =
+                comic.directory.contains('/') || comic.directory.contains('\\')
+                ? comic.directory
+                : FilePath.join(localPath, comic.directory);
             return createPdfFromComicIsolate(
               comic,
               outFilePath,
-              localPath: localPath,
+              resolvedComicDirectory: resolvedComicDirectory,
             );
           }, ".pdf");
         },

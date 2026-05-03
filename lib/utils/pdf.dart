@@ -13,14 +13,11 @@ typedef DecodeImage = Future<Image> Function(Uint8List data);
 Future<void> _createPdfFromComic({
   required LocalComic comic,
   required String savePath,
-  required String localPath,
+  required String resolvedComicDirectory,
   required DecodeImage decodeImage,
 }) async {
   var images = <String>[];
-
-  var baseDir = comic.directory.contains('/') || comic.directory.contains('\\')
-      ? comic.directory
-      : FilePath.join(localPath, comic.directory);
+  final baseDir = resolvedComicDirectory;
 
   // add cover
   images.add(FilePath.join(baseDir, comic.cover));
@@ -75,7 +72,7 @@ Future<void> _createPdfFromComic({
 Future<Isolate> _runIsolate(
   LocalComic comic,
   String savePath,
-  String localPath,
+  String resolvedComicDirectory,
   SendPort sendPort,
   SendPort onError,
   SendPort onExit,
@@ -112,7 +109,7 @@ Future<Isolate> _runIsolate(
       await _createPdfFromComic(
         comic: comic,
         savePath: savePath,
-        localPath: localPath,
+        resolvedComicDirectory: resolvedComicDirectory,
         decodeImage: decodeImage,
       );
 
@@ -128,7 +125,7 @@ Future<Isolate> _runIsolate(
 Future<File> createPdfFromComicIsolate(
   LocalComic comic,
   String savePath,
-  {required String localPath}
+  {required String resolvedComicDirectory}
 ) async {
   var receivePort = ReceivePort();
   var errorPort = ReceivePort();
@@ -199,7 +196,7 @@ Future<File> createPdfFromComicIsolate(
   isolate = await _runIsolate(
     comic,
     savePath,
-    localPath,
+    resolvedComicDirectory,
     receivePort.sendPort,
     errorPort.sendPort,
     exitPort.sendPort,
