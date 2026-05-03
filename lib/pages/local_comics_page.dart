@@ -382,7 +382,7 @@ class _LocalComicsPageState extends State<LocalComicsPage> {
             icon: Icons.folder_open,
             text: "Open Folder".tl,
             onClick: () {
-              openComicFolder(selectedComics.keys.first);
+              openComicFolder(context, selectedComics.keys.first);
             },
           ),
         if (selectedComics.length == 1)
@@ -575,7 +575,7 @@ class _LocalComicsPageState extends State<LocalComicsPage> {
                   icon: Icons.folder_open,
                   text: "Open Folder".tl,
                   onClick: () {
-                    openComicFolder(c as LocalComic);
+                    openComicFolder(context, c as LocalComic);
                   },
                 ),
                 MenuEntry(
@@ -818,7 +818,7 @@ typedef ExportComicFunc =
     Future<File> Function(LocalComic comic, String outFilePath);
 
 /// Opens the folder containing the comic in the system file explorer
-Future<void> openComicFolder(LocalComic comic) async {
+Future<void> openComicFolder(BuildContext context, LocalComic comic) async {
   try {
     final folderPath = comic.baseDir;
 
@@ -853,11 +853,8 @@ Future<void> openComicFolder(LocalComic comic) async {
     }
   } catch (e, s) {
     Log.error("Open Folder", "Failed to open comic folder: $e", s);
-    // Show error message to user
-    final messageContext =
-        App.rootNavigatorKey.currentContext ?? App.mainNavigatorKey?.currentContext;
-    if (messageContext != null && messageContext.mounted) {
-      messageContext.showMessage(message: "Failed to open folder: $e");
+    if (context.mounted) {
+      context.showMessage(message: "Failed to open folder: $e");
     }
   }
 }

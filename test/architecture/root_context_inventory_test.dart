@@ -9,7 +9,6 @@ void main() {
       'lib/foundation/local/local_comic.dart': 'background_service',
       'lib/init.dart': 'background_service',
       'lib/network/cloudflare.dart': 'background_service',
-      'lib/pages/local_comics_page.dart': 'ui_navigation',
       'lib/utils/data_sync.dart': 'background_service',
       'lib/utils/import_comic.dart': 'background_service',
       'lib/utils/io.dart': 'background_service',
@@ -18,7 +17,6 @@ void main() {
       'lib/foundation/local/local_comic.dart': 'local-foundation',
       'lib/init.dart': 'bootstrap',
       'lib/network/cloudflare.dart': 'network',
-      'lib/pages/local_comics_page.dart': 'library-ui',
       'lib/utils/data_sync.dart': 'data-sync',
       'lib/utils/import_comic.dart': 'import',
       'lib/utils/io.dart': 'io-utils',
@@ -30,8 +28,6 @@ void main() {
           'Move startup update prompt dispatch to UI lifecycle owner instead of init global context.',
       'lib/network/cloudflare.dart':
           'Stop direct UI on network layer; emit diagnostics + typed status only.',
-      'lib/pages/local_comics_page.dart':
-          'Replace global context fallback with caller-owned context route.',
       'lib/utils/data_sync.dart':
           'Return sync result to UI layer; avoid global context resolution in utility layer.',
       'lib/utils/import_comic.dart':
