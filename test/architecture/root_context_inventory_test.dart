@@ -3,16 +3,82 @@ import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
-  test('App.rootContext callsites are fully classified', () {
+  test('global context callsites are fully classified', () {
     const classifiedByFile = <String, String>{
       'lib/main.dart': 'allowed_bootstrap',
+      'lib/app/navigation/app_links.dart': 'ui_navigation',
+      'lib/app/navigation/handle_text_share.dart': 'ui_navigation',
+      'lib/components/comic.dart': 'ui_navigation',
+      'lib/components/js_ui.dart': 'dialog_popup',
+      'lib/components/message.dart': 'dialog_popup',
+      'lib/foundation/local/local_comic.dart': 'background_service',
+      'lib/init.dart': 'background_service',
+      'lib/network/cloudflare.dart': 'background_service',
+      'lib/pages/comic_source_page.dart': 'ui_navigation',
+      'lib/pages/favorites/local_favorites_page.dart': 'ui_navigation',
+      'lib/pages/image_favorites_page/image_favorites_item.dart': 'ui_navigation',
+      'lib/pages/local_comics_page.dart': 'ui_navigation',
+      'lib/utils/data_sync.dart': 'background_service',
+      'lib/utils/import_comic.dart': 'background_service',
+      'lib/utils/io.dart': 'background_service',
     };
-    const migrationOwnerByFile = <String, String>{};
-    const migrationNoteByFile = <String, String>{};
+    const migrationOwnerByFile = <String, String>{
+      'lib/app/navigation/app_links.dart': 'navigation',
+      'lib/app/navigation/handle_text_share.dart': 'navigation',
+      'lib/components/comic.dart': 'ui-components',
+      'lib/components/js_ui.dart': 'js-bridge',
+      'lib/components/message.dart': 'ui-components',
+      'lib/foundation/local/local_comic.dart': 'local-foundation',
+      'lib/init.dart': 'bootstrap',
+      'lib/network/cloudflare.dart': 'network',
+      'lib/pages/comic_source_page.dart': 'sources-ui',
+      'lib/pages/favorites/local_favorites_page.dart': 'favorites-ui',
+      'lib/pages/image_favorites_page/image_favorites_item.dart': 'favorites-ui',
+      'lib/pages/local_comics_page.dart': 'library-ui',
+      'lib/utils/data_sync.dart': 'data-sync',
+      'lib/utils/import_comic.dart': 'import',
+      'lib/utils/io.dart': 'io-utils',
+    };
+    const migrationNoteByFile = <String, String>{
+      'lib/app/navigation/app_links.dart':
+          'Pass navigation through AppRouter entrypoint with explicit lifecycle ownership.',
+      'lib/app/navigation/handle_text_share.dart':
+          'Return typed share-intent event and resolve navigation from UI owner.',
+      'lib/components/comic.dart':
+          'Require caller BuildContext for navigation actions instead of global navigator lookup.',
+      'lib/components/js_ui.dart':
+          'Route JS-driven dialogs/messages through typed UI bridge with caller-provided context.',
+      'lib/components/message.dart':
+          'Require explicit context for select dialog and block silent root/main fallback.',
+      'lib/foundation/local/local_comic.dart':
+          'Emit typed result/events and let UI layer own dialog/navigation rendering.',
+      'lib/init.dart':
+          'Move startup update prompt dispatch to UI lifecycle owner instead of init global context.',
+      'lib/network/cloudflare.dart':
+          'Stop direct UI on network layer; emit diagnostics + typed status only.',
+      'lib/pages/comic_source_page.dart':
+          'Use local BuildContext path and mounted checks for pop/navigation actions.',
+      'lib/pages/favorites/local_favorites_page.dart':
+          'Pass item action context from widget tree for navigation.',
+      'lib/pages/image_favorites_page/image_favorites_item.dart':
+          'Remove global navigator fallback and use widget-owned context.',
+      'lib/pages/local_comics_page.dart':
+          'Replace global context fallback with caller-owned context route.',
+      'lib/utils/data_sync.dart':
+          'Return sync result to UI layer; avoid global context resolution in utility layer.',
+      'lib/utils/import_comic.dart':
+          'Move prompt/dialog dispatch to UI caller and keep import utility side-effect free.',
+      'lib/utils/io.dart':
+          'Delete global UI context helper from IO utility layer.',
+    };
 
     final rg = Process.runSync(
       'rg',
-      ['-n', r'App\.rootContext', 'lib'],
+      [
+        '-n',
+        r'App\.rootContext|App\.rootNavigatorKey\.currentContext|App\.mainNavigatorKey\?\.currentContext',
+        'lib',
+      ],
       runInShell: false,
     );
 
@@ -38,7 +104,7 @@ void main() {
       missingClassification,
       isEmpty,
       reason:
-          'New App.rootContext file(s) must be classified first:\n${missingClassification.join('\n')}',
+          'New global-context file(s) must be classified first:\n${missingClassification.join('\n')}',
     );
 
     expect(

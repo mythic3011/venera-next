@@ -29,9 +29,14 @@ Guardrail 2:
 - Any newly added `App.rootContext` usage must be either `allowed_bootstrap` or `allowed_emergency`,
   or it must include a migration note and owner.
 
-## Inventory Results (`App.rootContext`)
+## Inventory Results (Global Context Series)
 
-Total files with `App.rootContext`: **1**
+Scope pattern:
+- `App.rootContext`
+- `App.rootNavigatorKey.currentContext`
+- `App.mainNavigatorKey?.currentContext`
+
+Total files with global-context access: **16**
 
 ### allowed_bootstrap
 
@@ -43,7 +48,13 @@ Total files with `App.rootContext`: **1**
 
 ### ui_navigation
 
-- None currently classified.
+- `lib/app/navigation/app_links.dart`
+- `lib/app/navigation/handle_text_share.dart`
+- `lib/components/comic.dart`
+- `lib/pages/comic_source_page.dart`
+- `lib/pages/favorites/local_favorites_page.dart`
+- `lib/pages/image_favorites_page/image_favorites_item.dart`
+- `lib/pages/local_comics_page.dart`
 
 ### ui_message
 
@@ -51,11 +62,17 @@ Total files with `App.rootContext`: **1**
 
 ### dialog_popup
 
-- None currently classified.
+- `lib/components/js_ui.dart`
+- `lib/components/message.dart`
 
 ### background_service
 
-- None currently classified.
+- `lib/foundation/local/local_comic.dart`
+- `lib/init.dart`
+- `lib/network/cloudflare.dart`
+- `lib/utils/data_sync.dart`
+- `lib/utils/import_comic.dart`
+- `lib/utils/io.dart`
 
 ### unknown
 
@@ -81,5 +98,5 @@ Total files with `App.rootContext`: **1**
 
 ## Guardrail Test
 
-- `test/architecture/root_context_inventory_test.dart` enforces that every file using `App.rootContext` is explicitly classified.
+- `test/architecture/root_context_inventory_test.dart` enforces that every file using the global-context series patterns is explicitly classified.
 - For non-allowed categories, the test also requires owner + migration note metadata.
