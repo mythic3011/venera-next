@@ -359,6 +359,50 @@ class ReaderDiagnostics {
     );
   }
 
+  static void recordResumeLookupEvent({
+    required String event,
+    required String comicId,
+    required String sourceKey,
+    required String loadMode,
+    String? chapterId,
+    int? page,
+    String? tabId,
+    String? sessionId,
+    String? fallbackSource,
+  }) {
+    readerTraceRecorder.record(
+      ReaderTraceEvent(
+        event: event,
+        timestamp: DateTime.now(),
+        loadMode: loadMode,
+        sourceKey: sourceKey,
+        comicId: comicId,
+        chapterId: chapterId,
+        page: page,
+        resultSummary: [
+          if (sessionId != null) 'sessionId=$sessionId',
+          if (tabId != null) 'tabId=$tabId',
+          if (fallbackSource != null) 'fallbackSource=$fallbackSource',
+        ].join(' '),
+        phase: ReaderTracePhase.sourceResolution,
+      ),
+    );
+    AppDiagnostics.info(
+      'reader.session',
+      event,
+      data: {
+        'comicId': comicId,
+        'sourceKey': sourceKey,
+        'loadMode': loadMode,
+        'chapterId': chapterId,
+        'page': page,
+        'tabId': tabId,
+        'sessionId': sessionId,
+        'fallbackSource': fallbackSource,
+      },
+    );
+  }
+
   static String beginPageListLoad({
     required String loadMode,
     required String sourceKey,

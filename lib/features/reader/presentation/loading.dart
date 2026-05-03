@@ -397,6 +397,7 @@ class _ReaderWithLoadingState
         ? null
         : await ReaderResumeService(
             readerSessions: App.repositories.readerSession,
+            loadLegacyResumeSourceRef: HistoryManager().findResumeSourceRef,
           ).loadPreferredResumeSourceRef(
             widget.id,
             ComicType.fromKey(sourceKey),
