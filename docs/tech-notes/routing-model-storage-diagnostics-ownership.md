@@ -33,6 +33,51 @@ navigator.didPop  routeHash = 988811969 ComicDetailPage
 This means the reader route lifecycle cannot be reliably correlated with the
 global navigator trace.
 
+## Route Observer Coverage Finding
+
+Current diagnostics can now distinguish main observed routes from nested
+navigator routes.
+
+Observed correlated case:
+
+```text
+navigatorHash == mainNavigatorHash
+observerAttached == true
+navigator.lifecycle.didPush.routeHash == navigator.push.host.routeHash
+```
+
+This means the route is pushed through the main observed navigator and can be
+correlated with `NaviObserver`.
+
+Nested / unknown case:
+
+```text
+nestedNavigator == true
+observerAttached == unknown
+navigatorHash != mainNavigatorHash
+```
+
+This does not imply a bug by itself. It means the route belongs to a nested
+navigator whose observer coverage is not yet classified.
+
+Policy:
+
+- Reader routes must go through `AppRouter.openReader()` and the main observed
+  navigator.
+- Nested navigators are allowed for local flows, tabs, dialogs, and inner
+  journeys.
+- Any route that affects reader/session lifecycle must not stay in
+  `observerAttached=unknown`.
+
+Backlog:
+
+```text
+R-routing-inventory-2
+- classify nested navigator owner for routeHash=140732557 (PageRouteBuilder)
+- add navigatorRole labels for known nested flows
+- no behavior change
+```
+
 ### What We Learned
 
 #### Routing must have one authority
