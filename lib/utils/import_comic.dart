@@ -12,7 +12,6 @@ import 'package:venera/foundation/diagnostics/diagnostics.dart';
 import 'package:venera/foundation/favorites.dart';
 import 'package:venera/foundation/local.dart';
 import 'package:venera/foundation/local_comics_legacy_bridge.dart';
-import 'package:venera/foundation/log.dart';
 import 'package:sqlite3/sqlite3.dart' as sql;
 import 'package:venera/utils/ext.dart';
 import 'package:venera/utils/import_sort.dart';
@@ -222,7 +221,7 @@ class ImportComic {
       );
       result.imported[selectedFolder]!.addAll(imported);
     } catch (e, s) {
-      Log.error("Import Comic", e.toString(), s);
+      AppDiagnostics.error('import.comic', e, stackTrace: s);
       _showMessage(e.toString());
     }
     if (shouldAbortImportWhenNoComics(
@@ -289,7 +288,7 @@ class ImportComic {
         );
         result.imported[selectedFolder]!.addAll(imported);
       } catch (e, s) {
-        Log.error("Import Comic", e.toString(), s);
+        AppDiagnostics.error('import.comic', e, stackTrace: s);
         result.failed++;
       }
     }
@@ -474,7 +473,7 @@ class ImportComic {
             },
           );
         } catch (e, s) {
-          Log.error("Import Comic", e.toString(), s);
+          AppDiagnostics.error('import.comic', e, stackTrace: s);
           batch.failed++;
           continue;
         }
@@ -540,7 +539,7 @@ class ImportComic {
           );
         }
       } catch (e, s) {
-        Log.error("Import Comic", e.toString(), s);
+        AppDiagnostics.error('import.comic', e, stackTrace: s);
         batch.failed++;
       }
     }
@@ -852,7 +851,7 @@ class ImportComic {
       var cache = FilePath.join(App.cachePath, dbFile.name);
       await File(cache).deleteIgnoreError();
     } catch (e, s) {
-      Log.error("Import Comic", e.toString(), s);
+      AppDiagnostics.error('import.comic', e, stackTrace: s);
       _showMessage(e.toString());
     }
     controller.close();
@@ -887,7 +886,7 @@ class ImportComic {
         }
       }
     } catch (e, s) {
-      Log.error("Import Comic", e.toString(), s);
+      AppDiagnostics.error('import.comic', e, stackTrace: s);
       _showMessage(e.toString());
       return false;
     }
@@ -929,7 +928,7 @@ class ImportComic {
         _showMessage("No valid comics found".tl);
       }
     } catch (e, s) {
-      Log.error("Import Comic", e.toString(), s);
+      AppDiagnostics.error('import.comic', e, stackTrace: s);
       _showMessage(e.toString());
     }
     controller.close();
@@ -951,7 +950,11 @@ class ImportComic {
     var name = title ?? directory.name;
     await localImportStorage.assertStorageReadyForImport(name);
     if (await localImportStorage.hasDuplicateTitle(name)) {
-      Log.info("Import Comic", "Comic already exists: $name");
+      AppDiagnostics.info(
+        'import.comic',
+        'import.duplicate_title',
+        data: {'title': name},
+      );
       return null;
     }
     bool hasChapters = false;
@@ -965,9 +968,10 @@ class ImportComic {
         chapterImageFiles[entry.name] = <String>[];
         await for (var file in entry.list()) {
           if (file is Directory) {
-            Log.info(
-              "Import Comic",
-              "Invalid Chapter: ${entry.name}\nA directory is found in the chapter directory.",
+            AppDiagnostics.info(
+              'import.comic',
+              'import.invalid_chapter_structure',
+              data: {'chapter': entry.name},
             );
             return null;
           }
@@ -995,7 +999,11 @@ class ImportComic {
       chapterFiles: chapterImageFiles,
     );
     if (coverPath == null || coverPath.isEmpty) {
-      Log.info("Import Comic", "Invalid Comic: $name\nNo cover image found.");
+      AppDiagnostics.info(
+        'import.comic',
+        'import.invalid_comic_no_cover',
+        data: {'title': name},
+      );
       return null;
     }
     var directoryPath = useRelativePath ? directory.name : directory.path;
@@ -1029,9 +1037,10 @@ class ImportComic {
         if (dest.existsSync()) {
           // The destination directory already exists, and it is not managed by the app.
           // Rename the old directory to avoid conflicts.
-          Log.info(
-            "Import Comic",
-            "Directory already exists: ${source.name}\nRenaming the old directory.",
+          AppDiagnostics.info(
+            'import.comic',
+            'import.directory_conflict_renamed',
+            data: {'directory': source.name},
           );
           dest.renameSync(
             findValidDirectoryName(dest.parent.path, "${dest.path}_old"),
@@ -1105,7 +1114,7 @@ class ImportComic {
           },
         );
         _showMessage("Failed to copy comics".tl);
-        Log.error("Import Comic", e.toString(), s);
+        AppDiagnostics.error('import.comic', e, stackTrace: s);
         throw ImportFailure.copyFailed(
           'Failed to copy comics to canonical local root: $destPath',
         );
@@ -1131,7 +1140,7 @@ class ImportComic {
       _showMessage("Imported @a comics".tlParams({'a': importedCount}));
     } catch (e, s) {
       _showMessage("Failed to register comics".tl);
-      Log.error("Import Comic", e.toString(), s);
+      AppDiagnostics.error('import.comic', e, stackTrace: s);
       return false;
     }
     return true;

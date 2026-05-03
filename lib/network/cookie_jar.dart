@@ -3,7 +3,7 @@ import 'dart:io';
 import 'package:dio/dio.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:sqlite3/sqlite3.dart';
-import 'package:venera/foundation/log.dart';
+import 'package:venera/foundation/diagnostics/diagnostics.dart';
 import 'package:venera/utils/ext.dart';
 
 class CookieJarSql {
@@ -139,7 +139,11 @@ class CookieJarSql {
         cookies.add(cookie);
       }
       catch(_) {
-        Log.warning("Network", "Invalid cookie header: $header");
+        AppDiagnostics.warn(
+          'network.cookie',
+          'network.invalid_cookie_header',
+          data: {'header': header},
+        );
         continue;
       }
     }

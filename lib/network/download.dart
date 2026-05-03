@@ -10,7 +10,7 @@ import 'package:venera/foundation/comic_type.dart';
 import 'package:venera/foundation/download_queue_legacy_bridge.dart';
 import 'package:venera/foundation/local.dart';
 import 'package:venera/foundation/local_comics_legacy_bridge.dart';
-import 'package:venera/foundation/log.dart';
+import 'package:venera/foundation/diagnostics/diagnostics.dart';
 import 'package:venera/foundation/res.dart';
 import 'package:venera/foundation/sources/source_ref.dart';
 import 'package:venera/network/images.dart';
@@ -121,7 +121,11 @@ class ImagesDownloadTask extends DownloadTask with _TransferSpeedMixin {
           try {
             await Directory(path!).delete(recursive: true);
           } catch (e) {
-            Log.error("Download", "Failed to delete directory: $e");
+            AppDiagnostics.error(
+              'download.task',
+              e,
+              message: 'download.delete_directory_failed',
+            );
           }
         });
       } else if (chapters != null) {
@@ -285,7 +289,7 @@ class ImagesDownloadTask extends DownloadTask with _TransferSpeedMixin {
         }
         path = dir.path;
       } catch (e, s) {
-        Log.error("Download", e.toString(), s);
+        AppDiagnostics.error('download.task', e, stackTrace: s);
         _setError("Error: $e");
         return;
       }
@@ -315,7 +319,11 @@ class ImagesDownloadTask extends DownloadTask with _TransferSpeedMixin {
         return "file://${file.path}";
       });
       if (res.error) {
-        Log.error("Download", res.errorMessage!);
+        AppDiagnostics.error(
+          'download.task',
+          res.errorMessage!,
+          message: 'download.cover_failed',
+        );
         _setError("Error: ${res.errorMessage}");
         return;
       } else {
@@ -341,7 +349,11 @@ class ImagesDownloadTask extends DownloadTask with _TransferSpeedMixin {
           return;
         }
         if (res.error) {
-          Log.error("Download", res.errorMessage!);
+          AppDiagnostics.error(
+            'download.task',
+            res.errorMessage!,
+            message: 'download.page_list_failed',
+          );
           _setError("Error: ${res.errorMessage}");
           return;
         } else {
@@ -376,7 +388,11 @@ class ImagesDownloadTask extends DownloadTask with _TransferSpeedMixin {
             return;
           }
           if (res.error) {
-            Log.error("Download", res.errorMessage!);
+            AppDiagnostics.error(
+              'download.task',
+              res.errorMessage!,
+              message: 'download.chapter_page_list_failed',
+            );
             _setError("Error: ${res.errorMessage}");
             return;
           } else {
@@ -401,7 +417,11 @@ class ImagesDownloadTask extends DownloadTask with _TransferSpeedMixin {
           return;
         }
         if (task.error != null) {
-          Log.error("Download", task.error.toString());
+          AppDiagnostics.error(
+            'download.task',
+            task.error.toString(),
+            message: 'download.image_task_failed',
+          );
           _setError("Error: ${task.error}");
           return;
         }
@@ -608,7 +628,7 @@ class _ImageDownloadWrapper {
       if (isCancelled) {
         return;
       }
-      Log.error("Download", e.toString(), s);
+      AppDiagnostics.error('download.task', e, stackTrace: s);
       retry--;
       if (retry > 0) {
         start();
@@ -698,7 +718,11 @@ class ArchiveDownloadTask extends DownloadTask {
     _isError = true;
     _message = message;
     notifyListeners();
-    Log.error("Download", message);
+    AppDiagnostics.error(
+      'download.task',
+      message,
+      message: 'download.task_error_state',
+    );
   }
 
   @override
@@ -779,7 +803,11 @@ class ArchiveDownloadTask extends DownloadTask {
       FilePath.join(App.dataPath, "archive_downloading.zip"),
     );
 
-    Log.info("Download", "Downloading $archiveUrl");
+    AppDiagnostics.info(
+      'download.archive',
+      'download.archive_start',
+      data: {'archiveUrl': archiveUrl},
+    );
 
     _downloader = FileDownloader(archiveUrl, archiveFile.path);
 

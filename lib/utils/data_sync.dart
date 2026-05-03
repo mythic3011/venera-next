@@ -5,7 +5,7 @@ import 'package:venera/foundation/app/app.dart';
 import 'package:venera/foundation/appdata.dart';
 import 'package:venera/features/sources/comic_source/comic_source.dart';
 import 'package:venera/foundation/favorites.dart';
-import 'package:venera/foundation/log.dart';
+import 'package:venera/foundation/diagnostics/diagnostics.dart';
 import 'package:venera/foundation/res.dart';
 import 'package:venera/network/app_dio.dart';
 import 'package:venera/utils/data.dart';
@@ -179,10 +179,15 @@ class DataSync with ChangeNotifier {
         // otherwise downloads must still be able to recover that snapshot.
         appdata.settings['dataVersion'] = nextVersion;
         await appdata.saveData(false);
-        Log.info("Upload Data", "Data uploaded successfully");
+        AppDiagnostics.info('data.sync', 'upload.success');
         return const Res(true);
       } catch (e, s) {
-        Log.error("Upload Data", e, s);
+        AppDiagnostics.error(
+          'data.sync',
+          e,
+          stackTrace: s,
+          message: 'upload.failed',
+        );
         _lastError = e.toString();
         return Res.error(e.toString());
       }
@@ -237,19 +242,24 @@ class DataSync with ChangeNotifier {
         if (version != null && int.tryParse(version) != null) {
           var currentVersion = appdata.settings['dataVersion'];
           if (currentVersion != null && int.parse(version) <= currentVersion) {
-            Log.info("Data Sync", 'No new data to download');
+            AppDiagnostics.info('data.sync', 'download.no_new_data');
             return const Res(true);
           }
         }
-        Log.info("Data Sync", "Downloading data from WebDAV server");
+        AppDiagnostics.info('data.sync', 'download.start');
         var localFile = File(FilePath.join(App.cachePath, file.name!));
         await client.read2File(file.name!, localFile.path);
         await importAppData(localFile, true);
         await localFile.delete();
-        Log.info("Data Sync", "Data downloaded successfully");
+        AppDiagnostics.info('data.sync', 'download.success');
         return const Res(true);
       } catch (e, s) {
-        Log.error("Data Sync", e, s);
+        AppDiagnostics.error(
+          'data.sync',
+          e,
+          stackTrace: s,
+          message: 'download.failed',
+        );
         _lastError = e.toString();
         return Res.error(e.toString());
       }

@@ -5,7 +5,7 @@ import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
 import 'package:rhttp/rhttp.dart' as rhttp;
 import 'package:venera/foundation/appdata.dart';
-import 'package:venera/foundation/log.dart';
+import 'package:venera/foundation/diagnostics/diagnostics.dart';
 import 'package:venera/network/cache.dart';
 import 'package:venera/network/proxy.dart';
 
@@ -53,9 +53,15 @@ Map<String, dynamic> redactHeadersForLog(
 class MyLogInterceptor implements Interceptor {
   @override
   void onError(DioException err, ErrorInterceptorHandler handler) {
-    Log.error(
-      "Network",
-      "${err.requestOptions.method} ${err.requestOptions.path}\n$err\n${err.response?.data.toString()}",
+    AppDiagnostics.error(
+      'network.http',
+      err,
+      message: 'network.request_failed',
+      data: {
+        'method': err.requestOptions.method,
+        'path': err.requestOptions.path,
+        'responseData': err.response?.data.toString(),
+      },
     );
     switch (err.type) {
       case DioExceptionType.badResponse:
@@ -135,14 +141,22 @@ class MyLogInterceptor implements Interceptor {
     } else {
       content = response.data.toString();
     }
-    Log.addLog(
-      (response.statusCode != null && response.statusCode! < 400)
-          ? LogLevel.info
-          : LogLevel.error,
-      "Network",
-      "Response ${response.realUri.toString()} ${response.statusCode}\n"
-          "headers:\n$redactedHeaders\n$content",
-    );
+    final data = {
+      'uri': response.realUri.toString(),
+      'statusCode': response.statusCode,
+      'headers': redactedHeaders,
+      'content': content,
+    };
+    if (response.statusCode != null && response.statusCode! < 400) {
+      AppDiagnostics.info('network.http', 'network.response', data: data);
+    } else {
+      AppDiagnostics.error(
+        'network.http',
+        'HTTP ${response.statusCode}',
+        message: 'network.response_error',
+        data: data,
+      );
+    }
     handler.next(response);
   }
 
@@ -153,11 +167,18 @@ class MyLogInterceptor implements Interceptor {
     final customMaskHeaders = maskHeadersInLog is List
         ? maskHeadersInLog.cast<String>()
         : null;
-    Log.info(
-      "Network",
-      "${options.method} ${options.uri}\n"
-          "headers:\n${redactHeadersForLog(options.headers, maskHeadersInLog: customMaskHeaders)}\n"
-          "data:\n${options.extra["maskDataInLog"] == true ? dataMask : options.data}",
+    AppDiagnostics.info(
+      'network.http',
+      'network.request',
+      data: {
+        'method': options.method,
+        'uri': options.uri.toString(),
+        'headers': redactHeadersForLog(
+          options.headers,
+          maskHeadersInLog: customMaskHeaders,
+        ),
+        'data': options.extra["maskDataInLog"] == true ? dataMask : options.data,
+      },
     );
     options.connectTimeout = const Duration(seconds: 15);
     options.receiveTimeout = const Duration(seconds: 15);

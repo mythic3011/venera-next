@@ -9,7 +9,7 @@ import 'package:venera/features/sources/comic_source/comic_source.dart';
 import 'package:venera/foundation/comic_type.dart';
 import 'package:venera/foundation/favorites.dart';
 import 'package:venera/foundation/history.dart';
-import 'package:venera/foundation/log.dart';
+import 'package:venera/foundation/diagnostics/diagnostics.dart';
 import 'package:venera/foundation/sources/identity/source_identity.dart';
 import 'package:venera/network/cookie_jar.dart';
 import 'package:venera/utils/ext.dart';
@@ -100,15 +100,15 @@ Future<void> importAppData(File file, [bool checkVersion = false]) async {
     // Do not restore legacy runtime DB files into App.dataPath.
     // Legacy DB imports must go through explicit migration/import entrypoints.
     if (await legacyHistoryDb.exists()) {
-      Log.warning(
-        "Import Data",
-        "Skipped restoring legacy history.db into runtime path.",
+      AppDiagnostics.warn(
+        'data.import',
+        'import.skip_legacy_history_db_restore',
       );
     }
     if (await legacyFavoritesDb.exists()) {
-      Log.warning(
-        "Import Data",
-        "Skipped restoring legacy local_favorite.db into runtime path.",
+      AppDiagnostics.warn(
+        'data.import',
+        'import.skip_legacy_favorites_db_restore',
       );
     }
     if (await appdataFile.exists()) {
@@ -183,7 +183,7 @@ Future<void> importPicaData(File file) async {
               jsonDecode(folderSyncValue["sync_data"])["folderId"],
             );
           } catch (e, stack) {
-            Log.error(e.toString(), stack);
+            AppDiagnostics.error('data.import', e, stackTrace: stack);
           }
         }
         for (var folderName in folderNames) {
@@ -210,7 +210,11 @@ Future<void> importPicaData(File file) async {
           }
         }
       } catch (e) {
-        Log.error("Import Data", "Failed to import local favorite: $e");
+        AppDiagnostics.error(
+          'data.import',
+          e,
+          message: 'import.local_favorite_failed',
+        );
       } finally {
         db.dispose();
       }
@@ -305,7 +309,12 @@ Future<void> importPicaData(File file) async {
           );
         }
       } catch (e, stack) {
-        Log.error("Import Data", "Failed to import history: $e", stack);
+        AppDiagnostics.error(
+          'data.import',
+          e,
+          stackTrace: stack,
+          message: 'import.history_failed',
+        );
       } finally {
         db.dispose();
       }

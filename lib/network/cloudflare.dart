@@ -5,7 +5,7 @@ import 'package:flutter_inappwebview/flutter_inappwebview.dart';
 import 'package:venera/foundation/app/app.dart';
 import 'package:venera/foundation/appdata.dart';
 import 'package:venera/foundation/consts.dart';
-import 'package:venera/foundation/log.dart';
+import 'package:venera/foundation/diagnostics/diagnostics.dart';
 import 'package:venera/pages/webview.dart';
 import 'package:venera/utils/ext.dart';
 
@@ -131,16 +131,20 @@ void passCloudflare(CloudflareException e, void Function() onFinished) async {
         var body =
             await controller.evaluateJavascript("document.body.innerHTML") ??
                 "";
-        Log.info("Cloudflare", "Checking head: $head");
+        AppDiagnostics.info(
+          'network.cloudflare',
+          'cloudflare.checking_head',
+          data: {'head': head},
+        );
         var isChallenging = head.contains('#challenge-success-text') ||
             head.contains("#challenge-error-text") ||
             head.contains("#challenge-form") ||
             body.contains("challenge-platform") ||
             body.contains("window._cf_chl_opt");
         if (!isChallenging) {
-          Log.info(
-            "Cloudflare",
-            "Cloudflare is passed due to there is no challenge css",
+          AppDiagnostics.info(
+            'network.cloudflare',
+            'cloudflare.challenge_not_detected',
           );
           var ua = controller.userAgent;
           appdata.implicitData['ua'] = ua;
@@ -164,16 +168,20 @@ void passCloudflare(CloudflareException e, void Function() onFinished) async {
           source: "document.head.innerHTML") as String;
       var body = await controller.evaluateJavascript(
           source: "document.body.innerHTML") as String;
-      Log.info("Cloudflare", "Checking head: $head");
+      AppDiagnostics.info(
+        'network.cloudflare',
+        'cloudflare.checking_head',
+        data: {'head': head},
+      );
       var isChallenging = head.contains('#challenge-success-text') ||
           head.contains("#challenge-error-text") ||
           head.contains("#challenge-form") ||
           body.contains("challenge-platform") ||
           body.contains("window._cf_chl_opt");
       if (!isChallenging) {
-        Log.info(
-          "Cloudflare",
-          "Cloudflare is passed due to there is no challenge css",
+        AppDiagnostics.info(
+          'network.cloudflare',
+          'cloudflare.challenge_not_detected',
         );
         var ua = await controller.getUA();
         if (ua != null) {
