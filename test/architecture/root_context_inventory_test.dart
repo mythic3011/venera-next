@@ -6,7 +6,6 @@ void main() {
   test('global context callsites are fully classified', () {
     const classifiedByFile = <String, String>{
       'lib/main.dart': 'allowed_bootstrap',
-      'lib/app/navigation/app_links.dart': 'ui_navigation',
       'lib/components/js_ui.dart': 'dialog_popup',
       'lib/foundation/local/local_comic.dart': 'background_service',
       'lib/init.dart': 'background_service',
@@ -18,7 +17,6 @@ void main() {
       'lib/utils/io.dart': 'background_service',
     };
     const migrationOwnerByFile = <String, String>{
-      'lib/app/navigation/app_links.dart': 'navigation',
       'lib/components/js_ui.dart': 'js-bridge',
       'lib/foundation/local/local_comic.dart': 'local-foundation',
       'lib/init.dart': 'bootstrap',
@@ -30,8 +28,6 @@ void main() {
       'lib/utils/io.dart': 'io-utils',
     };
     const migrationNoteByFile = <String, String>{
-      'lib/app/navigation/app_links.dart':
-          'Pass navigation through AppRouter entrypoint with explicit lifecycle ownership.',
       'lib/components/js_ui.dart':
           'Route JS-driven dialogs/messages through typed UI bridge with caller-provided context.',
       'lib/foundation/local/local_comic.dart':

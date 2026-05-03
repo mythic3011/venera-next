@@ -1,4 +1,4 @@
-import 'package:flutter/widgets.dart';
+import 'package:flutter/material.dart';
 import 'package:app_links/app_links.dart';
 import 'package:venera/foundation/app.dart';
 import 'package:venera/features/sources/comic_source/comic_source.dart';
@@ -17,13 +17,15 @@ Future<bool> handleAppLink(Uri uri) async {
       if (source.linkHandler!.domains.contains(uri.host)) {
         var id = source.linkHandler!.linkToId(uri.toString());
         if (id != null) {
-          var context = await _waitForMainNavigatorContext();
-          if (context == null) {
+          final navigator = await _waitForMainNavigatorState();
+          if (navigator == null) {
             return false;
           }
-          context.to(() {
-            return ComicPage(id: id, sourceKey: source.key);
-          });
+          await navigator.push(
+            MaterialPageRoute(
+              builder: (context) => ComicPage(id: id, sourceKey: source.key),
+            ),
+          );
           return true;
         }
         return false;
@@ -33,13 +35,13 @@ Future<bool> handleAppLink(Uri uri) async {
   return false;
 }
 
-Future<BuildContext?> _waitForMainNavigatorContext() async {
+Future<NavigatorState?> _waitForMainNavigatorState() async {
   // App links can arrive during Android cold start before MainPage installs
   // the nested navigator; wait briefly instead of force-unwrapping it.
   for (var i = 0; i < 10; i++) {
-    var context = App.mainNavigatorKey?.currentContext;
-    if (context != null) {
-      return context;
+    final navigator = App.mainNavigatorKey?.currentState;
+    if (navigator != null) {
+      return navigator;
     }
     await Future.delayed(const Duration(milliseconds: 50));
   }
