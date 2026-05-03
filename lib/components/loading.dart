@@ -45,7 +45,7 @@ final class NetworkLoadError extends AppLoadError {
   @override
   String get title => 'Network Error'.tl;
   @override
-  String get userMessage => rawMessage;
+  String get userMessage => 'Network request failed. Please retry.'.tl;
   @override
   String? get diagnosticCode => null;
   @override
@@ -79,7 +79,7 @@ final class SourceRefLoadError extends AppLoadError {
   @override
   String get title => 'Source Unavailable'.tl;
   @override
-  String get userMessage => rawMessage;
+  String get userMessage => 'Source is unavailable. Retry or export logs.'.tl;
   @override
   String? get diagnosticCode => 'SOURCE_REF_UNAVAILABLE';
   @override
@@ -96,7 +96,7 @@ final class AdapterBoundaryLoadError extends AppLoadError {
   @override
   String get title => 'Identity Boundary Error'.tl;
   @override
-  String get userMessage => rawMessage;
+  String get userMessage => 'Source identity validation failed.'.tl;
   @override
   String? get diagnosticCode => 'ADAPTER_BOUNDARY';
   @override
@@ -113,7 +113,7 @@ final class StorageSchemaLoadError extends AppLoadError {
   @override
   String get title => 'Storage Schema Error'.tl;
   @override
-  String get userMessage => rawMessage;
+  String get userMessage => 'Storage schema mismatch detected.'.tl;
   @override
   String? get diagnosticCode => 'STORAGE_SCHEMA';
   @override
@@ -130,7 +130,7 @@ final class UnknownLoadError extends AppLoadError {
   @override
   String get title => 'Error'.tl;
   @override
-  String get userMessage => rawMessage;
+  String get userMessage => 'Unexpected error. Retry or export logs.'.tl;
   @override
   String? get diagnosticCode => null;
   @override
@@ -141,22 +141,25 @@ final class UnknownLoadError extends AppLoadError {
 
 String _redactLogs(String raw) {
   var sanitized = raw;
-  sanitized = sanitized.replaceAll(
+  sanitized = sanitized.replaceAllMapped(
     RegExp(
-      r'(token|authorization|cookie)\s*[:=]\s*([^\s,;]+)',
+      r'(token|authorization|cookie|api[_-]?key|x-api-key|set-cookie)\s*[:=]\s*([^\r\n]+)',
       caseSensitive: false,
     ),
-    r'$1=[redacted]',
+    (match) => '${match.group(1)}=[redacted]',
   );
-  sanitized = sanitized.replaceAll(
-    RegExp(
-      r'(https?://)([^/\s:@]+):([^@\s]+)@',
-      caseSensitive: false,
-    ),
-    r'$1[redacted]:[redacted]@',
+  sanitized = sanitized.replaceAllMapped(
+    RegExp(r'(bearer)\s+([A-Za-z0-9\-._~+/]+=*)', caseSensitive: false),
+    (match) => '${match.group(1)} [redacted]',
+  );
+  sanitized = sanitized.replaceAllMapped(
+    RegExp(r'(https?://)([^/\s:@]+):([^@\s]+)@', caseSensitive: false),
+    (match) => '${match.group(1)}[redacted]:[redacted]@',
   );
   return sanitized;
 }
+
+String redactLoadingDiagnosticsForExport(String raw) => _redactLogs(raw);
 
 class NetworkError extends StatelessWidget {
   NetworkError({
@@ -193,7 +196,9 @@ class NetworkError extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final cfe = error is CloudflareLoadError
-        ? CloudflareException.fromString((error as CloudflareLoadError).rawMessage)
+        ? CloudflareException.fromString(
+            (error as CloudflareLoadError).rawMessage,
+          )
         : null;
     Widget body = Center(
       child: Column(
@@ -217,11 +222,7 @@ class NetworkError extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 8),
-          Text(
-            error.userMessage,
-            textAlign: TextAlign.center,
-            maxLines: 3,
-          ),
+          Text(error.userMessage, textAlign: TextAlign.center, maxLines: 3),
           if (error.exportLogsSuggested)
             TextButton(
               onPressed: () {
@@ -237,18 +238,14 @@ class NetworkError extends StatelessWidget {
           if (retry != null && error.retryable)
             if (cfe != null)
               FilledButton(
-                onPressed: () => passCloudflare(
-                  cfe,
-                  retry!,
-                ),
+                onPressed: () => passCloudflare(cfe, retry!),
                 child: Text('Verify'.tl),
               )
             else
               Row(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  if (action != null)
-                    action!.paddingRight(8),
+                  if (action != null) action!.paddingRight(8),
                   FilledButton(
                     onPressed: retry,
                     child: Text(buttonText ?? 'Retry'.tl),
@@ -303,6 +300,7 @@ abstract class LoadingState<T extends StatefulWidget, S extends Object>
   S? data;
 
   AppLoadError? error;
+  int _loadGeneration = 0;
 
   Future<Res<S>> loadData();
 
@@ -337,22 +335,23 @@ abstract class LoadingState<T extends StatefulWidget, S extends Object>
     );
   }
 
-  void retry() {
+  void _startLoad() {
+    final generation = ++_loadGeneration;
     setState(() {
       isLoading = true;
       error = null;
     });
     loadDataWithRetry().then((value) async {
-      if (!mounted) return;
+      if (!mounted || generation != _loadGeneration) return;
       if (value.success) {
         data = value.data;
         await onDataLoaded();
-        if (!mounted) return;
+        if (!mounted || generation != _loadGeneration) return;
         setState(() {
           isLoading = false;
         });
       } else {
-        if (!mounted) return;
+        if (!mounted || generation != _loadGeneration) return;
         setState(() {
           isLoading = false;
           error = AppLoadError.fromMessage(
@@ -361,6 +360,10 @@ abstract class LoadingState<T extends StatefulWidget, S extends Object>
         });
       }
     });
+  }
+
+  void retry() {
+    _startLoad();
   }
 
   Widget buildError() {
@@ -372,25 +375,8 @@ abstract class LoadingState<T extends StatefulWidget, S extends Object>
   void initState() {
     isLoading = true;
     Future.microtask(() {
-      loadDataWithRetry().then((value) async {
-        if (!mounted) return;
-        if (value.success) {
-          data = value.data;
-          await onDataLoaded();
-          if (!mounted) return;
-          setState(() {
-            isLoading = false;
-          });
-        } else {
-          if (!mounted) return;
-          setState(() {
-            isLoading = false;
-            error = AppLoadError.fromMessage(
-              value.errorMessage ?? 'Unknown error',
-            );
-          });
-        }
-      });
+      if (!mounted) return;
+      _startLoad();
     });
     super.initState();
   }
@@ -454,7 +440,7 @@ abstract class MultiPageLoadingState<T extends StatefulWidget, S extends Object>
           if (value.subData is int) {
             _maxPage = value.subData as int;
           }
-          data!.addAll(value.data);
+          data = [...?data, ...value.data];
           _isLoading = false;
         });
       } else {
@@ -488,33 +474,35 @@ abstract class MultiPageLoadingState<T extends StatefulWidget, S extends Object>
   void firstLoad() {
     final generation = _loadGeneration;
     Future.microtask(() {
-      loadData(_page).then((value) {
-        if (generation != _loadGeneration) return;
-        if (!mounted) return;
-        if (value.success) {
-          _page++;
-          if (value.subData is int) {
-            _maxPage = value.subData as int;
-          }
-          setState(() {
-            _isFirstLoading = false;
-            data = value.data;
+      loadData(_page)
+          .then((value) {
+            if (generation != _loadGeneration) return;
+            if (!mounted) return;
+            if (value.success) {
+              _page++;
+              if (value.subData is int) {
+                _maxPage = value.subData as int;
+              }
+              setState(() {
+                _isFirstLoading = false;
+                data = value.data;
+              });
+            } else {
+              setState(() {
+                _isFirstLoading = false;
+                _error = AppLoadError.fromMessage(
+                  value.errorMessage ?? 'Unknown error',
+                );
+              });
+            }
+          })
+          .catchError((e) {
+            if (!mounted || generation != _loadGeneration) return;
+            setState(() {
+              _isFirstLoading = false;
+              _error = AppLoadError.fromMessage(e.toString());
+            });
           });
-        } else {
-          setState(() {
-            _isFirstLoading = false;
-            _error = AppLoadError.fromMessage(
-              value.errorMessage ?? 'Unknown error',
-            );
-          });
-        }
-      }).catchError((e) {
-        if (!mounted || generation != _loadGeneration) return;
-        setState(() {
-          _isFirstLoading = false;
-          _error = AppLoadError.fromMessage(e.toString());
-        });
-      });
     });
   }
 
@@ -549,8 +537,15 @@ abstract class MultiPageLoadingState<T extends StatefulWidget, S extends Object>
     } else {
       child = NotificationListener<ScrollNotification>(
         onNotification: (notification) {
+          if (notification.metrics.axis != Axis.vertical) {
+            return false;
+          }
+          if (!haveNextPage) {
+            return false;
+          }
           final remaining =
-              notification.metrics.maxScrollExtent - notification.metrics.pixels;
+              notification.metrics.maxScrollExtent -
+              notification.metrics.pixels;
           if (remaining <= 200) {
             nextPage();
           }
