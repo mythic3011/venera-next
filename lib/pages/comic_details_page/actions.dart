@@ -19,6 +19,53 @@ SourceRef resolveComicDetailsReadSourceRef({
   );
 }
 
+@visibleForTesting
+class ComicDetailReaderOpenRequest {
+  const ComicDetailReaderOpenRequest({
+    required this.comicId,
+    required this.sourceRef,
+    this.initialEp,
+    this.initialPage,
+    this.initialGroup,
+  });
+
+  final String comicId;
+  final SourceRef sourceRef;
+  final int? initialEp;
+  final int? initialPage;
+  final int? initialGroup;
+
+  String get sourceKey => sourceRef.sourceKey;
+
+  String? get chapterRefId => sourceRef.params['chapterId']?.toString();
+}
+
+@visibleForTesting
+ComicDetailReaderOpenRequest buildComicDetailReaderOpenRequest({
+  required ComicDetails comic,
+  required SourceRef sourceRef,
+  required int? ep,
+  required int? page,
+  required int? group,
+}) {
+  final resolvedComicId =
+      sourceRef.params['localComicId']?.toString() ??
+      sourceRef.params['comicId']?.toString() ??
+      comic.id;
+  return ComicDetailReaderOpenRequest(
+    comicId: resolvedComicId,
+    sourceRef: sourceRef,
+    initialEp: ep,
+    initialPage: page,
+    initialGroup: group,
+  );
+}
+
+@visibleForTesting
+bool shouldBypassReaderNextForComicDetailRead({required String sourceKey}) {
+  return isLocalSourceKey(sourceKey);
+}
+
 abstract mixin class _ComicPageActions {
   void update();
 
@@ -123,7 +170,7 @@ abstract mixin class _ComicPageActions {
     final resumeSourceRef = await ReaderResumeService(
       readerSessions: App.repositories.readerSession,
     ).loadPreferredResumeSourceRef(comic.id, comic.comicType);
-    final sourceRef = resolveReaderTargetSourceRef(
+    final sourceRef = resolveComicDetailsReadSourceRef(
       comicId: comic.id,
       sourceKey: comic.comicType.sourceKey,
       chapters: comic.chapters,
@@ -131,14 +178,41 @@ abstract mixin class _ComicPageActions {
       group: group,
       resumeSourceRef: resumeSourceRef,
     );
+    final request = buildComicDetailReaderOpenRequest(
+      comic: comic,
+      sourceRef: sourceRef,
+      ep: ep,
+      page: page,
+      group: group,
+    );
+    Future<void> openLegacyReader() async {
+      await App.rootContext
+          .to(
+            () => ReaderWithLoading(
+              id: request.comicId,
+              sourceRef: request.sourceRef,
+              sourceKey: request.sourceKey,
+              initialEp: request.initialEp,
+              initialPage: request.initialPage,
+              initialGroup: request.initialGroup,
+            ),
+          )
+          .then((_) {
+            onReadEnd();
+          });
+    }
+    if (shouldBypassReaderNextForComicDetailRead(sourceKey: request.sourceKey)) {
+      await openLegacyReader();
+      return;
+    }
     final readerNextEnabled = isReaderNextEnabledSetting(
       appdata.settings['reader_next_enabled'],
     );
     await routeComicDetailReadOpen(
       readerNextEnabled: readerNextEnabled,
-      sourceKey: sourceRef.sourceKey,
-      comicId: sourceRef.params['comicId']?.toString() ?? comic.id,
-      chapterRefId: sourceRef.params['chapterId']?.toString(),
+      sourceKey: request.sourceKey,
+      comicId: request.comicId,
+      chapterRefId: request.chapterRefId,
       onDiagnostic: (packet) {
         Log.info(
           'ReaderNextCutoverDryRun',
@@ -151,27 +225,8 @@ abstract mixin class _ComicPageActions {
               'bridgeResultCode=${packet.bridgeResultCode}',
         );
       },
-      openLegacy: () async {
-        await App.rootContext
-            .to(
-              () => ReaderWithLoading(
-                id: comic.id,
-                sourceRef: sourceRef,
-                sourceKey: sourceRef.sourceKey,
-                initialEp: ep,
-                initialPage: page,
-                initialGroup: group,
-              ),
-            )
-            .then((_) {
-              onReadEnd();
-            });
-      },
-      openReaderNext: (_) async {
-        App.rootContext.showMessage(
-          message: 'ReaderNext route prepared (dry-run)'.tl,
-        );
-      },
+      openLegacy: openLegacyReader,
+      openReaderNext: (_) async => openLegacyReader(),
       onBridgeBlocked: (diagnostic) async {
         App.rootContext.showMessage(
           message:

@@ -1,8 +1,10 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:venera/features/sources/comic_source/comic_source.dart';
 import 'package:venera/foundation/comic_detail/comic_detail.dart';
 import 'package:venera/foundation/comic_type.dart';
 import 'package:venera/foundation/history.dart';
 import 'package:venera/foundation/local.dart';
+import 'package:venera/foundation/source_ref.dart';
 import 'package:venera/pages/comic_details_page/comic_page.dart';
 
 void main() {
@@ -100,5 +102,82 @@ void main() {
       ),
       isTrue,
     );
+  });
+
+  test('local detail chapter read resolves imported chapter SourceRef', () {
+    final chapters = ComicChapters({
+      '1:__imported__': 'Imported Chapter',
+      '2:__imported__': 'Imported Chapter 2',
+    });
+
+    final sourceRef = resolveComicDetailsReadSourceRef(
+      comicId: 'comic-local',
+      sourceKey: 'local',
+      chapters: chapters,
+      ep: 1,
+      group: null,
+      resumeSourceRef: null,
+    );
+
+    expect(sourceRef.type, SourceRefType.local);
+    expect(sourceRef.sourceKey, 'local');
+    expect(sourceRef.params['chapterId'], '1:__imported__');
+  });
+
+  test('local detail read bypasses reader next bridge', () {
+    expect(
+      shouldBypassReaderNextForComicDetailRead(sourceKey: 'local'),
+      isTrue,
+    );
+    expect(
+      shouldBypassReaderNextForComicDetailRead(sourceKey: 'nhentai'),
+      isFalse,
+    );
+  });
+
+  test('local detail read request uses resolved local imported sourceRef', () {
+    final sourceRef = SourceRef.fromLegacyLocal(
+      localType: 'local',
+      localComicId: 'comic-local',
+      chapterId: '1:__imported__',
+    );
+    final request = buildComicDetailReaderOpenRequest(
+      comic: ComicDetails.fromJson({
+        'title': 'Local Comic',
+        'sourceKey': 'local',
+        'comicId': 'comic-local',
+      }),
+      sourceRef: sourceRef,
+      ep: 1,
+      page: 2,
+      group: null,
+    );
+
+    expect(request.comicId, 'comic-local');
+    expect(request.sourceRef.id, 'local:local:comic-local:1:__imported__');
+    expect(request.sourceKey, 'local');
+    expect(request.chapterRefId, '1:__imported__');
+  });
+
+  test('local detail read request does not fall back to placeholder chapter id', () {
+    final sourceRef = SourceRef.fromLegacyLocal(
+      localType: 'local',
+      localComicId: 'comic-local',
+      chapterId: '1:__imported__',
+    );
+    final request = buildComicDetailReaderOpenRequest(
+      comic: ComicDetails.fromJson({
+        'title': 'Local Comic',
+        'sourceKey': 'local',
+        'comicId': 'comic-local',
+      }),
+      sourceRef: sourceRef,
+      ep: 1,
+      page: 1,
+      group: null,
+    );
+
+    expect(request.sourceRef.id, isNot('local:local:comic-local:_'));
+    expect(request.chapterRefId, isNot('_'));
   });
 }
