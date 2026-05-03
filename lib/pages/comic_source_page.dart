@@ -199,6 +199,7 @@ class _BodyState extends State<_Body> {
   }
 
   Future<void> _reloadRepositoryData() async {
+    if (!mounted) return;
     setState(() {
       _loadingRepositories = true;
       _repositoryCommandError = null;
@@ -420,38 +421,43 @@ class _BodyState extends State<_Body> {
 
   Future<void> _promptAddRepository() async {
     final controller = TextEditingController();
-    await showDialog(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Add Repository'),
-        content: TextField(
-          controller: controller,
-          decoration: const InputDecoration(hintText: 'https://.../index.json'),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(ctx).pop(),
-            child: Text('Cancel'.tl),
+    try {
+      await showDialog(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: const Text('Add Repository'),
+          content: TextField(
+            controller: controller,
+            decoration: const InputDecoration(hintText: 'https://.../index.json'),
           ),
-          FilledButton(
-            onPressed: () async {
-              final url = controller.text.trim();
-              if (url.isEmpty) return;
-              try {
-                await _sourceManagementController.addRepository(url);
-                if (ctx.mounted) {
-                  Navigator.of(ctx).pop();
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(ctx).pop(),
+              child: Text('Cancel'.tl),
+            ),
+            FilledButton(
+              onPressed: () async {
+                final url = controller.text.trim();
+                if (url.isEmpty) return;
+                try {
+                  await _sourceManagementController.addRepository(url);
+                  if (ctx.mounted) {
+                    Navigator.of(ctx).pop();
+                  }
+                  if (!mounted) return;
+                  await _reloadRepositoryData();
+                } catch (error) {
+                  _showRepositoryCommandError(error);
                 }
-                await _reloadRepositoryData();
-              } catch (error) {
-                _showRepositoryCommandError(error);
-              }
-            },
-            child: const Text('Add'),
-          ),
-        ],
-      ),
-    );
+              },
+              child: const Text('Add'),
+            ),
+          ],
+        ),
+      );
+    } finally {
+      controller.dispose();
+    }
   }
 
   Widget _buildInstalledSourcesSection(BuildContext context) {
@@ -1055,9 +1061,11 @@ class _CallbackSettingState extends State<_CallbackSetting> {
       try {
         await result;
       } finally {
-        setState(() {
-          isLoading = false;
-        });
+        if (mounted) {
+          setState(() {
+            isLoading = false;
+          });
+        }
       }
     }
   }
@@ -1196,9 +1204,10 @@ class _SliverComicSourceState extends State<_SliverComicSource> {
   }
 
   Iterable<Widget> buildSourceSettings() sync* {
-    // Try to get dynamic settings first (for getters), fall back to cached settings
+    // S-source-settings-runtime-boundary-1:
+    // dynamic settings can run runtime JS path during widget build.
     var settingsMap = source.getSettingsDynamic() ?? source.settings;
-    
+
     if (settingsMap == null) {
       return;
     } else if (source.data['settings'] == null) {
@@ -1307,6 +1316,7 @@ class _SliverComicSourceState extends State<_SliverComicSource> {
           await context.to(
             () => _LoginPage(config: source.account!, source: source),
           );
+          if (!mounted) return;
           source.saveData();
           setState(() {});
         },
@@ -1337,16 +1347,22 @@ class _SliverComicSourceState extends State<_SliverComicSource> {
             setState(() {
               _reLogin[source.key] = true;
             });
-            final List account = source.data["account"];
-            var res = await source.account!.login!(account[0], account[1]);
-            if (res.error) {
-              context.showMessage(message: res.errorMessage!);
-            } else {
-              context.showMessage(message: "Success".tl);
+            try {
+              final List account = source.data["account"];
+              var res = await source.account!.login!(account[0], account[1]);
+              if (!mounted) return;
+              if (res.error) {
+                context.showMessage(message: res.errorMessage!);
+              } else {
+                context.showMessage(message: "Success".tl);
+              }
+            } finally {
+              if (mounted) {
+                setState(() {
+                  _reLogin[source.key] = false;
+                });
+              }
             }
-            setState(() {
-              _reLogin[source.key] = false;
-            });
           },
           trailing: loading
               ? const SizedBox.square(
@@ -1491,7 +1507,7 @@ class _LoginPageState extends State<_LoginPage> {
     );
   }
 
-  void login() {
+  Future<void> login() async {
     if (widget.config.login != null) {
       if (username.isEmpty || password.isEmpty) {
         showToast(
@@ -1504,18 +1520,16 @@ class _LoginPageState extends State<_LoginPage> {
       setState(() {
         loading = true;
       });
-      widget.config.login!(username, password).then((value) {
-        if (value.error) {
-          context.showMessage(message: value.errorMessage!);
-          setState(() {
-            loading = false;
-          });
-        } else {
-          if (mounted) {
-            context.pop();
-          }
-        }
-      });
+      final value = await widget.config.login!(username, password);
+      if (!mounted) return;
+      if (value.error) {
+        context.showMessage(message: value.errorMessage!);
+        setState(() {
+          loading = false;
+        });
+      } else {
+        context.pop();
+      }
     } else if (widget.config.validateCookies != null) {
       setState(() {
         loading = true;
@@ -1523,29 +1537,33 @@ class _LoginPageState extends State<_LoginPage> {
       var cookies = widget.config.cookieFields!
           .map((e) => _cookies[e] ?? '')
           .toList();
-      widget.config.validateCookies!(cookies).then((value) {
-        if (value) {
-          widget.source.data['account'] = 'ok';
-          widget.source.saveData();
-          context.pop();
-        } else {
-          context.showMessage(message: "Invalid cookies".tl);
-          setState(() {
-            loading = false;
-          });
-        }
-      });
+      final value = await widget.config.validateCookies!(cookies);
+      if (!mounted) return;
+      if (value) {
+        widget.source.data['account'] = 'ok';
+        widget.source.saveData();
+        context.pop();
+      } else {
+        context.showMessage(message: "Invalid cookies".tl);
+        setState(() {
+          loading = false;
+        });
+      }
     }
   }
 
-  void loginWithWebview() async {
+  Future<void> loginWithWebview() async {
     var url = widget.config.loginWebsite!;
     var title = '';
     bool success = false;
+    bool closingWebview = false;
 
-    void validate(InAppWebViewController c) async {
+    Future<void> validate(InAppWebViewController c) async {
+      if (success || closingWebview) return;
       if (widget.config.checkLoginStatus != null &&
           widget.config.checkLoginStatus!(url, title)) {
+        success = true;
+        closingWebview = true;
         var cookies = await c.getCookies(url);
         var localStorageItems = await c.webStorage.localStorage.getItems();
         var mappedLocalStorage = <String, dynamic>{};
@@ -1560,9 +1578,8 @@ class _LoginPageState extends State<_LoginPage> {
           Uri.parse(url),
           cookies,
         );
-        success = true;
         widget.config.onLoginWithWebviewSuccess?.call();
-        if (context.mounted) {
+        if (mounted) {
           context.pop();
         }
       }
@@ -1573,15 +1590,16 @@ class _LoginPageState extends State<_LoginPage> {
         initialUrl: widget.config.loginWebsite!,
         onNavigation: (u, c) {
           url = u;
-          validate(c);
+          unawaited(validate(c));
           return false;
         },
         onTitleChange: (t, c) {
           title = t;
-          validate(c);
+          unawaited(validate(c));
         },
       ),
     );
+    if (!mounted) return;
     if (success) {
       widget.source.data['account'] = 'ok';
       widget.source.saveData();
