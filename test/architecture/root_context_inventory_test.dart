@@ -8,7 +8,6 @@ void main() {
       'lib/main.dart': 'allowed_bootstrap',
       'lib/app/navigation/app_links.dart': 'ui_navigation',
       'lib/app/navigation/handle_text_share.dart': 'ui_navigation',
-      'lib/components/comic.dart': 'ui_navigation',
       'lib/components/js_ui.dart': 'dialog_popup',
       'lib/foundation/local/local_comic.dart': 'background_service',
       'lib/init.dart': 'background_service',
@@ -24,7 +23,6 @@ void main() {
     const migrationOwnerByFile = <String, String>{
       'lib/app/navigation/app_links.dart': 'navigation',
       'lib/app/navigation/handle_text_share.dart': 'navigation',
-      'lib/components/comic.dart': 'ui-components',
       'lib/components/js_ui.dart': 'js-bridge',
       'lib/foundation/local/local_comic.dart': 'local-foundation',
       'lib/init.dart': 'bootstrap',
@@ -42,8 +40,6 @@ void main() {
           'Pass navigation through AppRouter entrypoint with explicit lifecycle ownership.',
       'lib/app/navigation/handle_text_share.dart':
           'Return typed share-intent event and resolve navigation from UI owner.',
-      'lib/components/comic.dart':
-          'Require caller BuildContext for navigation actions instead of global navigator lookup.',
       'lib/components/js_ui.dart':
           'Route JS-driven dialogs/messages through typed UI bridge with caller-provided context.',
       'lib/foundation/local/local_comic.dart':

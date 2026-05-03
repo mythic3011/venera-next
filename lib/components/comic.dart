@@ -118,12 +118,12 @@ class ComicTile extends StatelessWidget {
 
   final String? heroTag;
 
-  void _onTap() {
+  void _onTap(BuildContext context) {
     if (onTap != null) {
       onTap!();
       return;
     }
-    App.mainNavigatorKey?.currentContext?.to(
+    context.to(
       () => ComicPage(
         id: comic.id,
         sourceKey: comic.sourceKey,
@@ -161,7 +161,7 @@ class ComicTile extends StatelessWidget {
         icon: Icons.chrome_reader_mode_outlined,
         text: 'Details'.tl,
         onClick: () {
-          App.mainNavigatorKey?.currentContext?.to(
+          context.to(
             () => ComicPage(
               id: comic.id,
               sourceKey: comic.sourceKey,
@@ -297,7 +297,7 @@ class ComicTile extends StatelessWidget {
 
         return InkWell(
           borderRadius: BorderRadius.circular(12),
-          onTap: _onTap,
+          onTap: () => _onTap(context),
           onLongPress: enableLongPressed ? () => _onLongPressed(context) : null,
           onSecondaryTapDown: (detail) => onSecondaryTap(detail, context),
           child: Padding(
@@ -357,7 +357,7 @@ class ComicTile extends StatelessWidget {
 
         return InkWell(
           borderRadius: BorderRadius.circular(8),
-          onTap: _onTap,
+          onTap: () => _onTap(context),
           onLongPress: enableLongPressed ? () => _onLongPressed(context) : null,
           onSecondaryTapDown: (detail) => onSecondaryTap(detail, context),
           child: Column(
