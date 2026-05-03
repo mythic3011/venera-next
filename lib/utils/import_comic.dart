@@ -86,7 +86,7 @@ String? selectCoverPathForImport({
     ..removeWhere((name) => !isSupportedImageExtension(File(name).extension))
     ..sort(naturalCompare);
   final rootCover = sortedRootFiles.firstWhereOrNull(
-    (name) => name.toLowerCase().startsWith('cover'),
+    (name) => File(name).name.toLowerCase().startsWith('cover'),
   );
   if (rootCover != null) {
     return rootCover;

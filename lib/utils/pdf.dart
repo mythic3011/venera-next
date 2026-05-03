@@ -3,7 +3,6 @@ import 'dart:convert';
 import 'dart:isolate';
 import 'package:flutter_saf/flutter_saf.dart';
 import 'package:venera/foundation/app.dart';
-import 'package:venera/foundation/local_comics_legacy_bridge.dart';
 import 'package:venera/foundation/local.dart';
 import 'package:venera/utils/image.dart';
 import 'package:venera/utils/io.dart';
@@ -30,7 +29,9 @@ Future<void> _createPdfFromComic({
 
   void reorderFiles(List<FileSystemEntity> files) {
     files.removeWhere(
-      (element) => element is! File || element.path.startsWith('cover'),
+      (element) =>
+          element is! File ||
+          element.name.toLowerCase().startsWith('cover'),
     );
     files.sort((a, b) {
       var aName = (a as File).basenameWithoutExt;
@@ -74,9 +75,11 @@ Future<void> _createPdfFromComic({
 Future<Isolate> _runIsolate(
   LocalComic comic,
   String savePath,
+  String localPath,
   SendPort sendPort,
+  SendPort onError,
+  SendPort onExit,
 ) {
-  var localPath = legacyReadLocalComicsRootPath();
   return Isolate.spawn<SendPort>(
     (sendPort) => overrideIO(() async {
       if (App.isAndroid) {
@@ -116,32 +119,95 @@ Future<Isolate> _runIsolate(
       sendPort.send(null);
     }),
     sendPort,
+    onError: onError,
+    onExit: onExit,
+    errorsAreFatal: true,
   );
 }
 
 Future<File> createPdfFromComicIsolate(
   LocalComic comic,
   String savePath,
+  {required String localPath}
 ) async {
   var receivePort = ReceivePort();
+  var errorPort = ReceivePort();
+  var exitPort = ReceivePort();
   SendPort? sendPort;
   Isolate? isolate;
   var completer = Completer<void>();
+  var completed = false;
+
+  void completeWithError(Object error, [StackTrace? stackTrace]) {
+    if (completed) {
+      return;
+    }
+    completed = true;
+    if (stackTrace != null) {
+      completer.completeError(error, stackTrace);
+    } else {
+      completer.completeError(error);
+    }
+  }
+
+  void completeWithSuccess() {
+    if (completed) {
+      return;
+    }
+    completed = true;
+    completer.complete();
+  }
+
   receivePort.listen((message) {
     if (message is SendPort) {
       sendPort = message;
     } else if (message is Uint8List) {
-      Image.decodeImage(message).then((image) {
-        sendPort!.send(image);
-      });
+      Image.decodeImage(message)
+          .then((image) {
+            sendPort?.send(image);
+          })
+          .catchError((Object error, StackTrace stackTrace) {
+            completeWithError(error, stackTrace);
+            isolate?.kill(priority: Isolate.immediate);
+          });
     } else if (message == null) {
       receivePort.close();
-      completer.complete();
-      isolate!.kill();
+      completeWithSuccess();
+      isolate?.kill(priority: Isolate.immediate);
     }
   });
-  isolate = await _runIsolate(comic, savePath, receivePort.sendPort);
+  errorPort.listen((message) {
+    if (message is List && message.isNotEmpty) {
+      final error = message.first;
+      final stack = message.length > 1 ? message[1] : null;
+      completeWithError(
+        Exception('PDF isolate failed: $error'),
+        stack is StackTrace ? stack : null,
+      );
+    } else {
+      completeWithError(Exception('PDF isolate failed: $message'));
+    }
+    isolate?.kill(priority: Isolate.immediate);
+  });
+  exitPort.listen((_) {
+    if (!completed) {
+      completeWithError(
+        StateError('PDF export isolate exited before completion'),
+      );
+    }
+  });
+  isolate = await _runIsolate(
+    comic,
+    savePath,
+    localPath,
+    receivePort.sendPort,
+    errorPort.sendPort,
+    exitPort.sendPort,
+  );
   await completer.future;
+  receivePort.close();
+  errorPort.close();
+  exitPort.close();
   return File(savePath);
 }
 
@@ -171,6 +237,7 @@ class PdfGenerator {
 
   Future<void> generate() async {
     var file = File(outputPath);
+    file.parent.createSync(recursive: true);
     final output = file.openWrite();
 
     int length = 0;

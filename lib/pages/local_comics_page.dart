@@ -718,7 +718,14 @@ class _LocalComicsPageState extends State<LocalComicsPage> {
         icon: Icons.picture_as_pdf_outlined,
         text: "Export as pdf".tl,
         onClick: () async {
-          exportComics(comics, createPdfFromComicIsolate, ".pdf");
+          final localPath = legacyReadLocalComicsRootPath();
+          exportComics(comics, (comic, outFilePath) {
+            return createPdfFromComicIsolate(
+              comic,
+              outFilePath,
+              localPath: localPath,
+            );
+          }, ".pdf");
         },
       ),
       MenuEntry(
