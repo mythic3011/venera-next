@@ -56,6 +56,11 @@ void main() {
   ) async {
     DevDiagnosticsApi.debugEnabledOverride = true;
     await pumpDebugRoute(tester);
+    await tester.scrollUntilVisible(
+      find.text('Open Diagnostics Console'),
+      200,
+      scrollable: find.byType(Scrollable).first,
+    );
 
     expect(find.text('Open Diagnostics Console'), findsOneWidget);
 
@@ -64,6 +69,11 @@ void main() {
     DevDiagnosticsApi.debugEnabledOverride = false;
 
     await pumpDebugRoute(tester);
+    await tester.scrollUntilVisible(
+      find.text('Disabled'),
+      200,
+      scrollable: find.byType(Scrollable).first,
+    );
 
     expect(find.text('Open Diagnostics Console'), findsNothing);
     expect(find.text('Start'), findsNothing);
@@ -77,6 +87,11 @@ void main() {
     appdata.settings['enableDebugDiagnostics'] = true;
 
     await pumpDebugRoute(tester);
+    await tester.scrollUntilVisible(
+      find.text('Open Diagnostics Console'),
+      200,
+      scrollable: find.byType(Scrollable).first,
+    );
 
     expect(find.text('Open Diagnostics Console'), findsOneWidget);
     expect(find.text('Start'), findsOneWidget);
@@ -87,6 +102,11 @@ void main() {
     tester,
   ) async {
     await pumpDebugRoute(tester);
+    await tester.scrollUntilVisible(
+      find.text('Open App Data Directory'),
+      200,
+      scrollable: find.byType(Scrollable).first,
+    );
 
     expect(find.text('Open App Data Directory'), findsOneWidget);
     expect(find.text('Export Logs'), findsOneWidget);

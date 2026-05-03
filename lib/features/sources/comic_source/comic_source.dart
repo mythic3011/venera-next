@@ -60,7 +60,11 @@ class ComicSourceManager with ChangeNotifier, Init {
       );
       return null;
     }
-    return _sources.firstWhereOrNull((element) => element.key == key);
+    final exact = _sources.firstWhereOrNull((element) => element.key == key);
+    if (exact != null) {
+      return exact;
+    }
+    return _sources.firstWhereOrNull((element) => element.identity.matchesKey(key));
   }
 
   ComicSource? find(String key) => findCanonical(key);
