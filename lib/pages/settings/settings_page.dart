@@ -32,6 +32,8 @@ part 'setting_components.dart';
 part 'appearance.dart';
 part 'local_favorites.dart';
 part 'app.dart';
+part 'app_settings_strings.dart';
+part 'logs_page.dart';
 part 'about.dart';
 part 'about_settings_strings.dart';
 part 'network.dart';
