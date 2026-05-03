@@ -6,7 +6,7 @@ import 'app_page_route.dart';
 
 extension Navigation on BuildContext {
   void pop<T>([T? result]) {
-    if(mounted) {
+    if (mounted) {
       Navigator.of(this).pop(result);
     }
   }
@@ -15,17 +15,33 @@ extension Navigation on BuildContext {
     return Navigator.of(this).canPop();
   }
 
-  Future<T?> to<T>(Widget Function() builder,) {
+  Future<T?> to<T>(Widget Function() builder) {
     final navigator = Navigator.of(this);
     final currentRoute = ModalRoute.of(this);
+    final rootNavigator = App.rootNavigatorKey.currentState;
+    final mainNavigator = App.mainNavigatorKey?.currentState;
+    final isRootNavigator = identical(navigator, rootNavigator);
+    final isMainNavigator = identical(navigator, mainNavigator);
+    final isNestedNavigator = !isRootNavigator && !isMainNavigator;
+    final navigatorRole = isRootNavigator
+        ? 'root'
+        : (isNestedNavigator ? 'nested' : 'nearest');
+    final observerAttached = isMainNavigator
+        ? true
+        : (isRootNavigator ? false : 'unknown');
     final route = AppPageRoute<T>(builder: (context) => builder());
     emitNavigatorPushHostDiagnostic(
       buildNavigatorPushHostDiagnostic(
         route: route,
         navigator: navigator,
         currentRoute: currentRoute,
-        rootNavigator: identical(navigator, App.rootNavigatorKey.currentState),
-        observerAttached: identical(navigator, App.mainNavigatorKey?.currentState),
+        nearestNavigatorHash: navigator.hashCode,
+        rootNavigatorHash: rootNavigator?.hashCode,
+        mainNavigatorHash: mainNavigator?.hashCode,
+        rootNavigator: isRootNavigator,
+        observerAttached: observerAttached,
+        nestedNavigator: isNestedNavigator,
+        navigatorRole: navigatorRole,
       ),
     );
     return navigator.push<T>(route);
@@ -34,14 +50,30 @@ extension Navigation on BuildContext {
   Future<void> toReplacement<T>(Widget Function() builder) {
     final navigator = Navigator.of(this);
     final currentRoute = ModalRoute.of(this);
+    final rootNavigator = App.rootNavigatorKey.currentState;
+    final mainNavigator = App.mainNavigatorKey?.currentState;
+    final isRootNavigator = identical(navigator, rootNavigator);
+    final isMainNavigator = identical(navigator, mainNavigator);
+    final isNestedNavigator = !isRootNavigator && !isMainNavigator;
+    final navigatorRole = isRootNavigator
+        ? 'root'
+        : (isNestedNavigator ? 'nested' : 'nearest');
+    final observerAttached = isMainNavigator
+        ? true
+        : (isRootNavigator ? false : 'unknown');
     final route = AppPageRoute(builder: (context) => builder());
     emitNavigatorPushHostDiagnostic(
       buildNavigatorPushHostDiagnostic(
         route: route,
         navigator: navigator,
         currentRoute: currentRoute,
-        rootNavigator: identical(navigator, App.rootNavigatorKey.currentState),
-        observerAttached: identical(navigator, App.mainNavigatorKey?.currentState),
+        nearestNavigatorHash: navigator.hashCode,
+        rootNavigatorHash: rootNavigator?.hashCode,
+        mainNavigatorHash: mainNavigator?.hashCode,
+        rootNavigator: isRootNavigator,
+        observerAttached: observerAttached,
+        nestedNavigator: isNestedNavigator,
+        navigatorRole: navigatorRole,
       ),
     );
     return navigator.pushReplacement(route);

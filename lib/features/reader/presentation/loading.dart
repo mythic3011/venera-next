@@ -63,10 +63,7 @@ enum ReaderOpenRequestIdentityErrorCode {
 }
 
 class ReaderOpenRequestIdentityError implements Exception {
-  const ReaderOpenRequestIdentityError(
-    this.code, {
-    required this.message,
-  });
+  const ReaderOpenRequestIdentityError(this.code, {required this.message});
 
   final ReaderOpenRequestIdentityErrorCode code;
   final String message;
@@ -74,8 +71,7 @@ class ReaderOpenRequestIdentityError implements Exception {
   String get codeKey => switch (code) {
     ReaderOpenRequestIdentityErrorCode.missingSourceAuthority =>
       'missingSourceAuthority',
-    ReaderOpenRequestIdentityErrorCode.sourceKeyMismatch =>
-      'sourceKeyMismatch',
+    ReaderOpenRequestIdentityErrorCode.sourceKeyMismatch => 'sourceKeyMismatch',
     ReaderOpenRequestIdentityErrorCode.localComicIdMismatch =>
       'localComicIdMismatch',
   };
@@ -332,19 +328,17 @@ class ReaderWithLoading extends StatefulWidget {
     this.initialGroup,
   }) : assert(request != null || sourceRef != null || sourceKey != null);
 
-  ReaderWithLoading.fromRequest({
-    Key? key,
-    required ReaderOpenRequest request,
-  }) : this(
-         key: key,
-         request: request,
-         id: request.comicId,
-         sourceRef: request.sourceRef,
-         sourceKey: request.sourceKey,
-         initialEp: request.initialEp,
-         initialPage: request.initialPage,
-         initialGroup: request.initialGroup,
-       );
+  ReaderWithLoading.fromRequest({Key? key, required ReaderOpenRequest request})
+    : this(
+        key: key,
+        request: request,
+        id: request.comicId,
+        sourceRef: request.sourceRef,
+        sourceKey: request.sourceKey,
+        initialEp: request.initialEp,
+        initialPage: request.initialPage,
+        initialGroup: request.initialGroup,
+      );
 
   final ReaderOpenRequest? request;
 
@@ -586,16 +580,20 @@ class _ReaderWithLoadingState
           ? route.diagnosticIdentity
           : null,
       navigatorHash: hostDiagnostic?['navigatorHash'] as int?,
+      rootNavigatorHash: hostDiagnostic?['rootNavigatorHash'] as int?,
+      nearestNavigatorHash: hostDiagnostic?['nearestNavigatorHash'] as int?,
+      mainNavigatorHash: hostDiagnostic?['mainNavigatorHash'] as int?,
       rootNavigator: hostDiagnostic?['rootNavigator'] as bool?,
-      observerAttached: hostDiagnostic?['observerAttached'] as bool?,
+      nestedNavigator: hostDiagnostic?['nestedNavigator'] as bool?,
+      observerAttached: hostDiagnostic?['observerAttached'],
+      navigatorRole: hostDiagnostic?['navigatorRole'] as String?,
       observerStatus: lifecycleDiagnostic == null
           ? 'observer_miss'
           : 'observer_seen',
       previousRouteHash: hostDiagnostic?['previousRouteHash'] as int?,
       previousRouteDiagnosticIdentity:
           hostDiagnostic?['previousRouteDiagnosticIdentity'] as String?,
-      navigatorLifecycleEvent:
-          lifecycleDiagnostic?['event'] as String?,
+      navigatorLifecycleEvent: lifecycleDiagnostic?['event'] as String?,
     );
     final branch = isLoading
         ? 'loading'

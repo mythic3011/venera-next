@@ -312,20 +312,17 @@ void main() {
     },
   );
 
-  test(
-    'route diagnostic snapshot omits unavailable fields safely',
-    () {
-      final data = buildReaderRouteDiagnosticSnapshotForTesting(
-        routeHash: 42,
-        routeName: '/reader',
-      );
+  test('route diagnostic snapshot omits unavailable fields safely', () {
+    final data = buildReaderRouteDiagnosticSnapshotForTesting(
+      routeHash: 42,
+      routeName: '/reader',
+    );
 
-      expect(data['routeHash'], 42);
-      expect(data['routeName'], '/reader');
-      expect(data.containsKey('routeSettingsArgumentsType'), isFalse);
-      expect(data.containsKey('routeDiagnosticIdentity'), isFalse);
-    },
-  );
+    expect(data['routeHash'], 42);
+    expect(data['routeName'], '/reader');
+    expect(data.containsKey('routeSettingsArgumentsType'), isFalse);
+    expect(data.containsKey('routeDiagnosticIdentity'), isFalse);
+  });
 
   test(
     'reader route host snapshot records navigator identity and reports observer miss when lifecycle is absent',
@@ -335,8 +332,13 @@ void main() {
         'timestamp': '2026-01-01T00:00:00.000Z',
         'routeHash': 42,
         'navigatorHash': 7,
+        'nearestNavigatorHash': 7,
+        'rootNavigatorHash': 1,
+        'mainNavigatorHash': 2,
         'rootNavigator': false,
-        'observerAttached': false,
+        'nestedNavigator': true,
+        'navigatorRole': 'nested',
+        'observerAttached': 'unknown',
         'previousRouteHash': 11,
         'previousRouteDiagnosticIdentity': 'ComicDetailPage',
       });
@@ -346,8 +348,13 @@ void main() {
       final snapshot = buildReaderRouteDiagnosticSnapshotForTesting(
         routeHash: 42,
         navigatorHash: host['navigatorHash'] as int?,
+        rootNavigatorHash: host['rootNavigatorHash'] as int?,
+        nearestNavigatorHash: host['nearestNavigatorHash'] as int?,
+        mainNavigatorHash: host['mainNavigatorHash'] as int?,
         rootNavigator: host['rootNavigator'] as bool?,
-        observerAttached: host['observerAttached'] as bool?,
+        nestedNavigator: host['nestedNavigator'] as bool?,
+        observerAttached: host['observerAttached'],
+        navigatorRole: host['navigatorRole'] as String?,
         observerStatus: lifecycle == null ? 'observer_miss' : 'observer_seen',
         previousRouteHash: host['previousRouteHash'] as int?,
         previousRouteDiagnosticIdentity:
@@ -355,8 +362,13 @@ void main() {
       );
 
       expect(snapshot['navigatorHash'], 7);
+      expect(snapshot['nearestNavigatorHash'], 7);
+      expect(snapshot['rootNavigatorHash'], 1);
+      expect(snapshot['mainNavigatorHash'], 2);
       expect(snapshot['rootNavigator'], isFalse);
-      expect(snapshot['observerAttached'], isFalse);
+      expect(snapshot['nestedNavigator'], isTrue);
+      expect(snapshot['navigatorRole'], 'nested');
+      expect(snapshot['observerAttached'], 'unknown');
       expect(snapshot['observerStatus'], 'observer_miss');
       expect(snapshot['previousRouteHash'], 11);
     },
@@ -374,7 +386,12 @@ void main() {
         'timestamp': '2026-01-01T00:00:00.000Z',
         'routeHash': route.hashCode,
         'navigatorHash': 9,
+        'nearestNavigatorHash': 9,
+        'rootNavigatorHash': 9,
+        'mainNavigatorHash': 9,
         'rootNavigator': true,
+        'nestedNavigator': false,
+        'navigatorRole': 'root',
         'observerAttached': true,
         'previousRouteHash': 12,
         'previousRouteDiagnosticIdentity': 'ComicDetailPage',
@@ -390,12 +407,19 @@ void main() {
       );
 
       final host = navigatorPushHostDiagnosticForRouteHash(route.hashCode)!;
-      final lifecycle = navigatorLifecycleDiagnosticForRouteHash(route.hashCode);
+      final lifecycle = navigatorLifecycleDiagnosticForRouteHash(
+        route.hashCode,
+      );
       final snapshot = buildReaderRouteDiagnosticSnapshotForTesting(
         routeHash: route.hashCode,
         navigatorHash: host['navigatorHash'] as int?,
+        rootNavigatorHash: host['rootNavigatorHash'] as int?,
+        nearestNavigatorHash: host['nearestNavigatorHash'] as int?,
+        mainNavigatorHash: host['mainNavigatorHash'] as int?,
         rootNavigator: host['rootNavigator'] as bool?,
-        observerAttached: host['observerAttached'] as bool?,
+        nestedNavigator: host['nestedNavigator'] as bool?,
+        observerAttached: host['observerAttached'],
+        navigatorRole: host['navigatorRole'] as String?,
         observerStatus: lifecycle == null ? 'observer_miss' : 'observer_seen',
         previousRouteHash: host['previousRouteHash'] as int?,
         previousRouteDiagnosticIdentity:
@@ -405,7 +429,12 @@ void main() {
 
       expect(snapshot['observerStatus'], 'observer_seen');
       expect(snapshot['navigatorHash'], 9);
+      expect(snapshot['nearestNavigatorHash'], 9);
+      expect(snapshot['rootNavigatorHash'], 9);
+      expect(snapshot['mainNavigatorHash'], 9);
       expect(snapshot['rootNavigator'], isTrue);
+      expect(snapshot['nestedNavigator'], isFalse);
+      expect(snapshot['navigatorRole'], 'root');
       expect(snapshot['navigatorLifecycleEvent'], 'didPush');
     },
   );
@@ -518,11 +547,10 @@ void main() {
 
       emitReaderParentUnmountDiagnosticForTesting(data);
 
-      final diagnosticEvent = DevDiagnosticsApi.recent(
-        channel: 'reader.lifecycle',
-      ).lastWhere(
-        (event) => event.message == 'reader.parent.unmount.retainedTab',
-      );
+      final diagnosticEvent =
+          DevDiagnosticsApi.recent(channel: 'reader.lifecycle').lastWhere(
+            (event) => event.message == 'reader.parent.unmount.retainedTab',
+          );
       expect(diagnosticEvent.message, 'reader.parent.unmount.retainedTab');
       expect(
         diagnosticEvent.data['activeReaderTabId'],
