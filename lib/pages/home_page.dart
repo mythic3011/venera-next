@@ -505,16 +505,23 @@ class _ImportComicsWidgetState extends State<_ImportComicsWidget> {
   }
 
   void selectAndImport() async {
-    height = key.currentContext!.size!.height;
+    final currentContext = key.currentContext;
+    final size = currentContext?.size;
+    if (size != null) {
+      height = size.height;
+    }
+    if (!mounted) {
+      return;
+    }
 
     setState(() {
       loading = true;
     });
-    var importer = ImportComic(
+    final importer = ImportComic(
       selectedFolder: selectedFolder,
       copyToLocal: copyToLocalFolder,
     );
-    var result = switch (type) {
+    final result = switch (type) {
       0 => await importer.directory(true),
       1 => await importer.directory(false),
       2 => await importer.cbz(),
@@ -523,6 +530,9 @@ class _ImportComicsWidgetState extends State<_ImportComicsWidget> {
       5 => await importer.localDownloads(),
       int() => true,
     };
+    if (!mounted) {
+      return;
+    }
     if (result) {
       context.pop();
     } else {
@@ -862,7 +872,10 @@ class _ImageFavoritesState extends State<ImageFavorites> {
           displayType = type;
         });
         await Future.delayed(const Duration(milliseconds: 20));
-        var scrollController = ScrollState.of(context).controller;
+        if (!context.mounted) {
+          return;
+        }
+        final scrollController = ScrollState.of(context).controller;
         scrollController.animateTo(
           scrollController.position.maxScrollExtent,
           duration: const Duration(milliseconds: 200),
