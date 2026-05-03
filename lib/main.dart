@@ -12,6 +12,7 @@ import 'package:window_manager/window_manager.dart';
 import 'components/components.dart';
 import 'components/window_frame.dart';
 import 'foundation/app.dart';
+import 'foundation/app_page_route.dart';
 import 'foundation/appdata.dart';
 import 'foundation/diagnostics/diagnostics.dart';
 import 'headless.dart';
@@ -248,6 +249,24 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
           ],
           builder: (context, widget) {
             ErrorWidget.builder = (details) {
+              final route = ModalRoute.of(context);
+              final routeIdentity = describeRouteDiagnosticIdentity(route);
+              AppDiagnostics.error(
+                'ui.error',
+                details.exception,
+                stackTrace: details.stack,
+                message: 'ui.error.visible',
+                data: {
+                  'routeHash': route?.hashCode,
+                  'routeDiagnosticIdentity': routeIdentity,
+                  'pageOwner': 'ErrorWidget.builder',
+                  'tabOwner': 'ErrorWidget.builder',
+                  'exceptionType': details.exception.runtimeType.toString(),
+                  'sanitizedMessage': details.exception.toString(),
+                  if (details.stack != null)
+                    'stackTrace': details.stack.toString(),
+                },
+              );
               AppDiagnostics.error(
                 'app.unhandled',
                 details.exception,

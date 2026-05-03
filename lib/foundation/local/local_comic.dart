@@ -132,7 +132,11 @@ class LocalComic with HistoryMixin implements Comic {
         store: App.unifiedComicsStore,
       ).syncComic(this);
     } catch (error) {
-      App.rootContext.showMessage(message: error.toString());
+      final context =
+          App.rootNavigatorKey.currentContext ?? App.mainNavigatorKey?.currentContext;
+      if (context != null && context.mounted) {
+        context.showMessage(message: error.toString());
+      }
       return;
     }
     var history = HistoryManager().find(id, comicType);

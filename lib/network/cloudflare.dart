@@ -192,9 +192,14 @@ void passCloudflare(CloudflareException e, void Function() onFinished) async {
           success = true;
         }
       }
-    }
+  }
 
-    await App.rootContext.to(
+    final navigationContext =
+        App.rootNavigatorKey.currentContext ?? App.mainNavigatorKey?.currentContext;
+    if (navigationContext == null) {
+      return;
+    }
+    await navigationContext.to(
       () => AppWebview(
         initialUrl: url,
         singlePage: true,

@@ -87,7 +87,7 @@ Future<void> runHeadlessMode(List<String> args) async {
                 }
               };
               try {
-                await ComicSourcePage.update(source, false);
+                await ComicSourcePage.update(source, showLoading: false);
                 updated++;
                 cliPrint({
                   'status': 'running',

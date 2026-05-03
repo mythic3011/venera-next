@@ -124,24 +124,57 @@ class _ExtractedArchive {
 }
 
 class ImportComic {
+  final BuildContext? uiContext;
   final String? selectedFolder;
   final bool copyToLocal;
   final LocalImportStoragePort localImportStorage;
 
   const ImportComic({
+    this.uiContext,
     this.selectedFolder,
     this.copyToLocal = true,
     LocalImportStoragePort? localImportStorage,
   }) : localImportStorage =
            localImportStorage ?? const CanonicalLocalImportStorage();
 
+  BuildContext? _resolveUiContext() {
+    return uiContext ??
+        App.rootNavigatorKey.currentContext ??
+        App.mainNavigatorKey?.currentContext;
+  }
+
+  void _showMessage(String message) {
+    final context = _resolveUiContext();
+    if (context != null && context.mounted) {
+      context.showMessage(message: message);
+    }
+  }
+
+  LoadingDialogController _showLoading({
+    bool allowCancel = true,
+    bool withProgress = false,
+    String? message,
+    void Function()? onCancel,
+  }) {
+    final context = _resolveUiContext();
+    if (context == null) {
+      throw Exception("UI context unavailable");
+    }
+    return showLoadingDialog(
+      context,
+      allowCancel: allowCancel,
+      withProgress: withProgress,
+      message: message,
+      onCancel: onCancel,
+    );
+  }
+
   Future<bool> cbz() async {
     var file = await selectFile(ext: ['cbz', 'zip', '7z', 'cb7', 'pdf']);
     if (file == null) {
       return false;
     }
-    var controller = showLoadingDialog(
-      App.rootContext,
+    var controller = _showLoading(
       allowCancel: false,
       withProgress: true,
       message: "Preparing import".tl,
@@ -159,7 +192,7 @@ class ImportComic {
       result.imported[selectedFolder]!.addAll(imported);
     } catch (e, s) {
       Log.error("Import Comic", e.toString(), s);
-      App.rootContext.showMessage(message: e.toString());
+      _showMessage(e.toString());
     }
     if (result.imported[selectedFolder]!.isEmpty) {
       controller.close();
@@ -171,9 +204,8 @@ class ImportComic {
     controller.setProgress(1.0);
     controller.close();
     if (success && (result.failed > 0 || result.skipped > 0)) {
-      App.rootContext.showMessage(
-        message:
-            "Import summary: ${result.imported[selectedFolder]!.length} success, ${result.failed} failed, ${result.skipped} skipped",
+      _showMessage(
+        "Import summary: ${result.imported[selectedFolder]!.length} success, ${result.failed} failed, ${result.skipped} skipped",
       );
     }
     return success;
@@ -198,8 +230,7 @@ class ImportComic {
     files.sort((a, b) => naturalCompare(a.name, b.name));
 
     final result = _ImportBatchResult({selectedFolder: []});
-    var controller = showLoadingDialog(
-      App.rootContext,
+    var controller = _showLoading(
       allowCancel: false,
       withProgress: true,
       message: "Preparing import".tl,
@@ -229,7 +260,7 @@ class ImportComic {
       }
     }
     if (result.imported[selectedFolder]!.isEmpty) {
-      App.rootContext.showMessage(message: "No valid comics found".tl);
+      _showMessage("No valid comics found".tl);
     }
     controller.setMessage("Saving library".tl);
     controller.setProgress(0.99);
@@ -237,9 +268,8 @@ class ImportComic {
     controller.setProgress(1.0);
     controller.close();
     if (success) {
-      App.rootContext.showMessage(
-        message:
-            "Import summary: ${result.imported[selectedFolder]!.length} success, ${result.failed} failed, ${result.skipped} skipped",
+      _showMessage(
+        "Import summary: ${result.imported[selectedFolder]!.length} success, ${result.failed} failed, ${result.skipped} skipped",
       );
     }
     return success;
@@ -311,8 +341,12 @@ class ImportComic {
     int itemCount,
   ) async {
     _BundleImportMode? mode;
+    final dialogContext = _resolveUiContext();
+    if (dialogContext == null) {
+      return null;
+    }
     await showDialog(
-      context: App.rootContext,
+      context: dialogContext,
       builder: (context) {
         return ContentDialog(
           title: "Nested bundle detected".tl,
@@ -687,8 +721,7 @@ class ImportComic {
     }
 
     bool cancelled = false;
-    var controller = showLoadingDialog(
-      App.rootContext,
+    var controller = _showLoading(
       onCancel: () {
         cancelled = true;
       },
@@ -781,7 +814,7 @@ class ImportComic {
       await File(cache).deleteIgnoreError();
     } catch (e, s) {
       Log.error("Import Comic", e.toString(), s);
-      App.rootContext.showMessage(message: e.toString());
+      _showMessage(e.toString());
     }
     controller.close();
     if (cancelled) return false;
@@ -801,7 +834,7 @@ class ImportComic {
         if (result != null) {
           imported[selectedFolder]!.add(result);
         } else {
-          App.rootContext.showMessage(message: "Invalid Comic".tl);
+          _showMessage("Invalid Comic".tl);
           return false;
         }
       } else {
@@ -816,7 +849,7 @@ class ImportComic {
       }
     } catch (e, s) {
       Log.error("Import Comic", e.toString(), s);
-      App.rootContext.showMessage(message: e.toString());
+      _showMessage(e.toString());
     }
     return registerComics(imported, copyToLocal);
   }
@@ -825,15 +858,14 @@ class ImportComic {
     var localDir = legacyLocalComicsDirectory();
     Map<String?, List<LocalComic>> imported = {null: []};
     bool cancelled = false;
-    var controller = showLoadingDialog(
-      App.rootContext,
+    var controller = _showLoading(
       onCancel: () {
         cancelled = true;
       },
     );
     try {
       if (!await localDir.exists()) {
-        App.rootContext.showMessage(message: "Local path not found".tl);
+        _showMessage("Local path not found".tl);
         controller.close();
         return false;
       }
@@ -854,11 +886,11 @@ class ImportComic {
         }
       }
       if (!cancelled && imported[null]!.isEmpty) {
-        App.rootContext.showMessage(message: "No valid comics found".tl);
+        _showMessage("No valid comics found".tl);
       }
     } catch (e, s) {
       Log.error("Import Comic", e.toString(), s);
-      App.rootContext.showMessage(message: e.toString());
+      _showMessage(e.toString());
     }
     controller.close();
     if (cancelled) return false;
@@ -1018,7 +1050,7 @@ class ImportComic {
           );
         }
       } catch (e, s) {
-        App.rootContext.showMessage(message: "Failed to copy comics".tl);
+        _showMessage("Failed to copy comics".tl);
         Log.error("Import Comic", e.toString(), s);
         return result;
       }
@@ -1040,11 +1072,9 @@ class ImportComic {
         },
         copy: copy,
       );
-      App.rootContext.showMessage(
-        message: "Imported @a comics".tlParams({'a': importedCount}),
-      );
+      _showMessage("Imported @a comics".tlParams({'a': importedCount}));
     } catch (e, s) {
-      App.rootContext.showMessage(message: "Failed to register comics".tl);
+      _showMessage("Failed to register comics".tl);
       Log.error("Import Comic", e.toString(), s);
       return false;
     }

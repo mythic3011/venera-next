@@ -2,16 +2,20 @@ import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:venera/foundation/app.dart';
+import 'package:venera/foundation/diagnostics/diagnostics.dart';
 import 'package:venera/foundation/log.dart';
 import 'package:venera/foundation/log_diagnostics.dart';
+import 'package:venera/foundation/log_export_bundle.dart';
 
 void main() {
   setUp(() {
     Log.clear();
+    AppDiagnostics.resetForTesting();
   });
 
   tearDown(() async {
     await Log.closeFileSink();
+    AppDiagnostics.resetForTesting();
   });
 
   test('Log.serialize returns level title content time', () {
@@ -228,4 +232,42 @@ void main() {
     App.externalStoragePath = oldExternal;
     App.isInitialized = oldInitialized;
   });
+
+  test(
+    'buildDiagnosticsExportText includes structured diagnostics even when legacy log is empty',
+    () async {
+      final oldInitialized = App.isInitialized;
+      final oldDataPath = oldInitialized ? App.dataPath : null;
+      final oldExternal = App.externalStoragePath;
+
+      final dir = await Directory.systemTemp.createTemp(
+        'venera_diagnostics_export_test_',
+      );
+      App.dataPath = dir.path;
+      App.externalStoragePath = dir.path;
+      App.isInitialized = true;
+
+      Log.clear();
+      AppDiagnostics.error(
+        'ui.error',
+        StateError('failed'),
+        message: 'ui.error.visible',
+      );
+
+      final exportText = await buildDiagnosticsExportText();
+      expect(
+        exportText.contains('=== Structured Diagnostics (NDJSON) ==='),
+        isTrue,
+      );
+      expect(exportText.contains('"channel":"ui.error"'), isTrue);
+      expect(exportText.contains('=== Current Session Logs ==='), isTrue);
+
+      await dir.delete(recursive: true);
+      if (oldInitialized && oldDataPath != null) {
+        App.dataPath = oldDataPath;
+      }
+      App.externalStoragePath = oldExternal;
+      App.isInitialized = oldInitialized;
+    },
+  );
 }

@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:venera/components/components.dart';
+import 'package:venera/foundation/diagnostics/diagnostics.dart' as app_diag;
 import 'package:venera/foundation/res.dart';
 
 class _SequencedLoadWidget extends StatefulWidget {
@@ -60,7 +61,47 @@ class _MultiPageProbeWidgetState
   }
 }
 
+class _ErrorProbeWidget extends StatefulWidget {
+  const _ErrorProbeWidget({
+    required this.stepSignals,
+    required this.steps,
+    required this.stateKey,
+  }) : super(key: stateKey);
+
+  final List<Completer<void>> stepSignals;
+  final List<Res<String>> steps;
+  final GlobalKey<_ErrorProbeWidgetState> stateKey;
+
+  @override
+  State<_ErrorProbeWidget> createState() => _ErrorProbeWidgetState();
+}
+
+class _ErrorProbeWidgetState extends LoadingState<_ErrorProbeWidget, String> {
+  int _index = 0;
+
+  @override
+  Future<Res<String>> loadData() async {
+    final i = _index++;
+    await widget.stepSignals[i].future;
+    return widget.steps[i];
+  }
+
+  @override
+  Widget buildContent(BuildContext context, String data) => Text(data);
+
+  @override
+  Widget buildError() => const Material(child: Text('error'));
+}
+
 void main() {
+  setUp(() {
+    app_diag.AppDiagnostics.configureSinksForTesting(const []);
+  });
+
+  tearDown(() {
+    app_diag.AppDiagnostics.resetForTesting();
+  });
+
   testWidgets('LoadingState ignores stale load result after retry', (
     tester,
   ) async {
@@ -188,4 +229,49 @@ https://user:pass@example.com/path
     expect(redacted, isNot(contains('session=abc123')));
     expect(redacted.toLowerCase(), isNot(contains('bearer abc.def.ghi')));
   });
+
+  testWidgets(
+    'LoadingState emits ui.error.visible when visible error renders',
+    (tester) async {
+      final stateKey = GlobalKey<_ErrorProbeWidgetState>();
+      final first = Completer<void>()..complete();
+      final second = Completer<void>()..complete();
+      final third = Completer<void>()..complete();
+      final fourth = Completer<void>()..complete();
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: _ErrorProbeWidget(
+            stateKey: stateKey,
+            stepSignals: [first, second, third, fourth],
+            steps: const [
+              Res.error('token=abc'),
+              Res.error('token=abc'),
+              Res.error('token=abc'),
+              Res.error('token=abc'),
+            ],
+          ),
+        ),
+      );
+      await tester.pump();
+      await tester.pump();
+      await tester.pump(const Duration(seconds: 1));
+
+      final events = app_diag.AppDiagnostics.recent(channel: 'ui.error');
+      expect(
+        events.any(
+          (e) =>
+              e.message == 'ui.error.visible' &&
+              e.level == app_diag.DiagnosticLevel.error,
+        ),
+        isTrue,
+      );
+      final event = events.last;
+      expect(event.data['pageOwner'], contains('_ErrorProbeWidget'));
+      expect(
+        event.data['sanitizedMessage'].toString().contains('token=abc'),
+        isFalse,
+      );
+    },
+  );
 }

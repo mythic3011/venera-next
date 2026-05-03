@@ -1,4 +1,5 @@
 import 'package:flutter/foundation.dart';
+import 'package:flutter/widgets.dart';
 import 'package:venera/components/components.dart';
 import 'package:venera/components/window_frame.dart';
 import 'package:venera/foundation/app.dart';
@@ -16,6 +17,10 @@ import 'package:venera/utils/translations.dart';
 import 'io.dart';
 
 class DataSync with ChangeNotifier {
+  BuildContext? _resolveUiContext() {
+    return App.rootNavigatorKey.currentContext ?? App.mainNavigatorKey?.currentContext;
+  }
+
   DataSync._() {
     if (isEnabled) {
       downloadData();
@@ -24,7 +29,11 @@ class DataSync with ChangeNotifier {
     ComicSourceManager().addListener(onDataChanged);
     if (App.isDesktop) {
       Future.delayed(const Duration(seconds: 1), () {
-        var controller = WindowFrame.of(App.rootContext);
+        final context = _resolveUiContext();
+        if (context == null) {
+          return;
+        }
+        var controller = WindowFrame.of(context);
         controller.addCloseListener(_handleWindowClose);
       });
     }
@@ -45,8 +54,12 @@ class DataSync with ChangeNotifier {
   }
 
   void _showWindowCloseDialog() async {
+    final context = _resolveUiContext();
+    if (context == null) {
+      exit(0);
+    }
     showLoadingDialog(
-      App.rootContext,
+      context,
       cancelButtonText: "Shut Down".tl,
       onCancel: () => exit(0),
       barrierDismissible: false,

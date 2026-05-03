@@ -121,7 +121,16 @@ Future<void> _checkAppUpdates() async {
   appdata.writeImplicitData();
   ComicSourcePage.checkComicSourceUpdate();
   if (appdata.settings['checkUpdateOnStart']) {
-    await checkUpdateUi(false, true);
+    final updateContext =
+        App.rootNavigatorKey.currentContext ?? App.mainNavigatorKey?.currentContext;
+    if (updateContext == null) {
+      return;
+    }
+    await checkUpdateUi(
+      context: updateContext,
+      showMessageIfNoUpdate: false,
+      delay: true,
+    );
   }
 }
 

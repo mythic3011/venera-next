@@ -1,6 +1,7 @@
 import 'dart:io';
 import 'dart:isolate';
 
+import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_file_dialog/flutter_file_dialog.dart';
 import 'package:flutter_saf/flutter_saf.dart';
@@ -22,6 +23,17 @@ class IO {
   static bool get isSelectingFiles => _isSelectingFiles;
 
   static bool _isSelectingFiles = false;
+}
+
+BuildContext? _resolveIoUiContext() {
+  return App.rootNavigatorKey.currentContext ?? App.mainNavigatorKey?.currentContext;
+}
+
+void _showIoMessage(String message) {
+  final context = _resolveIoUiContext();
+  if (context != null && context.mounted) {
+    context.showMessage(message: message);
+  }
 }
 
 class FilePath {
@@ -319,9 +331,7 @@ Future<FileSelectResult?> selectFile({required List<String> ext}) async {
     }
     final selectedExt = file.path.split(".").last.toLowerCase();
     if (!ext.map((e) => e.toLowerCase()).contains(selectedExt)) {
-      App.rootContext.showMessage(
-        message: "Invalid file type: ${file.path.split(".").last}",
-      );
+      _showIoMessage("Invalid file type: ${file.path.split(".").last}");
       return null;
     }
     return file;
@@ -361,7 +371,7 @@ Future<List<FileSelectResult>?> selectFiles({required List<String> ext}) async {
       results.add(FileSelectResult(xFile.path));
     }
     if (results.isEmpty) {
-      App.rootContext.showMessage(message: "No valid files selected");
+      _showIoMessage("No valid files selected");
       return null;
     }
     return results;

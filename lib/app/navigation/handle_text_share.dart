@@ -16,7 +16,9 @@ void handleTextShare() async {
       await Future.delayed(const Duration(milliseconds: 200));
     }
     if (event is String) {
-      App.rootContext.to(() => AggregatedSearchPage(keyword: event));
+      final context =
+          App.mainNavigatorKey?.currentContext ?? App.rootNavigatorKey.currentContext;
+      context?.to(() => AggregatedSearchPage(keyword: event));
     }
   }
 }
