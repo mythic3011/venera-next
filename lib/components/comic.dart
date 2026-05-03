@@ -5,13 +5,24 @@ ImageProvider? _findImageProvider(Comic comic, {ComicTileMeta? meta}) {
   if (comic is LocalComic) {
     image = LocalComicImageProvider(comic);
   } else if (comic is History) {
-    image = HistoryImageProvider(comic);
+    if (comic.cover.startsWith('file:')) {
+      image = FileImage(File(Uri.parse(comic.cover).toFilePath()));
+    } else if (comic.cover.startsWith('/')) {
+      image = FileImage(File(comic.cover));
+    } else {
+      image = HistoryImageProvider(comic);
+    }
   } else if (isLocalSourceKey(comic.sourceKey)) {
     final localCoverFile = meta?.localCoverFile;
-    if (localCoverFile == null) {
+    if (localCoverFile != null) {
+      image = FileImage(localCoverFile);
+    } else if (comic.cover.startsWith('file:')) {
+      image = FileImage(File(Uri.parse(comic.cover).toFilePath()));
+    } else if (comic.cover.startsWith('/')) {
+      image = FileImage(File(comic.cover));
+    } else {
       return null;
     }
-    image = FileImage(localCoverFile);
   } else {
     image = CachedImageProvider(
       comic.cover,
