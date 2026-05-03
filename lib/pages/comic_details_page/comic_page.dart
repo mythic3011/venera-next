@@ -10,6 +10,7 @@ import 'package:venera/components/components.dart';
 import 'package:venera/components/rich_comment_content.dart';
 import 'package:venera/foundation/app.dart';
 import 'package:venera/foundation/appdata.dart';
+import 'package:venera/foundation/ports/comic_detail_store_port.dart';
 import 'package:venera/features/sources/comic_source/comic_source.dart';
 import 'package:venera/foundation/comic_type.dart';
 import 'package:venera/foundation/comments/comment_filter.dart';
@@ -202,6 +203,14 @@ History buildComicDetailCompatibilityHistoryForTesting({
   );
 }
 
+@visibleForTesting
+Future<ComicDetailViewModel?> loadLocalComicDetailViewModelForTesting({
+  required String comicId,
+  required ComicDetailStorePort store,
+}) {
+  return UnifiedLocalComicDetailRepository(store: store).getComicDetail(comicId);
+}
+
 class _ComicPageState extends LoadingState<ComicPage, ComicDetails>
     with _ComicPageActions {
   bool get _isLocalSource => isLocalSourceKey(widget.sourceKey);
@@ -378,8 +387,9 @@ class _ComicPageState extends LoadingState<ComicPage, ComicDetails>
       if (localItem == null) {
         return const Res.error('Local comic not found');
       }
-      final detail = await App.repositories.comicDetail.getComicDetail(
-        widget.id,
+      final detail = await loadLocalComicDetailViewModelForTesting(
+        comicId: widget.id,
+        store: App.repositories.comicDetailStore,
       );
       if (detail == null) {
         return const Res.error('Local comic detail not found');

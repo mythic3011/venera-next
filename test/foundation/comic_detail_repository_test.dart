@@ -277,6 +277,57 @@ void main() {
   );
 
   test(
+    'comic detail local loader helper uses canonical local detail repository authority',
+    () async {
+      final tempDir = Directory.systemTemp.createTempSync(
+        'venera-comic-detail-local-loader-',
+      );
+      final store = UnifiedComicsStore('${tempDir.path}/data/venera.db');
+      addTearDown(() async {
+        await store.close();
+        if (tempDir.existsSync()) {
+          tempDir.deleteSync(recursive: true);
+        }
+      });
+      await store.init();
+      await store.upsertComic(
+        const ComicRecord(
+          id: 'comic-local-loader',
+          title: 'Local Loader Comic',
+          normalizedTitle: 'local loader comic',
+        ),
+      );
+      await store.upsertLocalLibraryItem(
+        const LocalLibraryItemRecord(
+          id: 'local-loader-item',
+          comicId: 'comic-local-loader',
+          storageType: 'downloaded',
+          localRootPath: '/tmp/local-loader',
+        ),
+      );
+      await store.upsertChapter(
+        const ChapterRecord(
+          id: 'chapter-local-loader',
+          comicId: 'comic-local-loader',
+          chapterNo: 1,
+          title: 'Imported Chapter',
+          normalizedTitle: 'imported chapter',
+        ),
+      );
+
+      final detail = await loadLocalComicDetailViewModelForTesting(
+        comicId: 'comic-local-loader',
+        store: store,
+      );
+
+      expect(detail, isNotNull);
+      expect(detail!.comicId, 'comic-local-loader');
+      expect(detail.libraryState, LibraryState.downloaded);
+      expect(detail.chapters.single.title, 'Imported Chapter');
+    },
+  );
+
+  test(
     'canonical session tabs populate detail and win over legacy history ordering',
     () async {
       final tempDir = Directory.systemTemp.createTempSync(
