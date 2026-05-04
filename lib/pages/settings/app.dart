@@ -324,6 +324,17 @@ class _AppSettingsState extends State<AppSettings> {
             App.forceRebuild();
           },
         ).toSliver(),
+        _SwitchSetting(
+          title: AppSettingsStrings.convertRemoteChineseLabels.tl,
+          subtitle:
+              App.locale.countryCode == 'TW' || App.locale.countryCode == 'HK'
+              ? AppSettingsStrings
+                    .convertRemoteChineseLabelsDescriptionZhHant
+                    .tl
+              : AppSettingsStrings.convertRemoteChineseLabelsDescription.tl,
+          settingKey: AppSettingKeys.enableRemoteChineseTextConversion.name,
+          onChanged: App.forceRebuild,
+        ).toSliver(),
         if (!App.isLinux)
           _SwitchSetting(
             title: "Authorization Required".tl,

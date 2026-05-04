@@ -96,6 +96,9 @@ abstract final class AppSettingKeys {
   static const webdav = SettingKey<List<Object>>('webdav');
   static const disableSyncFields = SettingKey<String>('disableSyncFields');
   static const language = SettingKey<String>('language');
+  static const enableRemoteChineseTextConversion = SettingKey<bool>(
+    'enableRemoteChineseTextConversion',
+  );
 }
 
 abstract final class ImplicitSettingKeys {

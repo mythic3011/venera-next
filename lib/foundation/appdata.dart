@@ -153,7 +153,11 @@ class Appdata with Init {
     try {
       loadedFromDb = await _loadFromDb();
     } catch (e) {
-      AppDiagnostics.warn('appdata.runtime', 'db_load_failed_fallback_json', data: {'error': '$e'});
+      AppDiagnostics.warn(
+        'appdata.runtime',
+        'db_load_failed_fallback_json',
+        data: {'error': '$e'},
+      );
       loadedFromDb = false;
     }
 
@@ -190,7 +194,11 @@ class Appdata with Init {
         loadedAny = true;
         await _writeLegacyBackup(appDataFile);
       } catch (e) {
-        AppDiagnostics.error('appdata.runtime', e, message: 'load_appdata_json_failed');
+        AppDiagnostics.error(
+          'appdata.runtime',
+          e,
+          message: 'load_appdata_json_failed',
+        );
       }
     }
     if (await implicitDataFile.exists()) {
@@ -198,7 +206,11 @@ class Appdata with Init {
         implicitData = jsonDecode(await implicitDataFile.readAsString());
         loadedAny = true;
       } catch (e) {
-        AppDiagnostics.error('appdata.runtime', e, message: 'load_implicit_data_json_failed');
+        AppDiagnostics.error(
+          'appdata.runtime',
+          e,
+          message: 'load_implicit_data_json_failed',
+        );
       }
     }
     return loadedAny;
@@ -247,7 +259,9 @@ class Appdata with Init {
         );
       }
     }
-    searchHistory = searchRows.map((row) => row.keyword).toList(growable: false);
+    searchHistory = searchRows
+        .map((row) => row.keyword)
+        .toList(growable: false);
     implicitData = {
       for (final row in implicitRows) row.key: jsonDecode(row.valueJson),
     };
@@ -268,7 +282,9 @@ class Appdata with Init {
       for (final entry in settings._data.entries) {
         final value = entry.value;
         final valueType = _valueTypeOf(value);
-        final syncPolicy = _disableSync.contains(entry.key) ? 'local_only' : 'syncable';
+        final syncPolicy = _disableSync.contains(entry.key)
+            ? 'local_only'
+            : 'syncable';
         await store.upsertAppSetting(
           AppSettingRecord(
             key: entry.key,
@@ -426,6 +442,7 @@ class Settings with ChangeNotifier {
     'reverseTapToTurnPages': false,
     'enablePageAnimation': true,
     'language': 'system', // system, zh-CN, zh-TW, en-US
+    'enableRemoteChineseTextConversion': true,
     'cacheSize': 2048, // in MB
     'downloadThreads': 5,
     'enableLongPressToZoom': true,
