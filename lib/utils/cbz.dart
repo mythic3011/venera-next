@@ -12,6 +12,7 @@ import 'package:venera/utils/local_import_storage.dart';
 import 'package:venera/utils/ext.dart';
 import 'package:venera/utils/file_type.dart';
 import 'package:venera/utils/import_failure.dart';
+import 'package:venera/utils/import_lifecycle.dart';
 import 'package:venera/utils/import_sort.dart';
 import 'package:venera/utils/io.dart';
 import 'package:venera/utils/translations.dart';
@@ -266,8 +267,13 @@ abstract class CBZ {
     ComicMetaData? metaData;
     if (metaDataFile.existsSync()) {
       try {
+        ImportLifecycleTrace.current?.phase('metadata.read.started');
         metaData = ComicMetaData.fromJson(
           jsonDecode(metaDataFile.readAsStringSync()),
+        );
+        ImportLifecycleTrace.current?.phase(
+          'metadata.read.completed',
+          data: {'comicTitle': metaData.title},
         );
       } catch (_) {}
     }
@@ -290,11 +296,19 @@ abstract class CBZ {
         'import.local',
         failure,
         message: 'import.local.duplicateDetected',
-        data: failure.data,
+        data: {
+          if (ImportLifecycleTrace.current != null)
+            'importId': ImportLifecycleTrace.current!.id,
+          ...failure.data,
+        },
       );
       throw failure;
     }
     var files = await _collectImageFiles(root);
+    ImportLifecycleTrace.current?.phase(
+      'images.scanned',
+      data: {'comicTitle': metaData.title, 'imageCount': files.length},
+    );
     if (files.isEmpty) {
       throw Exception('No images found in the archive');
     }
@@ -331,6 +345,10 @@ abstract class CBZ {
       }
     }
     dest.createSync(recursive: true);
+    ImportLifecycleTrace.current?.phase(
+      'destination.created',
+      data: {'comicTitle': metaData.title, 'targetDirectory': dest.path},
+    );
     try {
       await effectiveCoverFile.copyFast(
         FilePath.join(dest.path, 'cover.${effectiveCoverFile.extension}'),
@@ -398,6 +416,15 @@ abstract class CBZ {
         );
       }
       onProgress?.call("Finalizing import".tl, 1.0);
+      ImportLifecycleTrace.current?.phase(
+        'comic.materialized',
+        data: {
+          'comicTitle': metaData.title,
+          'targetDirectory': dest.path,
+          'pageCount': pageFiles.length,
+          if (cpMap != null) 'chapterCount': cpMap.length,
+        },
+      );
       final imported = LocalComic(
         id: preflight.existingComicId ?? '0',
         title: metaData.title,
@@ -465,22 +492,49 @@ abstract class CBZ {
     LocalImportStoragePort? localImportStorage,
   }) async {
     final storage = localImportStorage ?? const CanonicalLocalImportStorage();
-    onProgress?.call("Preparing import".tl, 0.02);
-    onProgress?.call("Extracting archive".tl, 0.08);
-    var cache = Directory(FilePath.join(App.cachePath, 'cbz_import'));
-    if (cache.existsSync()) cache.deleteSync(recursive: true);
-    cache.createSync();
-    return _runWithImportCacheCleanup(cache, () async {
-      await extractArchive(file, cache);
-      onProgress?.call("Scanning images".tl, 0.2);
-      final root = await _flattenSingleWrapper(cache);
-      return _importExtractedDirectory(
-        cache,
-        root,
-        storage: storage,
-        fallbackTitle: file.name.substring(0, file.name.lastIndexOf('.')),
-        onProgress: onProgress,
-      );
+    final ownsLifecycle = ImportLifecycleTrace.current == null;
+    final lifecycle =
+        ImportLifecycleTrace.current ??
+        ImportLifecycleTrace.start(
+          operation: 'import.cbz.file',
+          sourceName: file.name,
+          sourcePath: file.path,
+          sourceType: file.extension.toLowerCase(),
+        );
+    return lifecycle.run(() async {
+      try {
+        onProgress?.call("Preparing import".tl, 0.02);
+        lifecycle.phase('file.prepare');
+        onProgress?.call("Extracting archive".tl, 0.08);
+        var cache = Directory(FilePath.join(App.cachePath, 'cbz_import'));
+        if (cache.existsSync()) cache.deleteSync(recursive: true);
+        cache.createSync();
+        final imported = await _runWithImportCacheCleanup(cache, () async {
+          await extractArchive(file, cache);
+          lifecycle.phase('archive.extracted', data: {'cachePath': cache.path});
+          onProgress?.call("Scanning images".tl, 0.2);
+          final root = await _flattenSingleWrapper(cache);
+          lifecycle.phase('archive.scanned', data: {'rootPath': root.path});
+          return _importExtractedDirectory(
+            cache,
+            root,
+            storage: storage,
+            fallbackTitle: file.name.substring(0, file.name.lastIndexOf('.')),
+            onProgress: onProgress,
+          );
+        });
+        if (ownsLifecycle) {
+          lifecycle.completed(
+            data: {'comicTitle': imported.title, 'comicId': imported.id},
+          );
+        }
+        return imported;
+      } catch (error, stackTrace) {
+        if (ownsLifecycle) {
+          lifecycle.failed(error, stackTrace: stackTrace, phase: 'cbz.import');
+        }
+        rethrow;
+      }
     });
   }
 
