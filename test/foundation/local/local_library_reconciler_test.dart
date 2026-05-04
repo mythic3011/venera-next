@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:venera/foundation/diagnostics/diagnostics.dart';
 import 'package:venera/foundation/local/local_library_reconciler.dart';
@@ -16,6 +18,12 @@ void main() {
     'browse reconcile hides missing payload and keeps available comic',
     () async {
       final reconciler = const LocalLibraryReconciler();
+      final tempRoot = await Directory.systemTemp.createTemp(
+        'local-reconcile-ok-',
+      );
+      addTearDown(() => tempRoot.delete(recursive: true));
+      final okDirectory = Directory('${tempRoot.path}/ok')..createSync();
+      File('${okDirectory.path}/1.jpg').writeAsBytesSync(<int>[0]);
 
       final result = await reconciler.reconcileBrowseVisibility(
         items: const [
@@ -33,7 +41,11 @@ void main() {
               localRootPath: '/definitely/missing/path',
             );
           }
-          return null;
+          return LocalLibraryPrimaryItem(
+            id: 'lli-ok',
+            storageType: 'user_imported',
+            localRootPath: okDirectory.path,
+          );
         },
       );
 
@@ -48,6 +60,73 @@ void main() {
         events.any((event) => event.message == 'local.library.missingFiles'),
         isTrue,
       );
+    },
+  );
+
+  test(
+    'browse reconcile hides orphan row when canonical root exists but comic directory is missing',
+    () async {
+      final reconciler = const LocalLibraryReconciler();
+      final tempRoot = await Directory.systemTemp.createTemp(
+        'local-reconcile-orphan-',
+      );
+      addTearDown(() => tempRoot.delete(recursive: true));
+      Directory('${tempRoot.path}/other-comic').createSync();
+
+      final result = await reconciler.reconcileBrowseVisibility(
+        items: const [
+          LocalLibraryReconcileItem(
+            comicId: 'orphan',
+            comicDirectoryName: 'missing-dir',
+          ),
+        ],
+        loadPrimaryItem: (_) async => LocalLibraryPrimaryItem(
+          id: 'lli-orphan',
+          storageType: 'user_imported',
+          localRootPath: tempRoot.path,
+        ),
+        canonicalBrowseRootPath: tempRoot.path,
+      );
+
+      expect(result.visibleComicIds, isNot(contains('orphan')));
+      expect(
+        result.cleanupCandidateLocalLibraryItemIds,
+        contains('lli-orphan'),
+      );
+
+      final event = DevDiagnosticsApi.recent(channel: 'local.library')
+          .singleWhere((event) => event.message == 'local.library.missingFiles');
+      expect(event.data['comicId'], 'orphan');
+      expect(event.data['localItemId'], 'lli-orphan');
+      expect(event.data['status'], 'missingDirectory');
+      expect(event.data['action'], 'hide');
+    },
+  );
+
+  test(
+    'browse reconcile hides legacy-only items without canonical primary row',
+    () async {
+      final reconciler = const LocalLibraryReconciler();
+
+      final result = await reconciler.reconcileBrowseVisibility(
+        items: const [
+          LocalLibraryReconcileItem(
+            comicId: 'legacy-only',
+            comicDirectoryName: 'legacy-dir',
+          ),
+        ],
+        loadPrimaryItem: (_) async => null,
+      );
+
+      expect(result.visibleComicIds, isNot(contains('legacy-only')));
+      expect(result.cleanupCandidateLocalLibraryItemIds, isEmpty);
+
+      final event = DevDiagnosticsApi.recent(channel: 'local.library')
+          .singleWhere(
+            (event) => event.message == 'local.library.missingCanonicalItem',
+          );
+      expect(event.data['comicId'], 'legacy-only');
+      expect(event.data['action'], 'hide');
     },
   );
 

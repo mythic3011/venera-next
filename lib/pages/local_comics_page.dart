@@ -314,6 +314,7 @@ class _LocalComicsGateway {
     final reconcileResult = await _reconciler.reconcileBrowseVisibility(
       items: reconcileItems,
       loadPrimaryItem: repository.loadPrimaryLocalLibraryItem,
+      canonicalBrowseRootPath: legacyLocalComicsRootPath(),
     );
     return applyCanonicalLocalLibraryView(
       comics: comics,
@@ -407,7 +408,7 @@ class _LocalComicsGateway {
         createdAt: directory.statSync().modified,
       );
       if (discovered == null) {
-        AppDiagnostics.info(
+        AppDiagnostics.warn(
           'local.library',
           'local.library.missingFiles',
           data: <String, Object?>{

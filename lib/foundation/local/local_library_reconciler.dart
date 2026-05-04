@@ -1,3 +1,4 @@
+import 'package:path/path.dart' as p;
 import 'package:venera/foundation/diagnostics/diagnostics.dart';
 import 'package:venera/foundation/local/local_library_file_probe.dart';
 import 'package:venera/foundation/repositories/local_library_repository.dart';
@@ -33,6 +34,7 @@ class LocalLibraryReconciler {
     required List<LocalLibraryReconcileItem> items,
     required Future<LocalLibraryPrimaryItem?> Function(String comicId)
     loadPrimaryItem,
+    String? canonicalBrowseRootPath,
   }) async {
     final visibleComicIds = <String>{};
     final cleanupCandidates = <String>{};
@@ -40,15 +42,28 @@ class LocalLibraryReconciler {
     for (final item in items) {
       final primaryItem = await loadPrimaryItem(item.comicId);
       if (primaryItem == null) {
-        visibleComicIds.add(item.comicId);
+        AppDiagnostics.info(
+          'local.library',
+          'local.library.missingCanonicalItem',
+          data: <String, Object?>{
+            'comicId': item.comicId,
+            'comicDirectoryName': item.comicDirectoryName,
+            'action': 'hide',
+          },
+        );
         continue;
       }
 
-      final probeResult = fileProbe.probe(
-        canonicalRootPath: primaryItem.localRootPath,
-        comicDirectoryName: item.comicDirectoryName,
-        preferredExpectedDirectory: primaryItem.localRootPath,
-      );
+      final probeResult = canonicalBrowseRootPath == null
+          ? fileProbe.probe(
+              canonicalRootPath: p.dirname(primaryItem.localRootPath),
+              comicDirectoryName: item.comicDirectoryName,
+              preferredExpectedDirectory: primaryItem.localRootPath,
+            )
+          : fileProbe.probe(
+              canonicalRootPath: canonicalBrowseRootPath,
+              comicDirectoryName: item.comicDirectoryName,
+            );
 
       if (probeResult.isAvailable) {
         visibleComicIds.add(item.comicId);
@@ -59,11 +74,12 @@ class LocalLibraryReconciler {
         cleanupCandidates.add(primaryItem.id);
       }
 
-      AppDiagnostics.info(
+      AppDiagnostics.warn(
         'local.library',
         'local.library.missingFiles',
         data: <String, Object?>{
           'comicId': item.comicId,
+          'localItemId': primaryItem.id,
           'status': probeResult.status.name,
           'expectedDirectory': probeResult.expectedDirectory,
           'action': 'hide',
@@ -102,11 +118,12 @@ class LocalLibraryReconciler {
         continue;
       }
 
-      AppDiagnostics.info(
+      AppDiagnostics.warn(
         'local.library',
         'local.library.missingFiles',
         data: <String, Object?>{
           'comicId': item.comicId,
+          'localItemId': primaryItem.id,
           'status': probeResult.status.name,
           'expectedDirectory': probeResult.expectedDirectory,
           'action': 'cleanup_candidate',
@@ -116,11 +133,12 @@ class LocalLibraryReconciler {
       await deleteLocalLibraryItem(primaryItem.id);
       removed++;
 
-      AppDiagnostics.info(
+      AppDiagnostics.warn(
         'local.library',
         'local.library.missingFiles',
         data: <String, Object?>{
           'comicId': item.comicId,
+          'localItemId': primaryItem.id,
           'status': probeResult.status.name,
           'expectedDirectory': probeResult.expectedDirectory,
           'action': 'removed',
