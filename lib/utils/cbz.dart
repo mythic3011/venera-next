@@ -498,7 +498,6 @@ abstract class CBZ {
         ImportLifecycleTrace.start(
           operation: 'import.cbz.file',
           sourceName: file.name,
-          sourcePath: file.path,
           sourceType: file.extension.toLowerCase(),
         );
     return lifecycle.run(() async {

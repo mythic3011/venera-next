@@ -778,7 +778,6 @@ class ImportComic {
         ImportLifecycleTrace.start(
           operation: 'import.comic.file',
           sourceName: file.name,
-          sourcePath: file.path,
           sourceType: file.extension.toLowerCase(),
         );
     return lifecycle.run(() async {
@@ -1028,19 +1027,24 @@ class ImportComic {
       operation: 'import.local_downloads',
     );
     return lifecycle.run(() async {
-      final rootPath = await localImportStorage.requireRootPath();
-      final localDir = Directory(rootPath);
-      if (!localDir.existsSync()) {
-        localDir.createSync(recursive: true);
-      }
+      LoadingDialogController? controller;
+      late String rootPath;
+      late Directory localDir;
       Map<String?, List<LocalComic>> imported = {null: []};
       bool cancelled = false;
-      var controller = _showLoading(
-        onCancel: () {
-          cancelled = true;
-        },
-      );
       try {
+        lifecycle.phase('local_downloads.root.resolve.started');
+        rootPath = await localImportStorage.requireRootPath();
+        localDir = Directory(rootPath);
+        if (!localDir.existsSync()) {
+          localDir.createSync(recursive: true);
+        }
+        lifecycle.phase('local_downloads.root.resolve.completed');
+        controller = _showLoading(
+          onCancel: () {
+            cancelled = true;
+          },
+        );
         final rootType = FileSystemEntity.typeSync(
           rootPath,
           followLinks: false,
@@ -1104,8 +1108,9 @@ class ImportComic {
         lifecycle.failed(e, stackTrace: s, phase: 'local_downloads.scan');
         AppDiagnostics.error('import.comic', e, stackTrace: s);
         _showMessage(_resolveUiMessage(e));
+        return false;
       } finally {
-        controller.close();
+        controller?.close();
       }
       if (cancelled) {
         lifecycle.completed(data: {'success': false, 'cancelled': true});
