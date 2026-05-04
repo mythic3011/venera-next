@@ -167,8 +167,8 @@ class MainActivity : FlutterFragmentActivity() {
 
         val selectFileChannel = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "venera/select_file")
         selectFileChannel.setMethodCallHandler { req, res ->
-            val mimeType = req.arguments<String>()
-            openFile(res, mimeType!!)
+            val mimeType = req.arguments<String>() ?: "*/*"
+            openFile(res, mimeType)
         }
 
         val shareTextChannel = EventChannel(flutterEngine.dartExecutor.binaryMessenger, "venera/text_share")
@@ -223,13 +223,14 @@ class MainActivity : FlutterFragmentActivity() {
     private fun onPickedDirectory(uri: Uri, result: MethodChannel.Result) {
         if (hasStoragePermission()) {
             var plain = uri.toString()
-            if(plain.contains("%3A")) {
+            if (plain.contains("%3A")) {
                 plain = Uri.decode(plain)
             }
             val externalStoragePrefix = "content://com.android.externalstorage.documents/tree/primary:";
-            if(plain.startsWith(externalStoragePrefix)) {
+            if (plain.startsWith(externalStoragePrefix)) {
                 val path = plain.substring(externalStoragePrefix.length)
                 result.success(Environment.getExternalStorageDirectory().absolutePath + "/" + path)
+                return
             }
             // The uri cannot be parsed to plain path, use copy method
         }
@@ -237,19 +238,22 @@ class MainActivity : FlutterFragmentActivity() {
         // so we need to copy the directory to cache directory
         val contentResolver = contentResolver
         var tmp = cacheDir
-        var dirName = DocumentFile.fromTreeUri(this, uri)?.name
-        tmp = File(tmp, dirName!!)
-        if(tmp.exists()) {
+        val dirName = DocumentFile.fromTreeUri(this, uri)?.name ?: "selected_directory"
+        tmp = File(tmp, dirName)
+        if (tmp.exists()) {
             tmp.deleteRecursively()
         }
         tmp.mkdir()
         Thread {
             try {
                 copyDirectory(contentResolver, uri, tmp)
-                result.success(tmp.absolutePath)
-            }
-            catch (e: Exception) {
-                result.error("copy error", e.message, null)
+                runOnUiThread {
+                    result.success(tmp.absolutePath)
+                }
+            } catch (e: Exception) {
+                runOnUiThread {
+                    result.error("copy error", e.message, null)
+                }
             }
         }.start()
 
@@ -258,12 +262,13 @@ class MainActivity : FlutterFragmentActivity() {
     private fun copyDirectory(resolver: ContentResolver, srcUri: Uri, destDir: File) {
         val src = DocumentFile.fromTreeUri(this, srcUri) ?: return
         for (file in src.listFiles()) {
+            val name = file.name ?: continue
             if (file.isDirectory) {
-                val newDir = File(destDir, file.name!!)
+                val newDir = File(destDir, name)
                 newDir.mkdir()
                 copyDirectory(resolver, file.uri, newDir)
             } else {
-                val newFile = File(destDir, file.name!!)
+                val newFile = File(destDir, name)
                 resolver.openInputStream(file.uri)?.use { input ->
                     FileOutputStream(newFile).use { output ->
                         input.copyTo(output, bufferSize = DEFAULT_BUFFER_SIZE)
@@ -394,10 +399,13 @@ class MainActivity : FlutterFragmentActivity() {
                             output.flush()
                         }
                     }
-                    result.success(tmp.absolutePath)
-                }
-                catch (e: Exception) {
-                    result.error("copy error", e.message, null)
+                    runOnUiThread {
+                        result.success(tmp.absolutePath)
+                    }
+                } catch (e: Exception) {
+                    runOnUiThread {
+                        result.error("copy error", e.message, null)
+                    }
                 }
             }.start()
         }
