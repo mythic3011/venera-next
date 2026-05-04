@@ -14,6 +14,7 @@ import 'package:venera/foundation/local.dart';
 import 'package:sqlite3/sqlite3.dart' as sql;
 import 'package:venera/utils/ext.dart';
 import 'package:venera/utils/import_failure.dart';
+import 'package:venera/utils/import_lifecycle.dart';
 import 'package:venera/utils/import_sort.dart';
 import 'package:venera/utils/local_import_storage.dart';
 import 'package:venera/utils/translations.dart';
@@ -618,7 +619,11 @@ class ImportComic {
         'import.local',
         failure,
         message: 'import.local.duplicateDetected',
-        data: failure.data,
+        data: {
+          if (ImportLifecycleTrace.current != null)
+            'importId': ImportLifecycleTrace.current!.id,
+          ...failure.data,
+        },
       );
       throw failure;
     }
@@ -641,11 +646,19 @@ class ImportComic {
       }
     }
     dest.createSync(recursive: true);
+    ImportLifecycleTrace.current?.phase(
+      'destination.created',
+      data: {'comicTitle': title, 'targetDirectory': dest.path},
+    );
     try {
       final pages = await _renderPdfToDirectory(
         source,
         dest,
         onProgress: onProgress,
+      );
+      ImportLifecycleTrace.current?.phase(
+        'pdf.render.completed',
+        data: {'comicTitle': title, 'pageCount': pages.length},
       );
       if (pages.isEmpty) {
         throw Exception("No pages found in PDF");
@@ -653,6 +666,14 @@ class ImportComic {
       final cover = "cover.${pages.first.extension}";
       await pages.first.copyFast(FilePath.join(dest.path, cover));
       onProgress?.call("Finalizing import".tl, 0.98);
+      ImportLifecycleTrace.current?.phase(
+        'comic.materialized',
+        data: {
+          'comicTitle': title,
+          'targetDirectory': dest.path,
+          'pageCount': pages.length,
+        },
+      );
       final imported = LocalComic(
         id: preflight.existingComicId ?? '0',
         title: title,
@@ -751,52 +772,111 @@ class ImportComic {
     _ImportBatchResult batch, {
     void Function(String message, double? progress)? onProgress,
   }) async {
-    onProgress?.call("Preparing import".tl, 0.02);
-    if (file.extension.toLowerCase() == 'pdf') {
-      return [await _importPdfAsComic(file, onProgress: onProgress)];
-    }
-    final extraction = await _extractArchive(file, onProgress: onProgress);
-    try {
-      if (!await _isBundleArchive(extraction.root)) {
-        return [
-          await CBZ.import(
-            file,
-            onProgress: onProgress,
-            localImportStorage: localImportStorage,
-          ),
-        ];
-      }
-      final childFiles = await _collectChildImportFiles(extraction.root);
-      if (childFiles.isEmpty) {
-        batch.failed++;
-        return <LocalComic>[];
-      }
-      onProgress?.call("Awaiting import mode".tl, 0.12);
-      final mode = await _askBundleMode(file.name, childFiles.length);
-      if (mode == null) {
-        batch.skipped++;
-        return <LocalComic>[];
-      }
-      if (mode == _BundleImportMode.oneComicWithChapters) {
-        final comic = await _importBundleAsSingleComic(
-          source: file,
-          root: extraction.root,
-          batch: batch,
-          onProgress: onProgress,
+    final ownsLifecycle = ImportLifecycleTrace.current == null;
+    final lifecycle =
+        ImportLifecycleTrace.current ??
+        ImportLifecycleTrace.start(
+          operation: 'import.comic.file',
+          sourceName: file.name,
+          sourcePath: file.path,
+          sourceType: file.extension.toLowerCase(),
         );
-        if (comic == null) {
-          return <LocalComic>[];
+    return lifecycle.run(() async {
+      try {
+        onProgress?.call("Preparing import".tl, 0.02);
+        lifecycle.phase('file.prepare');
+        if (file.extension.toLowerCase() == 'pdf') {
+          final imported = [
+            await _importPdfAsComic(file, onProgress: onProgress),
+          ];
+          if (ownsLifecycle) {
+            lifecycle.completed(data: {'importedCount': imported.length});
+          }
+          return imported;
         }
-        return [comic];
+        final extraction = await _extractArchive(file, onProgress: onProgress);
+        lifecycle.phase(
+          'archive.extracted',
+          data: {'cachePath': extraction.cache.path},
+        );
+        try {
+          if (!await _isBundleArchive(extraction.root)) {
+            final imported = [
+              await CBZ.import(
+                file,
+                onProgress: onProgress,
+                localImportStorage: localImportStorage,
+              ),
+            ];
+            if (ownsLifecycle) {
+              lifecycle.completed(data: {'importedCount': imported.length});
+            }
+            return imported;
+          }
+          final childFiles = await _collectChildImportFiles(extraction.root);
+          lifecycle.phase(
+            'bundle.detected',
+            data: {'childImportFileCount': childFiles.length},
+          );
+          if (childFiles.isEmpty) {
+            batch.failed++;
+            if (ownsLifecycle) {
+              lifecycle.completed(data: {'importedCount': 0, 'failed': 1});
+            }
+            return <LocalComic>[];
+          }
+          onProgress?.call("Awaiting import mode".tl, 0.12);
+          final mode = await _askBundleMode(file.name, childFiles.length);
+          if (mode == null) {
+            batch.skipped++;
+            lifecycle.phase('bundle.mode_skipped');
+            if (ownsLifecycle) {
+              lifecycle.completed(data: {'importedCount': 0, 'skipped': 1});
+            }
+            return <LocalComic>[];
+          }
+          lifecycle.phase('bundle.mode_selected', data: {'mode': mode.name});
+          if (mode == _BundleImportMode.oneComicWithChapters) {
+            final comic = await _importBundleAsSingleComic(
+              source: file,
+              root: extraction.root,
+              batch: batch,
+              onProgress: onProgress,
+            );
+            if (comic == null) {
+              if (ownsLifecycle) {
+                lifecycle.completed(data: {'importedCount': 0});
+              }
+              return <LocalComic>[];
+            }
+            if (ownsLifecycle) {
+              lifecycle.completed(data: {'importedCount': 1});
+            }
+            return [comic];
+          }
+          final imported = await _importBundleAsSeparateComics(
+            extraction.root,
+            batch,
+            onProgress: onProgress,
+          );
+          if (ownsLifecycle) {
+            lifecycle.completed(data: {'importedCount': imported.length});
+          }
+          return imported;
+        } finally {
+          await extraction.cache.deleteIgnoreError(recursive: true);
+          lifecycle.phase(
+            'cache.cleaned',
+            data: {'cachePath': extraction.cache.path},
+          );
+        }
+      } catch (error, stackTrace) {
+        if (ownsLifecycle) {
+          lifecycle.failed(error, stackTrace: stackTrace, phase: 'file.import');
+        }
+        rethrow;
       }
-      return _importBundleAsSeparateComics(
-        extraction.root,
-        batch,
-        onProgress: onProgress,
-      );
-    } finally {
-      await extraction.cache.deleteIgnoreError(recursive: true);
-    }
+    });
   }
 
   Future<bool> ehViewer() async {
@@ -944,68 +1024,103 @@ class ImportComic {
   }
 
   Future<bool> localDownloads() async {
-    final rootPath = await localImportStorage.requireRootPath();
-    final localDir = Directory(rootPath);
-    if (!localDir.existsSync()) {
-      localDir.createSync(recursive: true);
-    }
-    Map<String?, List<LocalComic>> imported = {null: []};
-    bool cancelled = false;
-    var controller = _showLoading(
-      onCancel: () {
-        cancelled = true;
-      },
+    final lifecycle = ImportLifecycleTrace.start(
+      operation: 'import.local_downloads',
     );
-    try {
-      final rootType = FileSystemEntity.typeSync(rootPath, followLinks: false);
-      if (rootType != FileSystemEntityType.directory) {
-        final failure = ImportFailure.missingFiles(
-          comicTitle: 'local-downloads',
-          targetDirectory: rootPath,
-        );
-        AppDiagnostics.error(
-          'import.local',
-          failure,
-          message: 'import.local.missingFiles',
-          data: failure.data,
-        );
-        _showMessage(failure.uiMessage);
-        return false;
+    return lifecycle.run(() async {
+      final rootPath = await localImportStorage.requireRootPath();
+      final localDir = Directory(rootPath);
+      if (!localDir.existsSync()) {
+        localDir.createSync(recursive: true);
       }
-      final candidates = localDir.listSync(recursive: false, followLinks: false)
-        ..sort((a, b) => naturalCompare(a.name, b.name));
-      for (final entry in candidates) {
-        if (cancelled) {
-          break;
-        }
-        final entryType = FileSystemEntity.typeSync(
-          entry.path,
+      Map<String?, List<LocalComic>> imported = {null: []};
+      bool cancelled = false;
+      var controller = _showLoading(
+        onCancel: () {
+          cancelled = true;
+        },
+      );
+      try {
+        final rootType = FileSystemEntity.typeSync(
+          rootPath,
           followLinks: false,
         );
-        if (entryType == FileSystemEntityType.directory) {
-          final directory = Directory(entry.path);
-          final stat = directory.statSync();
-          var result = await _checkSingleComic(
-            directory,
-            createTime: stat.modified,
-            useRelativePath: true,
-            failOnMissingFiles: true,
+        if (rootType != FileSystemEntityType.directory) {
+          final failure = ImportFailure.missingFiles(
+            comicTitle: 'local-downloads',
+            targetDirectory: rootPath,
           );
-          if (result != null) {
-            imported[null]!.add(result);
+          AppDiagnostics.error(
+            'import.local',
+            failure,
+            message: 'import.local.missingFiles',
+            data: {'importId': lifecycle.id, ...failure.data},
+          );
+          _showMessage(failure.uiMessage);
+          lifecycle.completed(data: {'success': false, 'reason': failure.code});
+          return false;
+        }
+        final candidates = localDir.listSync(
+          recursive: false,
+          followLinks: false,
+        )..sort((a, b) => naturalCompare(a.name, b.name));
+        lifecycle.phase(
+          'local_downloads.scanned',
+          data: {'rootPath': rootPath, 'candidateCount': candidates.length},
+        );
+        for (final entry in candidates) {
+          if (cancelled) {
+            break;
+          }
+          final entryType = FileSystemEntity.typeSync(
+            entry.path,
+            followLinks: false,
+          );
+          if (entryType == FileSystemEntityType.directory) {
+            final directory = Directory(entry.path);
+            final stat = directory.statSync();
+            var result = await _checkSingleComic(
+              directory,
+              createTime: stat.modified,
+              useRelativePath: true,
+              failOnMissingFiles: true,
+            );
+            if (result != null) {
+              imported[null]!.add(result);
+              lifecycle.phase(
+                'local_downloads.candidate.accepted',
+                data: {
+                  'comicTitle': result.title,
+                  'targetDirectory': entry.path,
+                },
+              );
+            }
           }
         }
+        if (!cancelled && imported[null]!.isEmpty) {
+          _showMessage("No valid comics found".tl);
+        }
+      } catch (e, s) {
+        lifecycle.failed(e, stackTrace: s, phase: 'local_downloads.scan');
+        AppDiagnostics.error('import.comic', e, stackTrace: s);
+        _showMessage(_resolveUiMessage(e));
+      } finally {
+        controller.close();
       }
-      if (!cancelled && imported[null]!.isEmpty) {
-        _showMessage("No valid comics found".tl);
+      if (cancelled) {
+        lifecycle.completed(data: {'success': false, 'cancelled': true});
+        return false;
       }
-    } catch (e, s) {
-      AppDiagnostics.error('import.comic', e, stackTrace: s);
-      _showMessage(_resolveUiMessage(e));
-    }
-    controller.close();
-    if (cancelled) return false;
-    return registerComics(imported, false);
+      final success = await registerComics(imported, false);
+      lifecycle.completed(
+        data: {
+          'success': success,
+          'cancelled': cancelled,
+          'importedCount': imported[null]!.length,
+        },
+      );
+      return success;
+    });
   }
 
   //Automatically search for cover image and chapters
@@ -1144,6 +1259,16 @@ class ImportComic {
     Map<String?, List<LocalComic>> comics,
   ) async {
     var destPath = await localImportStorage.requireRootPath();
+    ImportLifecycleTrace.current?.phase(
+      'copy_to_local.started',
+      data: {
+        'destinationRoot': destPath,
+        'comicCount': comics.values.fold<int>(
+          0,
+          (count, list) => count + list.length,
+        ),
+      },
+    );
     Map<String?, List<LocalComic>> result = {};
     for (var favoriteFolder in comics.keys) {
       result[favoriteFolder] = comics[favoriteFolder]!
@@ -1206,6 +1331,16 @@ class ImportComic {
         );
       }
     }
+    ImportLifecycleTrace.current?.phase(
+      'copy_to_local.completed',
+      data: {
+        'destinationRoot': destPath,
+        'comicCount': result.values.fold<int>(
+          0,
+          (count, list) => count + list.length,
+        ),
+      },
+    );
     return result;
   }
 
@@ -1213,21 +1348,53 @@ class ImportComic {
     Map<String?, List<LocalComic>> importedComics,
     bool copy,
   ) async {
+    final ownsLifecycle = ImportLifecycleTrace.current == null;
+    final lifecycle =
+        ImportLifecycleTrace.current ??
+        ImportLifecycleTrace.start(
+          operation: 'import.register_comics',
+          data: {
+            'copyToLocal': copy,
+            'comicCount': importedComics.values.fold<int>(
+              0,
+              (count, list) => count + list.length,
+            ),
+          },
+        );
     try {
-      final importedCount = await registerImportedComicsForTesting(
-        importedComics: importedComics,
-        localImportStorage: localImportStorage,
-        copyComicsToLocalDir: _copyComicsToLocalDir,
-        addFavoriteComic: (folder, item) {
-          LocalFavoritesManager().addComic(folder, item);
-        },
-        copy: copy,
-      );
+      final importedCount = await lifecycle.run(() {
+        lifecycle.phase('register.started');
+        return registerImportedComicsForTesting(
+          importedComics: importedComics,
+          localImportStorage: localImportStorage,
+          copyComicsToLocalDir: _copyComicsToLocalDir,
+          addFavoriteComic: (folder, item) {
+            LocalFavoritesManager().addComic(folder, item);
+          },
+          copy: copy,
+        );
+      });
+      if (ownsLifecycle) {
+        lifecycle.completed(data: {'importedCount': importedCount});
+      } else {
+        lifecycle.phase(
+          'register.completed',
+          data: {'importedCount': importedCount},
+        );
+      }
       _showMessage("Imported @a comics".tlParams({'a': importedCount}));
     } catch (e, s) {
       _showMessage(
         _resolveUiMessage(e, fallback: "Failed to register comics".tl),
       );
+      if (ownsLifecycle) {
+        lifecycle.failed(e, stackTrace: s, phase: 'register');
+      } else {
+        lifecycle.phase(
+          'register.failed',
+          data: {'errorType': e.runtimeType.toString()},
+        );
+      }
       AppDiagnostics.error('import.comic', e, stackTrace: s);
       return false;
     }
