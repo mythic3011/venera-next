@@ -164,12 +164,16 @@ class LogStorageWriter {
     await source.delete();
   }
 
-  @visibleForTesting
-  Future<void> closeForTesting() async {
+  Future<void> close() async {
     await _pending;
     await _sink?.flush();
     await _sink?.close();
     _sink = null;
     _activePath = null;
+  }
+
+  @visibleForTesting
+  Future<void> closeForTesting() {
+    return close();
   }
 }

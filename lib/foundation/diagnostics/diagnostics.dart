@@ -421,7 +421,7 @@ abstract final class AppDiagnostics {
     _ringBuffer.clear();
     _sinks = _defaultSinks();
     appTalker.cleanHistory();
-    unawaited(_structuredLogWriter.closeForTesting());
+    unawaited(_structuredLogWriter.close());
   }
 
   static void _record({
