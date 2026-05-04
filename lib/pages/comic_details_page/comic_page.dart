@@ -548,7 +548,7 @@ class _ComicPageState extends LoadingState<ComicPage, ComicDetails>
             'routeKind': 'ComicDetailPage',
           },
         );
-        return const Res.error('Local comic not found');
+        return const Res.error('LOCAL_COMIC_MISSING');
       }
       final detail = await loadLocalComicDetailViewModelForTesting(
         comicId: widget.id,

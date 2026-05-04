@@ -149,7 +149,12 @@ class DebugPageState extends State<DebugPage> {
         await launchUrlString('file://$folderPath');
       }
     } catch (e, s) {
-      diag.AppDiagnostics.error('ui.settings.debug', e, stackTrace: s, message: 'open_app_data_directory_failed');
+      diag.AppDiagnostics.error(
+        'ui.settings.debug',
+        e,
+        stackTrace: s,
+        message: 'open_app_data_directory_failed',
+      );
       if (mounted) {
         context.showMessage(message: "Failed to open folder: $e");
       }
@@ -258,7 +263,7 @@ class DebugPageState extends State<DebugPage> {
                 ],
                 const SizedBox(height: 4),
                 Text(
-                  "Diagnostics API `logs.newestErrors` mixes current-session and persisted-file entries; use `source` or `logs.newestErrorsBySource` to distinguish."
+                  "Diagnostics API `logs.groupedIssues` is the primary deduped view. Use `logs.newestErrors` and `logs.newestErrorsBySource` as raw compatibility drill-down."
                       .tl,
                 ).paddingHorizontal(16),
                 const SizedBox(height: 8),

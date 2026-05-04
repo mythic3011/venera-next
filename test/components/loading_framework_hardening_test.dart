@@ -274,4 +274,37 @@ https://user:pass@example.com/path
       );
     },
   );
+
+  testWidgets(
+    'LoadingState suppresses ui.error.visible for LOCAL_COMIC_MISSING',
+    (tester) async {
+      final stateKey = GlobalKey<_ErrorProbeWidgetState>();
+      final first = Completer<void>()..complete();
+      final second = Completer<void>()..complete();
+      final third = Completer<void>()..complete();
+      final fourth = Completer<void>()..complete();
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: _ErrorProbeWidget(
+            stateKey: stateKey,
+            stepSignals: [first, second, third, fourth],
+            steps: const [
+              Res.error('LOCAL_COMIC_MISSING'),
+              Res.error('LOCAL_COMIC_MISSING'),
+              Res.error('LOCAL_COMIC_MISSING'),
+              Res.error('LOCAL_COMIC_MISSING'),
+            ],
+          ),
+        ),
+      );
+      await tester.pump();
+      await tester.pump();
+      await tester.pump(const Duration(seconds: 1));
+
+      final events = app_diag.AppDiagnostics.recent(channel: 'ui.error');
+      expect(events.any((e) => e.message == 'ui.error.visible'), isFalse);
+      expect(find.text('error'), findsOneWidget);
+    },
+  );
 }

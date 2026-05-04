@@ -8,6 +8,7 @@ sealed class AppLoadError {
   String? get diagnosticCode;
   bool get retryable;
   bool get exportLogsSuggested;
+  bool get emitVisibleDiagnostic => true;
 
   static AppLoadError fromMessage(String message) {
     final cfe = CloudflareException.fromString(message);
@@ -32,6 +33,9 @@ sealed class AppLoadError {
         lower.contains('network') ||
         lower.contains('http')) {
       return NetworkLoadError(rawMessage: message);
+    }
+    if (message.startsWith('LOCAL_COMIC_MISSING')) {
+      return LocalComicMissingLoadError(rawMessage: message);
     }
     return UnknownLoadError(rawMessage: message);
   }
@@ -137,6 +141,25 @@ final class UnknownLoadError extends AppLoadError {
   bool get retryable => true;
   @override
   bool get exportLogsSuggested => true;
+}
+
+final class LocalComicMissingLoadError extends AppLoadError {
+  const LocalComicMissingLoadError({required this.rawMessage});
+
+  final String rawMessage;
+
+  @override
+  String get title => 'Comic Not Found'.tl;
+  @override
+  String get userMessage => 'This local comic is no longer available.'.tl;
+  @override
+  String? get diagnosticCode => 'LOCAL_COMIC_MISSING';
+  @override
+  bool get retryable => false;
+  @override
+  bool get exportLogsSuggested => false;
+  @override
+  bool get emitVisibleDiagnostic => false;
 }
 
 String _redactLogs(String raw) {
@@ -384,14 +407,16 @@ abstract class LoadingState<T extends StatefulWidget, S extends Object>
         final appError = AppLoadError.fromMessage(
           value.errorMessage ?? 'Unknown error',
         );
-        _emitUiErrorVisible(
-          context: context,
-          owner: '$T',
-          exception: appError,
-          diagnosticCode: appError.diagnosticCode,
-          rawMessage: value.errorMessage ?? 'Unknown error',
-          exceptionType: 'LoadError',
-        );
+        if (appError.emitVisibleDiagnostic) {
+          _emitUiErrorVisible(
+            context: context,
+            owner: '$T',
+            exception: appError,
+            diagnosticCode: appError.diagnosticCode,
+            rawMessage: value.errorMessage ?? 'Unknown error',
+            exceptionType: 'LoadError',
+          );
+        }
         setState(() {
           isLoading = false;
           error = appError;
@@ -529,14 +554,16 @@ abstract class MultiPageLoadingState<T extends StatefulWidget, S extends Object>
               final appError = AppLoadError.fromMessage(
                 value.errorMessage ?? 'Unknown error',
               );
-              _emitUiErrorVisible(
-                context: context,
-                owner: '$T',
-                exception: appError,
-                diagnosticCode: appError.diagnosticCode,
-                rawMessage: value.errorMessage ?? 'Unknown error',
-                exceptionType: 'LoadError',
-              );
+              if (appError.emitVisibleDiagnostic) {
+                _emitUiErrorVisible(
+                  context: context,
+                  owner: '$T',
+                  exception: appError,
+                  diagnosticCode: appError.diagnosticCode,
+                  rawMessage: value.errorMessage ?? 'Unknown error',
+                  exceptionType: 'LoadError',
+                );
+              }
               setState(() {
                 _isFirstLoading = false;
                 _error = appError;
@@ -546,15 +573,17 @@ abstract class MultiPageLoadingState<T extends StatefulWidget, S extends Object>
           .catchError((e) {
             if (!mounted || generation != _loadGeneration) return;
             final appError = AppLoadError.fromMessage(e.toString());
-            _emitUiErrorVisible(
-              context: context,
-              owner: '$T',
-              exception: appError,
-              stackTrace: e is Error ? e.stackTrace : null,
-              diagnosticCode: appError.diagnosticCode,
-              rawMessage: e.toString(),
-              exceptionType: e.runtimeType.toString(),
-            );
+            if (appError.emitVisibleDiagnostic) {
+              _emitUiErrorVisible(
+                context: context,
+                owner: '$T',
+                exception: appError,
+                stackTrace: e is Error ? e.stackTrace : null,
+                diagnosticCode: appError.diagnosticCode,
+                rawMessage: e.toString(),
+                exceptionType: e.runtimeType.toString(),
+              );
+            }
             setState(() {
               _isFirstLoading = false;
               _error = appError;
