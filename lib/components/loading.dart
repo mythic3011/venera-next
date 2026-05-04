@@ -303,7 +303,9 @@ class NetworkError extends StatelessWidget {
                     child: Text(buttonText ?? 'Retry'.tl),
                   ),
                 ],
-              ),
+              )
+          else if (action != null)
+            action!,
         ],
       ),
     );

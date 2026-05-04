@@ -126,6 +126,14 @@ void main() {
   );
 
   test(
+    'localDownloads initializes local manager before resolving import root',
+    () async {
+      final content = await File('lib/utils/import_comic.dart').readAsString();
+      expect(content.contains('LocalManager().ensureInitialized()'), isTrue);
+    },
+  );
+
+  test(
     'localDownloads emits missingFiles when canonical root is not a directory',
     () async {
       final content = await File('lib/utils/import_comic.dart').readAsString();
@@ -135,6 +143,18 @@ void main() {
       expect(content.contains("message: 'import.local.missingFiles'"), isTrue);
     },
   );
+
+  test('copy root helper creates parent directories recursively', () async {
+    final tempRoot = await Directory.systemTemp.createTemp(
+      'import-copy-root-recursive-',
+    );
+    addTearDown(() => tempRoot.delete(recursive: true));
+    final nestedPath = '${tempRoot.path}/a/b/c/local';
+
+    ensureImportCopyRootForTesting(nestedPath);
+
+    expect(Directory(nestedPath).existsSync(), isTrue);
+  });
 
   test(
     'cbz duplicate import throws ImportFailure and emits duplicateDetected without app.unhandled',

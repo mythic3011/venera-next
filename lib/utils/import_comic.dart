@@ -1028,12 +1028,13 @@ class ImportComic {
     );
     return lifecycle.run(() async {
       LoadingDialogController? controller;
-      late String rootPath;
-      late Directory localDir;
+      String? rootPath;
+      Directory? localDir;
       Map<String?, List<LocalComic>> imported = {null: []};
       bool cancelled = false;
       try {
         lifecycle.phase('local_downloads.root.resolve.started');
+        await LocalManager().ensureInitialized();
         rootPath = await localImportStorage.requireRootPath();
         localDir = Directory(rootPath);
         if (!localDir.existsSync()) {
@@ -1252,6 +1253,7 @@ class ImportComic {
           );
           throw failure;
         }
+        dest.parent.createSync(recursive: true);
         dest.createSync(recursive: true);
         await copyDirectory(source, dest);
         result[source.path] = dest.path;

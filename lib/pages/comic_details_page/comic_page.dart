@@ -375,7 +375,37 @@ class _ComicPageState extends LoadingState<ComicPage, ComicDetails>
 
   @override
   Widget buildError() {
+    if (error is LocalComicMissingLoadError) {
+      return NetworkError.fromError(
+        error: error!,
+        action: FilledButton(
+          onPressed: _recoverFromMissingLocalComic,
+          child: Text('Back to library'.tl),
+        ),
+      );
+    }
     return NetworkError(message: error!, retry: retry);
+  }
+
+  Future<void> _recoverFromMissingLocalComic() async {
+    final primary = await App.repositories.localLibrary
+        .loadPrimaryLocalLibraryItem(widget.id);
+    if (primary != null) {
+      await App.repositories.localLibrary.deleteLocalLibraryItemById(primary.id);
+      AppDiagnostics.warn(
+        'comic.detail',
+        'comic.detail.localMissing.recovered',
+        data: <String, Object?>{
+          'comicId': widget.id,
+          'localLibraryItemId': primary.id,
+          'action': 'delete_stale_entry',
+        },
+      );
+    }
+    if (!mounted) {
+      return;
+    }
+    await Navigator.of(context).maybePop();
   }
 
   @override
