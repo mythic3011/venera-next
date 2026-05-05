@@ -10,6 +10,9 @@ class CanonicalDbWriteGate {
   static const int _maxAttempts = 3;
   static final Map<String, Future<void>> _tailsByDbPath = {};
   static final Object _zoneKey = Object();
+  static int _pendingWrites = 0;
+
+  static int get pendingWrites => _pendingWrites;
 
   static Future<T> run<T>({
     required String dbPath,
@@ -18,11 +21,16 @@ class CanonicalDbWriteGate {
     required CanonicalDbWriteCallback<T> callback,
   }) async {
     if (Zone.current[_zoneKey] == dbPath) {
-      return _runWithRetry(
-        domain: domain,
-        operation: operation,
-        callback: callback,
-      );
+      _pendingWrites++;
+      try {
+        return await _runWithRetry(
+          domain: domain,
+          operation: operation,
+          callback: callback,
+        );
+      } finally {
+        _pendingWrites--;
+      }
     }
 
     final tail = _tailsByDbPath[dbPath] ?? Future<void>.value();
@@ -30,6 +38,7 @@ class CanonicalDbWriteGate {
     late final Future<void> nextTail;
     nextTail = tail.whenComplete(() async {
       try {
+        _pendingWrites++;
         final result = await runZoned(
           () => _runWithRetry(
             domain: domain,
@@ -41,6 +50,8 @@ class CanonicalDbWriteGate {
         completer.complete(result);
       } catch (error, stackTrace) {
         completer.completeError(error, stackTrace);
+      } finally {
+        _pendingWrites--;
       }
     });
     late final Future<void> wrappedTail;
@@ -63,7 +74,7 @@ class CanonicalDbWriteGate {
       try {
         return await callback();
       } catch (error) {
-        final sqliteCode = _extractSqliteCode(error);
+        final sqliteCode = extractSqliteCode(error);
         final retryable = sqliteCode == 5 || sqliteCode == 517;
         attempt += 1;
         if (!retryable || attempt >= _maxAttempts) {
@@ -87,7 +98,7 @@ class CanonicalDbWriteGate {
     }
   }
 
-  static int? _extractSqliteCode(Object error) {
+  static int? extractSqliteCode(Object error) {
     try {
       final dynamic raw = error;
       final int? extended = raw.extendedResultCode as int?;

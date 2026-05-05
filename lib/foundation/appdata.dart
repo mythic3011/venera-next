@@ -12,6 +12,9 @@ import 'package:venera/utils/io.dart';
 
 class Appdata with Init {
   Appdata._create([this._settingsStoreOverride]);
+  static int _pendingWrites = 0;
+
+  static int get pendingWrites => _pendingWrites;
 
   final Settings settings = Settings._create();
 
@@ -36,6 +39,7 @@ class Appdata with Init {
       await Future.delayed(const Duration(milliseconds: 20));
     }
     _isSavingData = true;
+    _pendingWrites++;
     try {
       var futures = <Future>[];
       var json = toJson();
@@ -59,6 +63,7 @@ class Appdata with Init {
       await Future.wait(futures);
     } finally {
       _isSavingData = false;
+      _pendingWrites--;
     }
     if (sync) {
       DataSync().uploadData();
@@ -134,6 +139,7 @@ class Appdata with Init {
       await Future.delayed(const Duration(milliseconds: 20));
     }
     _isSavingData = true;
+    _pendingWrites++;
     try {
       var file = File(FilePath.join(App.dataPath, 'implicitData.json'));
       await Future.wait([
@@ -142,6 +148,7 @@ class Appdata with Init {
       ]);
     } finally {
       _isSavingData = false;
+      _pendingWrites--;
     }
   }
 
