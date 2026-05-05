@@ -288,6 +288,12 @@ class _ComicImageState extends State<ComicImage> with WidgetsBindingObserver {
       return;
     }
 
+    final imageProvider = widget.image;
+    if (imageProvider is ReaderImageProvider) {
+      ReaderDiagnostics.markImageProviderSubscriptionObserved(
+        imageKey: imageProvider.imageKey,
+      );
+    }
     _imageStream!.addListener(_getListener());
     _completerHandle?.dispose();
     _completerHandle = null;
