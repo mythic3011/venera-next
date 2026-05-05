@@ -85,6 +85,8 @@ class ReaderDebugSnapshotService {
       comicId,
     );
     final readerTabId = await _loadActiveReaderTabId(comicId);
+    final linkStatus =
+        sourceLink?.linkStatus ?? (isLocal ? 'local_only' : 'missing');
 
     return ReaderDebugSnapshot(
       generatedAt: DateTime.now(),
@@ -94,7 +96,7 @@ class ReaderDebugSnapshotService {
       localLibraryItemId: localItem?.id,
       sourcePlatformId: sourceLink?.sourcePlatformId,
       sourceComicId: sourceLink?.sourceComicId,
-      linkStatus: sourceLink == null ? 'missing' : sourceLink.linkStatus,
+      linkStatus: linkStatus,
       readerTabId: readerTabId,
       pageOrderId: pageOrder?.id,
       chapterId: chapterId,
