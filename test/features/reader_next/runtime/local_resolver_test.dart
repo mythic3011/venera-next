@@ -1,20 +1,8 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:venera/foundation/diagnostics/diagnostics.dart';
-import 'package:venera/utils/io.dart';
 import 'package:venera/features/reader_next/runtime/local_resolver.dart';
 import 'package:venera/features/reader_next/runtime/models.dart';
-
-class _FakeChapterCollection {
-  _FakeChapterCollection(this.allChapters);
-  final Map<String, Object> allChapters;
-}
-
-class _FakeLocalComic {
-  _FakeLocalComic({required this.hasChapters, required this.chapters});
-
-  final bool hasChapters;
-  final _FakeChapterCollection? chapters;
-}
+import 'package:venera/utils/io.dart';
 
 void main() {
   setUp(() {
@@ -26,11 +14,10 @@ void main() {
   });
 
   group('LegacyLocalReaderPageResolver', () {
-    test('maps legacy late failure to LOCAL_STORAGE_UNAVAILABLE', () async {
+    test('maps missing canonical comic to LOCAL_COMIC_NOT_FOUND', () async {
       final resolver = LegacyLocalReaderPageResolver(
-        ensureInitialized: () async {},
-        findComicBySourceKey: (_, __) {
-          throw StateError('LateInitializationError: LocalManager not ready');
+        loadCanonicalPages: (_, __) async {
+          throw StateError('CANONICAL_LOCAL_COMIC_NOT_FOUND:comic-1');
         },
       );
       final identity = ComicIdentity(
@@ -52,7 +39,7 @@ void main() {
           isA<ReaderRuntimeException>().having(
             (e) => e.code,
             'code',
-            'LOCAL_STORAGE_UNAVAILABLE',
+            'LOCAL_COMIC_NOT_FOUND',
           ),
         ),
       );
@@ -62,12 +49,7 @@ void main() {
       'local resolver throws LOCAL_PAGE_FILE_MISSING when page file is absent',
       () async {
         final resolver = LegacyLocalReaderPageResolver(
-          ensureInitialized: () async {},
-          findComicBySourceKey: (_, __) => _FakeLocalComic(
-            hasChapters: true,
-            chapters: _FakeChapterCollection({'1': Object()}),
-          ),
-          loadImagesBySourceKey: (_, __, ___) async => <String>[
+          loadCanonicalPages: (_, __) async => <String>[
             '/tmp/definitely-missing-reader-next-image.jpg',
           ],
         );
@@ -121,12 +103,7 @@ void main() {
         file.writeAsBytesSync(<int>[0, 1, 2, 3]);
 
         final resolver = LegacyLocalReaderPageResolver(
-          ensureInitialized: () async {},
-          findComicBySourceKey: (_, __) => _FakeLocalComic(
-            hasChapters: true,
-            chapters: _FakeChapterCollection({'1': Object()}),
-          ),
-          loadImagesBySourceKey: (_, __, ___) async => <String>[file.path],
+          loadCanonicalPages: (_, __) async => <String>[file.path],
         );
         final identity = ComicIdentity(
           canonicalComicId: 'local:comic-1',
@@ -165,12 +142,7 @@ void main() {
           ..writeAsBytesSync(<int>[2]);
 
         final resolver = LegacyLocalReaderPageResolver(
-          ensureInitialized: () async {},
-          findComicBySourceKey: (_, __) => _FakeLocalComic(
-            hasChapters: true,
-            chapters: _FakeChapterCollection({'1:__imported__': Object()}),
-          ),
-          loadImagesBySourceKey: (_, __, ___) async => <String>[
+          loadCanonicalPages: (_, __) async => <String>[
             first.path,
             second.path,
           ],
