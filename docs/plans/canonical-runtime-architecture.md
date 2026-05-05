@@ -40,36 +40,42 @@ This document describes the **Canonical Runtime Architecture** for Venera - a co
 ```
 
 ### Presentation Layer
+
 - **Responsibility**: Render UI, capture user intent, route navigation
 - **Owns**: Screen widgets, state notifiers, navigation logic
 - **Cannot**: Access database directly, make repository calls (→ use Application layer)
 - **Interaction**: Calls Application layer use cases
 
 ### Application / Use Case Layer
+
 - **Responsibility**: Orchestrate domain logic, manage transactions, coordinate features
 - **Owns**: Use case coordination, service logic, business process workflows
 - **Cannot**: Access database directly (→ use Ports), import presentation widgets
 - **Interaction**: Calls Domain models, invokes Ports (repositories, services)
 
 ### Domain Layer
+
 - **Responsibility**: Core business models, rules, invariants
 - **Owns**: `Comic`, `Chapter`, `Page`, `ReaderSession`, `SourcePlatform`, `Favorite`, etc.
 - **Cannot**: Import framework code (Flutter, Drift), access infrastructure
 - **Interaction**: Called by Application layer, used by Infrastructure for mapping
 
 ### Ports Layer
+
 - **Responsibility**: Define contracts for repositories and external services
 - **Owns**: `ComicRepository`, `ReaderSessionRepository`, `DiagnosticsWriter`, etc.
 - **Cannot**: Implement database logic (→ Infrastructure implements)
 - **Interaction**: Defined here, implemented in Infrastructure
 
 ### Infrastructure Layer
+
 - **Responsibility**: Implement Ports, manage database, handle I/O, adapt external APIs
 - **Owns**: Database queries, file operations, HTTP clients, schema migrations
 - **Cannot**: Contain business logic (→ belongs in Domain)
 - **Interaction**: Implements Ports, called by Application layer
 
 ### Legacy Migration Layer
+
 - **Responsibility**: Reference, extraction, gradual replacement
 - **Owns**: Old code in `legacy/migration/`, extraction utilities
 - **Cannot**: Be imported by canonical code (read-only)
@@ -151,7 +157,9 @@ lib/
 All data structures are validated against JSON schemas in `schemas/`:
 
 ### `diagnostics_event.schema.json`
+
 Structured diagnostics events with boundary, action, reason:
+
 ```json
 {
   "event": "reader.route.unresolved_target",
@@ -166,7 +174,9 @@ Structured diagnostics events with boundary, action, reason:
 ```
 
 ### `source_manifest.schema.json`
+
 Provider-specific manifests with endpoint rules, no code:
+
 ```json
 {
   "version": "1.0.0",
@@ -180,22 +190,26 @@ Provider-specific manifests with endpoint rules, no code:
 ```
 
 ### `import_manifest.schema.json`
+
 Import batch metadata with canonical file ordering:
+
 ```json
 {
   "importBatchId": "uuid",
   "sourceType": "cbz",
   "files": [
-    {"path": "001.jpg", "index": 0, "checksum": "..."},
-    {"path": "002.jpg", "index": 1, "checksum": "..."}
+    { "path": "001.jpg", "index": 0, "checksum": "..." },
+    { "path": "002.jpg", "index": 1, "checksum": "..." }
   ]
 }
 ```
 
 ### `reader_event.schema.json`
+
 Reader runtime events (session, page load, navigation).
 
 ### `app_settings.schema.json`
+
 User preferences (theme, language, reader settings).
 
 ---
@@ -203,6 +217,7 @@ User preferences (theme, language, reader settings).
 ## Domain Models
 
 ### Comic Library
+
 - **Comic** — unique work, separate from metadata
 - **ComicMetadata** — mutable properties (title, cover, description)
 - **Chapter** — ordered within comic, links to source chapter
@@ -210,18 +225,22 @@ User preferences (theme, language, reader settings).
 - **PageOrder** — reordering policy (source, user override, import detected)
 
 ### Reader
+
 - **ReaderSession** — canonical position (chapter_id, page_index, not JSON)
 - **ReaderOpenTarget** — request to open a specific position
 - **ReaderOpenRequest** — validated open target with correlation ID
 
 ### Sources
+
 - **SourcePlatform** — provider (local, remote, virtual)
 - **SourceManifest** — provider behavior (endpoints, headers, no code)
 
 ### Favorites
+
 - **Favorite** — user's marked work
 
 ### Import
+
 - **ImportBatch** — batch metadata with file order
 - **FileValidation** — safety checks (bomb detection, magic bytes)
 
@@ -230,6 +249,7 @@ User preferences (theme, language, reader settings).
 ## Security Boundaries
 
 ### JS Source Sandbox
+
 ```
 No arbitrary source script authority.
 
@@ -247,6 +267,7 @@ Runtime owns:
 ```
 
 ### Source Package Provenance
+
 - Signed manifest required
 - Explicit permission declaration
 - Code review before installation
@@ -254,12 +275,14 @@ Runtime owns:
 - Sandboxed from each other
 
 ### Cookie/Session Isolation
+
 - Per-source storage
 - Encrypted at rest
 - Runtime-mediated access
 - JS scripts cannot directly access
 
 ### Input Validation
+
 - URL scheme validation (http/https)
 - JSON schema validation
 - File path sanitization (directory traversal)
@@ -267,6 +290,7 @@ Runtime owns:
 - Numeric range checks
 
 ### File Import Safety
+
 - Bomb pattern detection
 - File header validation (magic bytes)
 - Extraction depth limits
@@ -275,6 +299,7 @@ Runtime owns:
 - Automatic cleanup
 
 ### Diagnostics Redaction
+
 - No cookie values
 - No auth headers
 - Domains logged (not full URLs with query params)
@@ -286,30 +311,36 @@ Runtime owns:
 ## Testing Strategy
 
 ### 1. Domain Tests
+
 - Model invariants
 - No database dependencies
 - Pure Dart/logic only
 
 ### 2. Repository Tests
+
 - Interface contract validation
 - Migration logic
 - Data integrity
 
 ### 3. Use Case Tests
+
 - Application workflow
 - Integration with domain + repositories
 
 ### 4. Source Manifest Validation Tests
+
 - Schema validation
 - Permission declaration
 - Endpoint configuration
 
 ### 5. Reader Runtime Smoke Tests
+
 - Session persistence
 - Position recovery
 - Invalid state rejection
 
 ### 6. No-Legacy-Import Architecture Tests
+
 - Verify no canonical code imports legacy
 - Use static analysis (ast-grep, analyzer)
 
@@ -318,6 +349,7 @@ Runtime owns:
 ## Layering Rules (Enforced)
 
 ### ✓ Allowed
+
 - Presentation → Application
 - Application → Domain, Ports
 - Domain → (self only)
@@ -327,6 +359,7 @@ Runtime owns:
 - Legacy → (read-only, extraction only)
 
 ### ✗ Forbidden
+
 - Domain → Infrastructure
 - Domain → Presentation
 - Presentation → Infrastructure (except via Application)
@@ -338,25 +371,30 @@ Runtime owns:
 ## Migration from Legacy
 
 ### Phase 1 (Current)
+
 - ✅ Schema design
 - ✅ Domain models
 - ✅ Layering architecture
 - ✅ Security boundaries
 
 ### Phase 2
+
 - Repository implementations
 - Database schema creation
 - Migration utilities
 
 ### Phase 3
+
 - Application use cases
 - Ports contract implementation
 
 ### Phase 4
+
 - Presentation layer (new widgets)
 - Router integration
 
 ### Phase 5
+
 - Gradual feature cutover
 - Legacy code extraction
 - Retirement
