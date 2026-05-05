@@ -1,5 +1,6 @@
+import 'package:venera/foundation/app/app.dart';
 import 'package:venera/foundation/diagnostics/diagnostics.dart';
-import 'package:venera/foundation/local_comics_legacy_bridge.dart';
+import 'package:venera/foundation/reader/canonical_reader_pages.dart';
 import 'package:venera/foundation/sources/identity/constants.dart';
 import 'package:venera/utils/io.dart';
 
@@ -8,27 +9,12 @@ import 'ports.dart';
 
 class LegacyLocalReaderPageResolver implements LocalReaderPageResolver {
   const LegacyLocalReaderPageResolver({
-    Future<void> Function()? ensureInitialized,
-    dynamic Function(String comicId, String sourceKey)? findComicBySourceKey,
-    Future<List<String>> Function(
-      String comicId,
-      String sourceKey,
-      Object chapterOrIndex,
-    )?
-    loadImagesBySourceKey,
-  }) : _ensureInitialized = ensureInitialized,
-       _findComicBySourceKey = findComicBySourceKey,
-       _loadImagesBySourceKey = loadImagesBySourceKey;
+    Future<List<String>> Function(String comicId, String? chapterId)?
+    loadCanonicalPages,
+  }) : _loadCanonicalPages = loadCanonicalPages;
 
-  final Future<void> Function()? _ensureInitialized;
-  final dynamic Function(String comicId, String sourceKey)?
-  _findComicBySourceKey;
-  final Future<List<String>> Function(
-    String comicId,
-    String sourceKey,
-    Object chapterOrIndex,
-  )?
-  _loadImagesBySourceKey;
+  final Future<List<String>> Function(String comicId, String? chapterId)?
+  _loadCanonicalPages;
 
   @override
   Future<List<ReaderImageRef>> loadReaderPageImages({
@@ -83,41 +69,8 @@ class LegacyLocalReaderPageResolver implements LocalReaderPageResolver {
       );
     }
 
-    try {
-      await (_ensureInitialized ?? legacyEnsureLocalComicsInitialized).call();
-    } catch (_) {
-      recordBlocked('LOCAL_STORAGE_UNAVAILABLE');
-      throw ReaderRuntimeException(
-        'LOCAL_STORAGE_UNAVAILABLE',
-        'Local storage is unavailable',
-      );
-    }
-
-    final comic = _safeFindLocalComic(
+    final paths = await _safeLoadCanonicalLocalPages(
       comicId: sourceRef.upstreamComicRefId,
-      sourceKey: sourceRef.sourceKey,
-    );
-    if (comic == null) {
-      recordBlocked('LOCAL_COMIC_NOT_FOUND');
-      throw ReaderRuntimeException(
-        'LOCAL_COMIC_NOT_FOUND',
-        'Local comic was not found for ReaderNext request',
-      );
-    }
-
-    if (comic.hasChapters &&
-        (comic.chapters == null ||
-            !comic.chapters!.allChapters.containsKey(chapterRefId))) {
-      recordBlocked('LOCAL_CHAPTER_NOT_FOUND');
-      throw ReaderRuntimeException(
-        'LOCAL_CHAPTER_NOT_FOUND',
-        'Local chapter was not found for ReaderNext request',
-      );
-    }
-
-    final paths = await _safeLoadLocalComicImages(
-      comicId: sourceRef.upstreamComicRefId,
-      sourceKey: sourceRef.sourceKey,
       chapterRefId: chapterRefId,
     );
     if (paths.isEmpty) {
@@ -193,49 +146,37 @@ class LegacyLocalReaderPageResolver implements LocalReaderPageResolver {
     return refs;
   }
 
-  dynamic _safeFindLocalComic({
+  Future<List<String>> _safeLoadCanonicalLocalPages({
     required String comicId,
-    required String sourceKey,
-  }) {
-    try {
-      return (_findComicBySourceKey ?? legacyFindLocalComicBySourceKey).call(
-        comicId,
-        sourceKey,
-      );
-    } catch (error) {
-      if (_isLegacyUnavailable(error)) {
-        throw ReaderRuntimeException(
-          'LOCAL_STORAGE_UNAVAILABLE',
-          'Local storage is unavailable',
-        );
-      }
-      rethrow;
-    }
-  }
-
-  Future<List<String>> _safeLoadLocalComicImages({
-    required String comicId,
-    required String sourceKey,
     required String chapterRefId,
   }) async {
     try {
-      return await (_loadImagesBySourceKey ??
-              legacyLoadLocalComicImagesBySourceKey)
-          .call(comicId, sourceKey, chapterRefId);
+      return await (_loadCanonicalPages ??
+              (String localComicId, String? chapterId) {
+                return CanonicalReaderPages(
+                  store: App.repositories.comicDetailStore,
+                ).loadLocalPages(
+                  localComicId: localComicId,
+                  chapterId: chapterId,
+                );
+              })
+          .call(comicId, chapterRefId);
     } catch (error) {
-      if (_isLegacyUnavailable(error)) {
+      final message = error.toString();
+      if (message.contains('CANONICAL_LOCAL_COMIC_NOT_FOUND') ||
+          message.contains('CANONICAL_CHAPTER_NOT_FOUND')) {
         throw ReaderRuntimeException(
-          'LOCAL_STORAGE_UNAVAILABLE',
-          'Local storage is unavailable',
+          'LOCAL_COMIC_NOT_FOUND',
+          'Local comic was not found for ReaderNext request',
+        );
+      }
+      if (message.contains('CANONICAL_PAGE_ORDER_NOT_FOUND')) {
+        throw ReaderRuntimeException(
+          'LOCAL_PAGES_EMPTY',
+          'Local chapter has no readable pages',
         );
       }
       rethrow;
     }
-  }
-
-  bool _isLegacyUnavailable(Object error) {
-    final text = error.toString();
-    return text.contains('LateInitializationError') ||
-        text.contains('late initialization');
   }
 }
