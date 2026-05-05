@@ -853,7 +853,7 @@ class SqliteComicTitleRepository implements ComicTitleRepositoryPort {
         .selectFrom("comic_titles")
         .selectAll()
         .where("comic_id", "=", comicId)
-        .orderBy("created_at asc")
+        .orderBy("created_at", "asc")
         .execute();
 
       return ok(rows.map((row) => unwrapMappedResult(mapComicTitle(row))));
@@ -972,8 +972,8 @@ class SqliteChapterRepository implements ChapterRepositoryPort {
         .where("comic_id", "=", input.comicId);
 
       const rows = input.parentChapterId === undefined
-        ? await query.where("parent_chapter_id", "is", null).orderBy("chapter_number asc").execute()
-        : await query.where("parent_chapter_id", "=", input.parentChapterId).orderBy("chapter_number asc").execute();
+        ? await query.where("parent_chapter_id", "is", null).orderBy("chapter_number", "asc").execute()
+        : await query.where("parent_chapter_id", "=", input.parentChapterId).orderBy("chapter_number", "asc").execute();
 
       return ok(rows.map((row) => unwrapMappedResult(mapChapter(row))));
     });
@@ -985,8 +985,8 @@ class SqliteChapterRepository implements ChapterRepositoryPort {
         .selectFrom("chapters")
         .selectAll()
         .where("comic_id", "=", comicId)
-        .orderBy("chapter_number asc")
-        .orderBy("created_at asc")
+        .orderBy("chapter_number", "asc")
+        .orderBy("created_at", "asc")
         .execute();
 
       return ok(rows.map((row) => unwrapMappedResult(mapChapter(row))));
@@ -1015,7 +1015,7 @@ class SqlitePageRepository implements PageRepositoryPort {
         .selectFrom("pages")
         .selectAll()
         .where("chapter_id", "=", chapterId)
-        .orderBy("page_index asc")
+        .orderBy("page_index", "asc")
         .execute();
 
       return ok(rows.map((row) => unwrapMappedResult(mapPage(row))));
@@ -1058,7 +1058,7 @@ class SqlitePageOrderRepository implements PageOrderRepositoryPort {
         .selectFrom("page_order_items")
         .selectAll()
         .where("page_order_id", "=", orderRow.id)
-        .orderBy("sort_index asc")
+        .orderBy("sort_index", "asc")
         .execute();
 
       const items = itemsRows.map((row) => ({
@@ -1341,7 +1341,7 @@ class SqliteSourcePlatformRepository implements SourcePlatformRepositoryPort {
         .selectFrom("source_platforms")
         .selectAll()
         .where("is_enabled", "=", 1)
-        .orderBy("canonical_key asc")
+        .orderBy("canonical_key", "asc")
         .execute();
 
       return ok(rows.map((row) => unwrapMappedResult(mapSourcePlatform(row))));
@@ -1370,7 +1370,7 @@ class SqliteSourceLinkRepository implements SourceLinkRepositoryPort {
         .selectFrom("source_links")
         .selectAll()
         .where("comic_id", "=", comicId)
-        .orderBy("created_at asc")
+        .orderBy("created_at", "asc")
         .execute();
 
       return ok(rows.map((row) => unwrapMappedResult(mapSourceLink(row))));
@@ -1400,7 +1400,7 @@ class SqliteChapterSourceLinkRepository implements ChapterSourceLinkRepositoryPo
         .selectFrom("chapter_source_links")
         .selectAll()
         .where("chapter_id", "=", chapterId)
-        .orderBy("created_at asc")
+        .orderBy("created_at", "asc")
         .execute();
 
       return ok(rows.map((row) => unwrapMappedResult(mapChapterSourceLink(row))));
@@ -1413,7 +1413,7 @@ class SqliteChapterSourceLinkRepository implements ChapterSourceLinkRepositoryPo
         .selectFrom("chapter_source_links")
         .selectAll()
         .where("source_link_id", "=", sourceLinkId)
-        .orderBy("created_at asc")
+        .orderBy("created_at", "asc")
         .execute();
 
       return ok(rows.map((row) => unwrapMappedResult(mapChapterSourceLink(row))));
@@ -1446,7 +1446,7 @@ class SqliteStoragePlacementRepository implements StoragePlacementRepositoryPort
         .selectFrom("storage_placements")
         .selectAll()
         .where("storage_object_id", "=", storageObjectId)
-        .orderBy("created_at asc")
+        .orderBy("created_at", "asc")
         .execute();
 
       return ok(rows.map((row) => unwrapMappedResult(mapStoragePlacement(row))));
@@ -1488,7 +1488,7 @@ class SqliteDiagnosticsEventRepository implements DiagnosticsEventRepositoryPort
       let query = currentDb(this.executorProvider)
         .selectFrom("diagnostics_events")
         .selectAll()
-        .orderBy("timestamp desc");
+        .orderBy("timestamp", "desc");
 
       if (input.level !== undefined) {
         query = query.where("level", "=", input.level);
