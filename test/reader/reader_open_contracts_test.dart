@@ -97,6 +97,21 @@ void main() {
     },
   );
 
+  test('flat local reader target falls back to imported chapter id', () {
+    final sourceRef = resolveReaderTargetSourceRef(
+      comicId: 'comic-flat',
+      sourceKey: 'local',
+      chapters: null,
+      ep: null,
+      group: null,
+      resumeTarget: null,
+    );
+
+    expect(sourceRef.type, SourceRefType.local);
+    expect(sourceRef.params['chapterId'], 'comic-flat:__imported__');
+    expect(sourceRef.id, 'local:local:comic-flat:comic-flat:__imported__');
+  });
+
   test('reader open request uses sourceRef id as canonical identity', () {
     final sourceRef = SourceRef.fromLegacyLocal(
       localType: 'local',
@@ -220,6 +235,41 @@ void main() {
       expect(event.data['comicId'], 'comic-local');
       expect(event.data['sourceRefId'], 'local:local:comic-local:_');
       expect(event.data['reason'], 'missingLocalChapterId');
+    },
+  );
+
+  test(
+    'flat local comic route request does not emit placeholder chapter token',
+    () {
+      final comic = LocalComic(
+        id: 'comic-flat',
+        title: 'Flat Local Comic',
+        subtitle: '',
+        tags: const <String>[],
+        directory: '/tmp/comic-flat',
+        chapters: null,
+        cover: 'cover.png',
+        comicType: ComicType.local,
+        downloadedChapters: const <String>[],
+        createdAt: DateTime.utc(2026, 5, 5),
+      );
+
+      final request = buildLocalComicReaderRouteRequest(
+        comic: comic,
+        history: null,
+        firstDownloadedChapter: null,
+        firstDownloadedChapterGroup: null,
+        resumeTarget: null,
+      );
+
+      expect(
+        request.sourceRef!.id,
+        'local:local:comic-flat:comic-flat:__imported__',
+      );
+      expect(
+        request.sourceRef!.params['chapterId'],
+        'comic-flat:__imported__',
+      );
     },
   );
 

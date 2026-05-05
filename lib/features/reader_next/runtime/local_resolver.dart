@@ -1,6 +1,5 @@
 import 'package:venera/foundation/app/app.dart';
 import 'package:venera/foundation/diagnostics/diagnostics.dart';
-import 'package:venera/foundation/reader/canonical_reader_pages.dart';
 import 'package:venera/foundation/sources/identity/constants.dart';
 import 'package:venera/utils/io.dart';
 
@@ -151,15 +150,7 @@ class LegacyLocalReaderPageResolver implements LocalReaderPageResolver {
     required String chapterRefId,
   }) async {
     try {
-      return await (_loadCanonicalPages ??
-              (String localComicId, String? chapterId) {
-                return CanonicalReaderPages(
-                  store: App.repositories.comicDetailStore,
-                ).loadLocalPages(
-                  localComicId: localComicId,
-                  chapterId: chapterId,
-                );
-              })
+      return await (_loadCanonicalPages ?? _loadCanonicalLocalPagesFromStore)
           .call(comicId, chapterRefId);
     } catch (error) {
       final message = error.toString();
@@ -178,5 +169,28 @@ class LegacyLocalReaderPageResolver implements LocalReaderPageResolver {
       }
       rethrow;
     }
+  }
+
+  Future<List<String>> _loadCanonicalLocalPagesFromStore(
+    String localComicId,
+    String? chapterId,
+  ) async {
+    final store = App.repositories.comicDetailStore;
+    final snapshot = await store.loadComicSnapshot(localComicId);
+    if (snapshot == null || snapshot.localLibraryItems.isEmpty) {
+      throw StateError('CANONICAL_LOCAL_COMIC_NOT_FOUND:$localComicId');
+    }
+
+    final targetChapterId =
+        chapterId ??
+        (snapshot.chapters.isNotEmpty
+            ? snapshot.chapters.first.id
+            : '$localComicId:__imported__');
+    final pages = await store.loadActivePageOrderPages(targetChapterId);
+    if (pages.isEmpty) {
+      throw StateError('CANONICAL_PAGE_ORDER_NOT_FOUND:$targetChapterId');
+    }
+
+    return pages.map((page) => Uri.file(page.localPath).toString()).toList();
   }
 }

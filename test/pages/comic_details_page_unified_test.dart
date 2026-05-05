@@ -133,6 +133,20 @@ void main() {
     expect(sourceRef.params['chapterId'], '1:__imported__');
   });
 
+  test('flat local detail chapter read resolves fallback imported SourceRef', () {
+    final sourceRef = resolveComicDetailsReadSourceRef(
+      comicId: 'comic-local',
+      sourceKey: 'local',
+      chapters: null,
+      ep: null,
+      group: null,
+      resumeTarget: null,
+    );
+
+    expect(sourceRef.type, SourceRefType.local);
+    expect(sourceRef.params['chapterId'], 'comic-local:__imported__');
+  });
+
   test('local detail read bypasses reader next bridge', () {
     expect(
       shouldBypassReaderNextForComicDetailRead(sourceKey: 'local'),

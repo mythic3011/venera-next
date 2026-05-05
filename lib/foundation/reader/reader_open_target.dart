@@ -1,5 +1,8 @@
 import 'package:venera/features/sources/comic_source/comic_source.dart';
+import 'package:venera/foundation/sources/identity/constants.dart';
 import 'package:venera/foundation/sources/source_ref.dart';
+
+const String _localImportedFallbackChapterSuffix = '__imported__';
 
 class ReaderOpenTarget {
   const ReaderOpenTarget({required this.sourceRef});
@@ -35,11 +38,9 @@ SourceRef resolveReaderTargetSourceRef({
   required int? group,
   required ReaderOpenTarget? resumeTarget,
 }) {
-  final targetChapterId = resolveReaderTargetChapterId(
-    chapters: chapters,
-    ep: ep,
-    group: group,
-  );
+  final targetChapterId =
+      resolveReaderTargetChapterId(chapters: chapters, ep: ep, group: group) ??
+      _resolveLocalFallbackChapterId(comicId: comicId, sourceKey: sourceKey, chapters: chapters);
   final sourceRef =
       resumeTarget?.sourceRef ??
       SourceRef.fromLegacy(
@@ -64,4 +65,15 @@ SourceRef resolveReaderTargetSourceRef({
       routeKey: sourceRef.routeKey,
     ),
   };
+}
+
+String? _resolveLocalFallbackChapterId({
+  required String comicId,
+  required String sourceKey,
+  required ComicChapters? chapters,
+}) {
+  if (sourceKey != localSourceKey || chapters != null) {
+    return null;
+  }
+  return '$comicId:$_localImportedFallbackChapterSuffix';
 }

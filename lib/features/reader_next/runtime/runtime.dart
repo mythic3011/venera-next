@@ -1,6 +1,7 @@
 export 'adapter.dart';
 export 'cache_keys.dart';
 export 'gateway.dart';
+export 'local_runtime_smoke.dart';
 export 'models.dart';
 export 'ports.dart';
 export 'registry.dart';
