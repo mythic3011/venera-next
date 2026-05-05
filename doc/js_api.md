@@ -5,13 +5,13 @@
 The Javascript API is a set of functions that used to interact application.
 
 There are following parts in the API:
+
 - [Convert](#Convert)
 - [Network](#Network)
 - [Html](#Html)
 - [UI](#UI)
 - [Utils](#Utils)
 - [Types](#Types)
-
 
 ## Convert
 
@@ -84,6 +84,10 @@ Convert an ArrayBuffer to a hex string.
 ## Network
 
 Network is a set of functions that used to send network requests and manage network resources.
+
+**In headless mode:** Network calls respect the unified source platform resolver and may be rate-limited based on source configuration.
+
+**In app mode:** Network calls are subject to normal app throttling and user preferences.
 
 ### `Network.fetchBytes(method: string, url: string, headers: object, data: ArrayBuffer): Promise<{status: number, headers: object, body: ArrayBuffer}>`
 
@@ -269,6 +273,24 @@ Generate a random double between min and max.
 
 Send log to application console. Same api as the browser console.
 
+## Reader State
+
+JavaScript sources can access limited reader context when running in the app (not in headless mode).
+
+### `Reader.currentPage(): {page: number, chapter: number}`
+
+Get the currently viewing page and chapter (if available).
+
+**Note:** This is only available when a comic is actively being read. In headless mode or when the comic is not open, this returns `null`.
+
+### `Reader.updateProgress(chapter: number, page: number): void`
+
+Update the app's reader progress for the current comic.
+
+**Use case:** If your source provides dynamic pagination or chapter structure, call this to sync the reader's progress.
+
+**Note:** Changes are stored in the reader sessions database and persist across app sessions.
+
 ## Types
 
 ### `Cookie`
@@ -281,10 +303,10 @@ Send log to application console. Same api as the browser console.
  * @param domain {string}
  * @constructor
  */
-function Cookie({name, value, domain}) {
-    this.name = name;
-    this.value = value;
-    this.domain = domain;
+function Cookie({ name, value, domain }) {
+  this.name = name;
+  this.value = value;
+  this.domain = domain;
 }
 ```
 
@@ -306,22 +328,35 @@ function Cookie({name, value, domain}) {
  * @param stars {number?} - 0-5, double
  * @constructor
  */
-function Comic({id, title, subtitle, subTitle, cover, tags, description, maxPage, language, favoriteId, stars}) {
-    this.id = id;
-    this.title = title;
-    this.subtitle = subtitle;
-    this.subTitle = subTitle;
-    this.cover = cover;
-    this.tags = tags;
-    this.description = description;
-    this.maxPage = maxPage;
-    this.language = language;
-    this.favoriteId = favoriteId;
-    this.stars = stars;
+function Comic({
+  id,
+  title,
+  subtitle,
+  subTitle,
+  cover,
+  tags,
+  description,
+  maxPage,
+  language,
+  favoriteId,
+  stars,
+}) {
+  this.id = id;
+  this.title = title;
+  this.subtitle = subtitle;
+  this.subTitle = subTitle;
+  this.cover = cover;
+  this.tags = tags;
+  this.description = description;
+  this.maxPage = maxPage;
+  this.language = language;
+  this.favoriteId = favoriteId;
+  this.stars = stars;
 }
 ```
 
 ### `ComicDetails`
+
 ```javascript
 /**
  * Create a comic details object
@@ -348,31 +383,54 @@ function Comic({id, title, subtitle, subTitle, cover, tags, description, maxPage
  * @param comments {Comment[]?}- `since 1.0.7` App will display comments in the details page.
  * @constructor
  */
-function ComicDetails({title, subtitle, subTitle, cover, description, tags, chapters, isFavorite, subId, thumbnails, recommend, commentCount, likesCount, isLiked, uploader, updateTime, uploadTime, url, stars, maxPage, comments}) {
-    this.title = title;
-    this.subtitle = subtitle ?? subTitle;
-    this.cover = cover;
-    this.description = description;
-    this.tags = tags;
-    this.chapters = chapters;
-    this.isFavorite = isFavorite;
-    this.subId = subId;
-    this.thumbnails = thumbnails;
-    this.recommend = recommend;
-    this.commentCount = commentCount;
-    this.likesCount = likesCount;
-    this.isLiked = isLiked;
-    this.uploader = uploader;
-    this.updateTime = updateTime;
-    this.uploadTime = uploadTime;
-    this.url = url;
-    this.stars = stars;
-    this.maxPage = maxPage;
-    this.comments = comments;
+function ComicDetails({
+  title,
+  subtitle,
+  subTitle,
+  cover,
+  description,
+  tags,
+  chapters,
+  isFavorite,
+  subId,
+  thumbnails,
+  recommend,
+  commentCount,
+  likesCount,
+  isLiked,
+  uploader,
+  updateTime,
+  uploadTime,
+  url,
+  stars,
+  maxPage,
+  comments,
+}) {
+  this.title = title;
+  this.subtitle = subtitle ?? subTitle;
+  this.cover = cover;
+  this.description = description;
+  this.tags = tags;
+  this.chapters = chapters;
+  this.isFavorite = isFavorite;
+  this.subId = subId;
+  this.thumbnails = thumbnails;
+  this.recommend = recommend;
+  this.commentCount = commentCount;
+  this.likesCount = likesCount;
+  this.isLiked = isLiked;
+  this.uploader = uploader;
+  this.updateTime = updateTime;
+  this.uploadTime = uploadTime;
+  this.url = url;
+  this.stars = stars;
+  this.maxPage = maxPage;
+  this.comments = comments;
 }
 ```
 
 ### `Comment`
+
 ```javascript
 /**
  * Create a comment object
@@ -387,20 +445,31 @@ function ComicDetails({title, subtitle, subTitle, cover, description, tags, chap
  * @param voteStatus {number?} - 1: upvote, -1: downvote, 0: none
  * @constructor
  */
-function Comment({userName, avatar, content, time, replyCount, id, isLiked, score, voteStatus}) {
-    this.userName = userName;
-    this.avatar = avatar;
-    this.content = content;
-    this.time = time;
-    this.replyCount = replyCount;
-    this.id = id;
-    this.isLiked = isLiked;
-    this.score = score;
-    this.voteStatus = voteStatus;
+function Comment({
+  userName,
+  avatar,
+  content,
+  time,
+  replyCount,
+  id,
+  isLiked,
+  score,
+  voteStatus,
+}) {
+  this.userName = userName;
+  this.avatar = avatar;
+  this.content = content;
+  this.time = time;
+  this.replyCount = replyCount;
+  this.id = id;
+  this.isLiked = isLiked;
+  this.score = score;
+  this.voteStatus = voteStatus;
 }
 ```
 
 ### `ImageLoadingConfig`
+
 ```javascript
 /**
  * Create image loading config
@@ -419,95 +488,104 @@ function Comment({userName, avatar, content, time, replyCount, id, isLiked, scor
  *
  * To keep the compatibility with the old version, do not use the constructor. Consider creating a new object with the properties directly.
  */
-function ImageLoadingConfig({url, method, data, headers, onResponse, modifyImage, onLoadFailed}) {
-    this.url = url;
-    this.method = method;
-    this.data = data;
-    this.headers = headers;
-    this.onResponse = onResponse;
-    this.modifyImage = modifyImage;
-    this.onLoadFailed = onLoadFailed;
+function ImageLoadingConfig({
+  url,
+  method,
+  data,
+  headers,
+  onResponse,
+  modifyImage,
+  onLoadFailed,
+}) {
+  this.url = url;
+  this.method = method;
+  this.data = data;
+  this.headers = headers;
+  this.onResponse = onResponse;
+  this.modifyImage = modifyImage;
+  this.onLoadFailed = onLoadFailed;
 }
 ```
 
 ### `ComicSource`
+
 ```javascript
 class ComicSource {
-    name = ""
+  name = "";
 
-    key = ""
+  key = "";
 
-    version = ""
+  version = "";
 
-    minAppVersion = ""
+  minAppVersion = "";
 
-    url = ""
+  url = "";
 
-    /**
-     * load data with its key
-     * @param {string} dataKey
-     * @returns {any}
-     */
-    loadData(dataKey) {
-        return sendMessage({
-            method: 'load_data',
-            key: this.key,
-            data_key: dataKey
-        })
-    }
+  /**
+   * load data with its key
+   * @param {string} dataKey
+   * @returns {any}
+   */
+  loadData(dataKey) {
+    return sendMessage({
+      method: "load_data",
+      key: this.key,
+      data_key: dataKey,
+    });
+  }
 
-    /**
-     * load a setting with its key
-     * @param key {string}
-     * @returns {any}
-     */
-    loadSetting(key) {
-        return sendMessage({
-            method: 'load_setting',
-            key: this.key,
-            setting_key: key
-        })
-    }
+  /**
+   * load a setting with its key
+   * @param key {string}
+   * @returns {any}
+   */
+  loadSetting(key) {
+    return sendMessage({
+      method: "load_setting",
+      key: this.key,
+      setting_key: key,
+    });
+  }
 
-    /**
-     * save data
-     * @param {string} dataKey
-     * @param data
-     */
-    saveData(dataKey, data) {
-        return sendMessage({
-            method: 'save_data',
-            key: this.key,
-            data_key: dataKey,
-            data: data
-        })
-    }
+  /**
+   * save data
+   * @param {string} dataKey
+   * @param data
+   */
+  saveData(dataKey, data) {
+    return sendMessage({
+      method: "save_data",
+      key: this.key,
+      data_key: dataKey,
+      data: data,
+    });
+  }
 
-    /**
-     * delete data
-     * @param {string} dataKey
-     */
-    deleteData(dataKey) {
-        return sendMessage({
-            method: 'delete_data',
-            key: this.key,
-            data_key: dataKey,
-        })
-    }
+  /**
+   * delete data
+   * @param {string} dataKey
+   */
+  deleteData(dataKey) {
+    return sendMessage({
+      method: "delete_data",
+      key: this.key,
+      data_key: dataKey,
+    });
+  }
 
-    /**
-     *
-     * @returns {boolean}
-     */
-    get isLogged() {
-        return sendMessage({
-            method: 'isLogged',
-            key: this.key,
-        });
-    }
+  /**
+   *
+   * @returns {boolean}
+   */
+  get isLogged() {
+    return sendMessage({
+      method: "isLogged",
+      key: this.key,
+    });
+  }
 
-    init() { }
+  init() {}
 
-    static sources = {}
+  static sources = {};
 }
 ```

@@ -85,6 +85,18 @@ A summary is provided at the end, detailing the total number of scripts, how man
 }
 ```
 
+### Source Platform Resolver
+
+The `updatescript` command uses the unified source platform resolver to identify sources. This resolver normalizes:
+
+- **Canonical keys** — The authoritative source identifier
+- **Legacy keys** — Deprecated source identifiers that are auto-mapped
+- **Context-specific resolution** — Different contexts (`favorite`, `history`, `reader`, `import`) resolve to the same canonical key
+
+When you run `updatescript all`, the app resolves each source to its canonical key before checking for updates. This ensures consistency across the app even if legacy source identifiers exist in your library.
+
+**Reference:** See [lib/foundation/sources/source_ref.dart](../../lib/foundation/sources/source_ref.dart)
+
 ### `updatesubscribe`
 
 Update your subscribed comics and retrieve a list of updated comics.
@@ -178,3 +190,4 @@ Once the update process is complete, a final JSON object is returned with a list
     }
   ]
 }
+```

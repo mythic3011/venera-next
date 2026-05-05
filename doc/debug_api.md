@@ -223,6 +223,25 @@ Additional fields may appear, including:
 - `readerDebugSnapshot`
 - other diagnostics-owned structured payloads
 
+## Database Architecture
+
+The diagnostics API can inspect the unified comics database used by Venera. Understanding the database structure helps you debug:
+
+- **`comics`** — Unified comic identity table
+- **`local_library_items`** — Import/download storage tracking
+- **`comic_source_links`** — Source citation with primary link tracking
+- **`reader_sessions`** — Centralized reader session management
+- **`reader_tabs`** — Multi-tab reading state per session
+- **`remote_match_candidates`** — Deferred remote matching for comics
+- **`user_tags` / `source_tags`** — Separated user vs source metadata
+- **`source_platforms` / `source_platform_aliases`** — Platform identity resolution
+
+**Example diagnostics query:**
+
+To inspect reader session state during debugging, look for `/diagnostics` output containing `reader_sessions` data. This helps verify multi-tab state and session ownership.
+
+See [lib/foundation/db/unified_comics_store/schema.dart](../../lib/foundation/db/unified_comics_store/schema.dart) for full schema details.
+
 ## Reader Diagnostics Notes
 
 `/diagnostics` is the primary surface for reader failure investigation.
