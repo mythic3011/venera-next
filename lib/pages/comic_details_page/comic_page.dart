@@ -22,7 +22,9 @@ import 'package:venera/foundation/favorites.dart';
 import 'package:venera/foundation/history.dart';
 import 'package:venera/foundation/image_provider/cached_image.dart';
 import 'package:venera/foundation/local.dart';
+import 'package:venera/foundation/local/canonical_local_library_runtime.dart';
 import 'package:venera/foundation/comic_detail/comic_detail.dart';
+import 'package:venera/foundation/repositories/local_library_repository.dart';
 import 'package:venera/foundation/sources/source_ref.dart';
 import 'package:venera/foundation/sources/identity/source_identity.dart';
 import 'package:venera/foundation/reader/reader_open_target.dart';
@@ -115,6 +117,48 @@ String normalizeComicDetailCoverHeroTagForTesting({
   required String comicId,
 }) {
   return buildCoverHeroTag(heroTag ?? 'detail:$sourceKey:$comicId:cover');
+}
+
+class CanonicalLocalDetailLoadResult {
+  const CanonicalLocalDetailLoadResult({
+    required this.localItem,
+    required this.detail,
+  });
+
+  final LocalLibraryPrimaryItem localItem;
+  final ComicDetailViewModel detail;
+}
+
+@visibleForTesting
+Future<CanonicalLocalDetailLoadResult?> resolveCanonicalLocalDetailForTesting({
+  required String comicId,
+  required LocalLibraryRepository localLibrary,
+  required ComicDetailStorePort store,
+  required Future<void> Function() recheck,
+}) async {
+  var localItem = await localLibrary.loadPrimaryLocalLibraryItem(comicId);
+  if (localItem == null || !Directory(localItem.localRootPath).existsSync()) {
+    await recheck();
+    localItem = await localLibrary.loadPrimaryLocalLibraryItem(comicId);
+  }
+  if (localItem == null || !Directory(localItem.localRootPath).existsSync()) {
+    return null;
+  }
+  var detail = await loadLocalComicDetailViewModelForTesting(
+    comicId: comicId,
+    store: store,
+  );
+  if (detail == null) {
+    await recheck();
+    detail = await loadLocalComicDetailViewModelForTesting(
+      comicId: comicId,
+      store: store,
+    );
+  }
+  if (detail == null) {
+    return null;
+  }
+  return CanonicalLocalDetailLoadResult(localItem: localItem, detail: detail);
 }
 
 @visibleForTesting
@@ -388,20 +432,18 @@ class _ComicPageState extends LoadingState<ComicPage, ComicDetails>
   }
 
   Future<void> _recoverFromMissingLocalComic() async {
-    final primary = await App.repositories.localLibrary
-        .loadPrimaryLocalLibraryItem(widget.id);
-    if (primary != null) {
-      await App.repositories.localLibrary.deleteLocalLibraryItemById(primary.id);
-      AppDiagnostics.warn(
-        'comic.detail',
-        'comic.detail.localMissing.recovered',
-        data: <String, Object?>{
-          'comicId': widget.id,
-          'localLibraryItemId': primary.id,
-          'action': 'delete_stale_entry',
-        },
-      );
-    }
+    await CanonicalLocalLibraryRuntimeService(
+      store: App.unifiedComicsStore,
+    ).recheck();
+    AppDiagnostics.warn(
+      'comic.detail',
+      'comic.detail.localMissing.recovered',
+      data: <String, Object?>{
+        'comicId': widget.id,
+        'sourceKey': widget.sourceKey,
+        'action': 'return_to_library',
+      },
+    );
     if (!mounted) {
       return;
     }
@@ -565,28 +607,31 @@ class _ComicPageState extends LoadingState<ComicPage, ComicDetails>
   @override
   Future<Res<ComicDetails>> loadData() async {
     if (_isLocalSource) {
-      final localItem = await App.repositories.localLibrary
-          .loadPrimaryLocalLibraryItem(widget.id);
-      if (localItem == null) {
+      final runtime = CanonicalLocalLibraryRuntimeService(
+        store: App.unifiedComicsStore,
+      );
+      final resolved = await resolveCanonicalLocalDetailForTesting(
+        comicId: widget.id,
+        localLibrary: App.repositories.localLibrary,
+        store: App.repositories.comicDetailStore,
+        recheck: runtime.recheck,
+      );
+      if (resolved == null) {
         AppDiagnostics.warn(
           'comic.detail',
           'comic.detail.localMissing',
           data: <String, Object?>{
             'comicId': widget.id,
             'sourceKey': widget.sourceKey,
+            'storedDirectoryName': null,
             'pageOwner': 'ComicPage',
             'routeKind': 'ComicDetailPage',
           },
         );
         return const Res.error('LOCAL_COMIC_MISSING');
       }
-      final detail = await loadLocalComicDetailViewModelForTesting(
-        comicId: widget.id,
-        store: App.repositories.comicDetailStore,
-      );
-      if (detail == null) {
-        return const Res.error('Local comic detail not found');
-      }
+      final localItem = resolved.localItem;
+      final detail = resolved.detail;
       _canonicalDetailVm = detail;
       isAddToLocalFav = await App.repositories.comicDetailStore
           .isComicFavorited(widget.id);
