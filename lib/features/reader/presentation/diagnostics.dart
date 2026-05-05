@@ -1,5 +1,41 @@
 part of 'reader.dart';
 
+const Set<String> _readerExpectedRouteTeardownEvents = <String>{
+  'didPop',
+  'didRemove',
+  'didReplace',
+};
+
+@visibleForTesting
+String? normalizeReaderRouteLifecycleEventForTesting(String? event) {
+  if (event == null || event.isEmpty) {
+    return null;
+  }
+  return event;
+}
+
+@visibleForTesting
+bool shouldWarnOnShortLivedReaderDisposeForTesting(String? routeLifecycleEvent) {
+  final normalized = normalizeReaderRouteLifecycleEventForTesting(
+    routeLifecycleEvent,
+  );
+  return !_readerExpectedRouteTeardownEvents.contains(normalized);
+}
+
+@visibleForTesting
+void emitReaderShortLivedDisposeDiagnosticForTesting(Map<String, Object?> data) {
+  if (!shouldWarnOnShortLivedReaderDisposeForTesting(
+    data['routeLifecycleEvent']?.toString(),
+  )) {
+    return;
+  }
+  AppDiagnostics.warn(
+    'reader.lifecycle',
+    'reader.dispose.short_lived',
+    data: data,
+  );
+}
+
 void _recordImageLoadErrorDiagnostics({
   required Object error,
   String? imageKey,
@@ -268,6 +304,11 @@ void emitReaderParentShellBuildDiagnosticForTesting(Map<String, Object?> data) {
 
 @visibleForTesting
 void emitReaderParentUnmountDiagnosticForTesting(Map<String, Object?> data) {
+  if (!shouldWarnOnShortLivedReaderDisposeForTesting(
+    data['routeLifecycleEvent']?.toString(),
+  )) {
+    return;
+  }
   ReaderDiagnostics.recordReaderLifecycle(
     event: 'reader.parent.unmount.retainedTab',
     type: ComicType.fromKey(data['sourceKey']?.toString() ?? 'local'),
@@ -526,13 +567,16 @@ extension _ReaderDiagnosticsState on _ReaderState {
       },
     );
     if (openDurationMs != null && openDurationMs < 5000) {
-      AppDiagnostics.warn(
-        'reader.lifecycle',
-        'reader.dispose.short_lived',
-        data: {
+      final routeLifecycleEvent =
+          navigatorLifecycleDiagnosticForRouteHash(
+            _routeHashSnapshot,
+          )?['event']?.toString();
+      if (shouldWarnOnShortLivedReaderDisposeForTesting(routeLifecycleEvent)) {
+        emitReaderShortLivedDisposeDiagnosticForTesting({
           'disposeCause': disposeCause,
           'disposeOwner': disposeOwner,
           'routeName': routeName,
+          'routeLifecycleEvent': routeLifecycleEvent,
           'openDurationMs': openDurationMs,
           'loadMode': context.loadMode,
           'sourceKey': context.sourceKey,
@@ -548,8 +592,8 @@ extension _ReaderDiagnosticsState on _ReaderState {
           'sourceRefRouteKey': context.sourceRef.routeKey,
           'widgetHashCode': widget.hashCode,
           'stateHashCode': hashCode,
-        },
-      );
+        });
+      }
     }
     updateReaderDiagnostics('dispose', includePagination: false);
   }
