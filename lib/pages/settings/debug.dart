@@ -126,6 +126,21 @@ class DebugPageState extends State<DebugPage> {
     }
   }
 
+  Future<void> _exportCrashReportBundle() async {
+    final file = await exportCrashReportBundleToFile();
+    if (!mounted) {
+      return;
+    }
+    if (file == null) {
+      context.showMessage(message: "App is not initialized".tl);
+      return;
+    }
+    await saveFile(file: file, filename: file.name);
+    if (mounted) {
+      context.showMessage(message: "Exported".tl);
+    }
+  }
+
   Future<void> _openAppDataDirectory() async {
     if (!App.isInitialized) {
       if (mounted) {
@@ -287,6 +302,10 @@ class DebugPageState extends State<DebugPage> {
                 TextButton(
                   onPressed: _exportLogs,
                   child: Text("Export Logs".tl),
+                ).paddingHorizontal(8),
+                TextButton(
+                  onPressed: _exportCrashReportBundle,
+                  child: Text("Export Crash Report Bundle".tl),
                 ).paddingHorizontal(8),
               ],
             ),

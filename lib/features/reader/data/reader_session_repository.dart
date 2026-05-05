@@ -8,6 +8,9 @@ import 'package:venera/foundation/sources/source_ref.dart';
 
 class ReaderSessionRepository {
   const ReaderSessionRepository({required this.store});
+  static int _pendingWrites = 0;
+
+  static int get pendingWrites => _pendingWrites;
 
   final ReaderSessionStorePort store;
 
@@ -49,31 +52,33 @@ class ReaderSessionRepository {
     String? tabId,
     bool makeActive = true,
   }) async {
-    final sessionId = sessionIdForComic(comicId);
-    final resolvedTabId = tabId ?? defaultTabIdForSourceRef(sourceRef);
-    await store.upsertReaderSession(
-      ReaderSessionRecord(id: sessionId, comicId: comicId),
-    );
-    await store.upsertReaderTab(
-      ReaderTabRecord(
-        id: resolvedTabId,
-        sessionId: sessionId,
-        comicId: comicId,
-        chapterId: chapterId,
-        pageIndex: pageIndex,
-        sourceRefJson: jsonEncode(sourceRef.toJson()),
-        pageOrderId: pageOrderId,
-      ),
-    );
-    if (makeActive) {
+    await _trackWrite(() async {
+      final sessionId = sessionIdForComic(comicId);
+      final resolvedTabId = tabId ?? defaultTabIdForSourceRef(sourceRef);
       await store.upsertReaderSession(
-        ReaderSessionRecord(
-          id: sessionId,
+        ReaderSessionRecord(id: sessionId, comicId: comicId),
+      );
+      await store.upsertReaderTab(
+        ReaderTabRecord(
+          id: resolvedTabId,
+          sessionId: sessionId,
           comicId: comicId,
-          activeTabId: resolvedTabId,
+          chapterId: chapterId,
+          pageIndex: pageIndex,
+          sourceRefJson: jsonEncode(sourceRef.toJson()),
+          pageOrderId: pageOrderId,
         ),
       );
-    }
+      if (makeActive) {
+        await store.upsertReaderSession(
+          ReaderSessionRecord(
+            id: sessionId,
+            comicId: comicId,
+            activeTabId: resolvedTabId,
+          ),
+        );
+      }
+    });
   }
 
   Future<void> markActiveTab({
@@ -84,10 +89,12 @@ class ReaderSessionRepository {
     if (session == null) {
       throw StateError('No reader session exists for comic $comicId.');
     }
-    await store.setReaderSessionActiveTab(
-      sessionId: session.id,
-      activeTabId: tabId,
-    );
+    await _trackWrite(() async {
+      await store.setReaderSessionActiveTab(
+        sessionId: session.id,
+        activeTabId: tabId,
+      );
+    });
   }
 
   Future<void> deleteSession(String comicId) async {
@@ -95,7 +102,18 @@ class ReaderSessionRepository {
     if (session == null) {
       return;
     }
-    await store.deleteReaderSession(session.id);
+    await _trackWrite(() async {
+      await store.deleteReaderSession(session.id);
+    });
+  }
+
+  Future<void> _trackWrite(Future<void> Function() action) async {
+    _pendingWrites++;
+    try {
+      await action();
+    } finally {
+      _pendingWrites--;
+    }
   }
 
   ReaderTabVm _mapTab(ReaderTabRecord tab, {required String? activeTabId}) {

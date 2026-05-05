@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 import 'package:desktop_webview_window/desktop_webview_window.dart';
 import 'package:dynamic_color/dynamic_color.dart';
 import 'package:flex_seed_scheme/flex_seed_scheme.dart';
@@ -15,6 +16,7 @@ import 'foundation/app/app.dart';
 import 'foundation/app/app_page_route.dart';
 import 'foundation/appdata.dart';
 import 'foundation/diagnostics/diagnostics.dart';
+import 'foundation/diagnostics/app_lifecycle_guard.dart';
 import 'headless.dart';
 import 'init.dart';
 
@@ -66,6 +68,13 @@ void main(List<String> args) {
             'exceptionStack': stack.toString(),
           },
         );
+        unawaited(
+          AppLifecycleGuard.instance.recordFatal(
+            error,
+            stack,
+            phase: 'run_zoned_guarded',
+          ),
+        );
       },
     );
   });
@@ -79,13 +88,32 @@ class MyApp extends StatefulWidget {
 }
 
 class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
+  AppLifecycleState? _lastLifecycleState;
+
   @override
   void initState() {
     App.registerForceRebuild(forceRebuild);
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
     WidgetsBinding.instance.addObserver(this);
+    _installSignalHandlers();
     checkUpdates();
     super.initState();
+  }
+
+  void _installSignalHandlers() {
+    if (!(App.isMacOS || App.isLinux)) {
+      return;
+    }
+    ProcessSignal.sigterm.watch().listen((_) {
+      AppDiagnostics.warn(
+        'app.lifecycle',
+        'app.lifecycle.sigterm',
+        data: AppLifecycleGuard.instance.pendingWriteSnapshot(),
+      );
+      unawaited(
+        AppLifecycleGuard.instance.shutdownRequested(reason: 'sigterm'),
+      );
+    });
   }
 
   bool isAuthPageActive = false;
@@ -94,6 +122,12 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
+    _lastLifecycleState = state;
+    AppDiagnostics.info(
+      'app.lifecycle',
+      'app.lifecycle.stateChanged',
+      data: {'state': state.name},
+    );
     if (!App.isMobile || !appdata.settings['authorizationRequired']) {
       return;
     }
@@ -131,6 +165,19 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
       );
     }
     super.didChangeAppLifecycleState(state);
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    unawaited(
+      AppLifecycleGuard.instance.markCleanShutdown(
+        reason: _lastLifecycleState == AppLifecycleState.detached
+            ? 'app_detached'
+            : 'app_dispose',
+      ),
+    );
+    super.dispose();
   }
 
   void forceRebuild() {

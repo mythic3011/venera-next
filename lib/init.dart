@@ -10,6 +10,7 @@ import 'package:venera/foundation/app/app.dart';
 import 'package:venera/foundation/cache_manager.dart';
 import 'package:venera/features/sources/comic_source/comic_source.dart';
 import 'package:venera/foundation/diagnostics/diagnostics.dart';
+import 'package:venera/foundation/diagnostics/app_lifecycle_guard.dart';
 import 'package:venera/foundation/js/js_engine.dart';
 import 'package:venera/network/cookie_jar.dart';
 import 'package:venera/pages/comic_source_page.dart';
@@ -37,6 +38,7 @@ extension _FutureInit<T> on Future<T> {
 
 Future<void> init() async {
   await App.init().wait();
+  await AppLifecycleGuard.instance.start();
   await SingleInstanceCookieJar.createInstance();
   try {
     await OpenCC.init().wait();
@@ -62,9 +64,14 @@ Future<void> init() async {
     try {
       await FlutterDisplayMode.setHighRefreshRate();
     } catch (e) {
-      AppDiagnostics.error('app.init', e, message: 'set_high_refresh_rate_failed');
+      AppDiagnostics.error(
+        'app.init',
+        e,
+        message: 'set_high_refresh_rate_failed',
+      );
     }
   }
+  final previousFlutterError = FlutterError.onError;
   FlutterError.onError = (details) {
     AppDiagnostics.error(
       'app.unhandled',
@@ -77,6 +84,43 @@ Future<void> init() async {
         'exceptionStack': details.stack?.toString(),
       },
     );
+    unawaited(
+      AppLifecycleGuard.instance.recordFatal(
+        details.exception,
+        details.stack,
+        phase: 'flutter_error',
+      ),
+    );
+    if (previousFlutterError != null) {
+      previousFlutterError(details);
+    } else {
+      FlutterError.presentError(details);
+    }
+  };
+  final previousPlatformDispatcherError = PlatformDispatcher.instance.onError;
+  PlatformDispatcher.instance.onError = (error, stack) {
+    AppDiagnostics.error(
+      'app.unhandled',
+      error,
+      stackTrace: stack,
+      message: error.toString(),
+      data: {
+        'exceptionMessage': error.toString(),
+        'exceptionType': error.runtimeType.toString(),
+        'exceptionStack': stack.toString(),
+        'channel': 'platform_dispatcher',
+      },
+    );
+    unawaited(
+      AppLifecycleGuard.instance.recordFatal(
+        error,
+        stack,
+        phase: 'platform_dispatcher',
+      ),
+    );
+    final handled =
+        previousPlatformDispatcherError?.call(error, stack) ?? false;
+    return handled;
   };
   if (App.isWindows) {
     // Report to the monitor thread that the app is running
@@ -107,7 +151,6 @@ void _checkOldConfigs() {
     }
     appdata.writeImplicitData();
   }
-
 }
 
 Future<void> _checkAppUpdates() async {
