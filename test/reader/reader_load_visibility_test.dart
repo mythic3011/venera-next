@@ -1,3 +1,6 @@
+import 'dart:convert';
+import 'dart:io';
+
 import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:venera/foundation/comic_type.dart';
@@ -15,6 +18,13 @@ void main() {
   tearDown(() {
     ReaderDiagnostics.clearPendingProviderSubscriptionsForTesting();
     AppDiagnostics.resetForTesting();
+  });
+
+  tearDownAll(() {
+    final file = File('/tmp/reader-load-visibility-1x1.png');
+    if (file.existsSync()) {
+      file.deleteSync();
+    }
   });
 
   test('build_reader_image_provider_keeps_requested_page', () {
@@ -118,13 +128,83 @@ void main() {
   );
 
   testWidgets(
-    'reader emits provider not subscribed when provider is created but image stream never starts',
+    'reader emits provider not subscribed when provider is genuinely never listened to',
     (tester) async {
+      ReaderDiagnostics.markImageProviderAwaitingSubscription(
+        loadMode: 'local',
+        sourceKey: 'local',
+        comicId: 'comic-local',
+        chapterId: 'comic-local:__imported__',
+        page: 1,
+        imageKey: 'file:///tmp/local-unsubscribed-page.jpg',
+      );
+      await tester.pumpWidget(const SizedBox.shrink());
+      await tester.pump(const Duration(milliseconds: 55));
+      final emitted = ReaderDiagnostics.recordProviderNotSubscribedIfPending(
+        loadMode: 'local',
+        sourceKey: 'local',
+        comicId: 'comic-local',
+        chapterId: 'comic-local:__imported__',
+        page: 1,
+        imageKey: 'file:///tmp/local-unsubscribed-page.jpg',
+        owner: 'reader.render.postFrame',
+      );
+
+      final events = DevDiagnosticsApi.recent(channel: 'reader.render');
+      expect(emitted, isTrue);
+      expect(
+        events.where(
+          (event) => event.message == 'reader.render.provider.notSubscribed',
+        ),
+        isNotEmpty,
+      );
+    },
+  );
+
+  testWidgets(
+    'reader suppresses immediate notSubscribed when pageAttached exists without load yet',
+    (tester) async {
+      buildReaderImageProvider(
+        imageKey: 'file:///tmp/local-attached-no-load-yet.jpg',
+        sourceRef: SourceRef.fromLegacyLocal(
+          localType: 'local',
+          localComicId: 'comic-local',
+          chapterId: 'comic-local:__imported__',
+        ),
+        canonicalComicId: 'comic-local',
+        upstreamComicRefId: 'comic-local',
+        chapterRefId: 'comic-local:__imported__',
+        page: 2,
+        enableResize: false,
+      );
+      await tester.pumpWidget(const SizedBox.shrink());
+      await tester.pump(const Duration(milliseconds: 60));
+
+      final events = DevDiagnosticsApi.recent(channel: 'reader.render');
+      expect(
+        events.where(
+          (event) => event.message == 'reader.render.provider.notSubscribed',
+        ),
+        isEmpty,
+      );
+    },
+  );
+
+  testWidgets(
+    'reader does not emit provider not subscribed for normal subscribed render path',
+    (tester) async {
+      final file = File('/tmp/reader-load-visibility-1x1.png');
+      file.writeAsBytesSync(
+        base64Decode(
+          'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aF9sAAAAASUVORK5CYII=',
+        ),
+      );
       await tester.pumpWidget(
-        Builder(
-          builder: (_) {
-            buildReaderImageProvider(
-              imageKey: 'file:///tmp/local-unsubscribed-page.jpg',
+        Directionality(
+          textDirection: TextDirection.ltr,
+          child: ComicImage(
+            image: buildReaderImageProvider(
+              imageKey: file.uri.toString(),
               sourceRef: SourceRef.fromLegacyLocal(
                 localType: 'local',
                 localComicId: 'comic-local',
@@ -135,23 +215,26 @@ void main() {
               chapterRefId: 'comic-local:__imported__',
               page: 1,
               enableResize: false,
-            );
-            return const SizedBox.shrink();
-          },
+            ),
+          ),
         ),
       );
       await tester.pump();
+      await tester.pump(const Duration(milliseconds: 60));
 
-      final event = DevDiagnosticsApi.recent(channel: 'reader.render')
-          .singleWhere(
-            (event) => event.message == 'reader.render.provider.notSubscribed',
-          );
-      expect(event.data['code'], 'PROVIDER_NOT_SUBSCRIBED');
-      expect(event.data['loadMode'], 'local');
-      expect(event.data['sourceKey'], 'local');
-      expect(event.data['comicId'], 'comic-local');
-      expect(event.data['chapterId'], 'comic-local:__imported__');
-      expect(event.data['page'], 1);
+      final events = DevDiagnosticsApi.recent(channel: 'reader.render');
+      expect(
+        events.where(
+          (event) => event.message == 'reader.render.provider.notSubscribed',
+        ),
+        isEmpty,
+      );
+      expect(
+        events.where(
+          (event) => event.message == 'reader.render.provider.created',
+        ),
+        isNotEmpty,
+      );
     },
   );
 
