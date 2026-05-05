@@ -1,0 +1,74 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "App Settings",
+  "description": "Application preferences and configuration (user-only, not domain data)",
+  "type": "object",
+  "properties": {
+    "version": {
+      "type": "string",
+      "pattern": "^1\\.0\\.0$"
+    },
+    "ui": {
+      "type": "object",
+      "properties": {
+        "theme": {
+          "type": "string",
+          "enum": ["light", "dark", "auto"]
+        },
+        "language": {
+          "type": "string",
+          "default": "en"
+        },
+        "readerViewMode": {
+          "type": "string",
+          "enum": ["scroll", "paginate", "spread"]
+        },
+        "readerOrientation": {
+          "type": "string",
+          "enum": ["portrait", "landscape"]
+        }
+      }
+    },
+    "reader": {
+      "type": "object",
+      "properties": {
+        "preloadPages": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 5
+        },
+        "imageCacheSize": {
+          "type": "integer",
+          "description": "Cache size in MB"
+        }
+      }
+    },
+    "network": {
+      "type": "object",
+      "properties": {
+        "requestTimeout": {
+          "type": "integer",
+          "description": "Timeout in seconds"
+        },
+        "maxRetries": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "debug": {
+      "type": "object",
+      "properties": {
+        "enableDiagnostics": {
+          "type": "boolean",
+          "default": false
+        },
+        "logLevel": {
+          "type": "string",
+          "enum": ["trace", "debug", "info", "warn", "error"]
+        }
+      }
+    }
+  },
+  "additionalProperties": false
+}
