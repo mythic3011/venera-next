@@ -7,7 +7,7 @@ ReaderOpenRequest buildLocalComicReaderOpenRequest({
   required History? history,
   required int? firstDownloadedChapter,
   required int? firstDownloadedChapterGroup,
-  required SourceRef? resumeSourceRef,
+  required ReaderOpenTarget? resumeTarget,
   String? diagnosticEntrypoint,
   String? diagnosticCaller,
 }) {
@@ -17,9 +17,38 @@ ReaderOpenRequest buildLocalComicReaderOpenRequest({
     chapters: comic.chapters,
     ep: history?.ep ?? firstDownloadedChapter,
     group: history?.group ?? firstDownloadedChapterGroup,
-    resumeSourceRef: resumeSourceRef,
+    resumeTarget: resumeTarget,
   );
   return ReaderOpenRequest(
+    comicId: comic.id,
+    sourceRef: sourceRef,
+    sourceKey: sourceRef.sourceKey,
+    initialEp: history?.ep ?? firstDownloadedChapter,
+    initialPage: history?.page,
+    initialGroup: history?.group ?? firstDownloadedChapterGroup,
+    diagnosticEntrypoint: diagnosticEntrypoint,
+    diagnosticCaller: diagnosticCaller,
+  );
+}
+
+ReaderRouteRequest buildLocalComicReaderRouteRequest({
+  required LocalComic comic,
+  required History? history,
+  required int? firstDownloadedChapter,
+  required int? firstDownloadedChapterGroup,
+  required ReaderOpenTarget? resumeTarget,
+  String? diagnosticEntrypoint,
+  String? diagnosticCaller,
+}) {
+  final sourceRef = resolveReaderTargetSourceRef(
+    comicId: comic.id,
+    sourceKey: comic.comicType.sourceKey,
+    chapters: comic.chapters,
+    ep: history?.ep ?? firstDownloadedChapter,
+    group: history?.group ?? firstDownloadedChapterGroup,
+    resumeTarget: resumeTarget,
+  );
+  return ReaderRouteRequest(
     comicId: comic.id,
     sourceRef: sourceRef,
     sourceKey: sourceRef.sourceKey,
@@ -168,12 +197,20 @@ class LocalComic with HistoryMixin implements Comic {
         }
       }
     }
-    final request = buildLocalComicReaderOpenRequest(
+    final readerSessions = App.repositories.readerSession;
+    final resumeTarget =
+        await ReaderResumeService(
+          readerSessions: readerSessions,
+        ).loadPreferredResumeTarget(id, comicType) ??
+        await ReaderLegacyResumeMigrationAdapter.fromHistoryManager(
+          readerSessions: readerSessions,
+        ).loadAndMigratePreferredResumeTarget(id, comicType);
+    final request = buildLocalComicReaderRouteRequest(
       comic: this,
       history: history,
       firstDownloadedChapter: firstDownloadedChapter,
       firstDownloadedChapterGroup: firstDownloadedChapterGroup,
-      resumeSourceRef: HistoryManager().findResumeSourceRef(id, comicType),
+      resumeTarget: resumeTarget,
       diagnosticEntrypoint: 'local_comic.read',
       diagnosticCaller: 'LocalComic.read',
     );

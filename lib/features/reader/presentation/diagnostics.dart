@@ -15,7 +15,9 @@ String? normalizeReaderRouteLifecycleEventForTesting(String? event) {
 }
 
 @visibleForTesting
-bool shouldWarnOnShortLivedReaderDisposeForTesting(String? routeLifecycleEvent) {
+bool shouldWarnOnShortLivedReaderDisposeForTesting(
+  String? routeLifecycleEvent,
+) {
   final normalized = normalizeReaderRouteLifecycleEventForTesting(
     routeLifecycleEvent,
   );
@@ -23,7 +25,9 @@ bool shouldWarnOnShortLivedReaderDisposeForTesting(String? routeLifecycleEvent) 
 }
 
 @visibleForTesting
-void emitReaderShortLivedDisposeDiagnosticForTesting(Map<String, Object?> data) {
+void emitReaderShortLivedDisposeDiagnosticForTesting(
+  Map<String, Object?> data,
+) {
   if (!shouldWarnOnShortLivedReaderDisposeForTesting(
     data['routeLifecycleEvent']?.toString(),
   )) {
@@ -567,10 +571,9 @@ extension _ReaderDiagnosticsState on _ReaderState {
       },
     );
     if (openDurationMs != null && openDurationMs < 5000) {
-      final routeLifecycleEvent =
-          navigatorLifecycleDiagnosticForRouteHash(
-            _routeHashSnapshot,
-          )?['event']?.toString();
+      final routeLifecycleEvent = navigatorLifecycleDiagnosticForRouteHash(
+        _routeHashSnapshot,
+      )?['event']?.toString();
       if (shouldWarnOnShortLivedReaderDisposeForTesting(routeLifecycleEvent)) {
         emitReaderShortLivedDisposeDiagnosticForTesting({
           'disposeCause': disposeCause,

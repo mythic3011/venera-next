@@ -14,6 +14,8 @@ class ReaderSessionRepository {
   final ReaderSessionStorePort store;
   final Map<String, _SessionProgressSnapshot> _lastProgressByTabId = {};
   final Map<String, String?> _lastActiveTabByComicId = {};
+  final Map<_DesiredReaderSessionState, Future<ReaderSessionPersistResult>>
+  _inFlightPersistByDesiredState = {};
 
   static String sessionIdForComic(String comicId) {
     return 'reader-session:${Uri.encodeComponent(comicId)}';
@@ -44,7 +46,7 @@ class ReaderSessionRepository {
     return tabs.isEmpty ? null : tabs.first;
   }
 
-  Future<void> upsertCurrentLocation({
+  Future<ReaderSessionPersistResult> upsertCurrentLocation({
     required String comicId,
     required String chapterId,
     required int pageIndex,
@@ -62,12 +64,34 @@ class ReaderSessionRepository {
       sourceRefJson: sourceRefJson,
       pageOrderId: pageOrderId,
     );
-    if (_lastProgressByTabId[resolvedTabId] == snapshot &&
-        (!makeActive || _lastActiveTabByComicId[comicId] == resolvedTabId)) {
-      return;
+    final desiredState = _DesiredReaderSessionState(
+      comicId: comicId,
+      sessionId: sessionId,
+      tabId: resolvedTabId,
+      snapshot: snapshot,
+      makeActive: makeActive,
+    );
+    final cachedUnchanged =
+        _lastProgressByTabId[resolvedTabId] == snapshot &&
+        (!makeActive || _lastActiveTabByComicId[comicId] == resolvedTabId);
+    if (cachedUnchanged) {
+      return const ReaderSessionPersistResult.skipped(
+        ReaderSessionPersistSkipReason.unchangedMemory,
+      );
     }
-    await _trackWrite(() async {
-      await saveProgress(
+    final inFlight = _inFlightPersistByDesiredState[desiredState];
+    if (inFlight != null) {
+      final result = await inFlight;
+      if (result.written) {
+        return const ReaderSessionPersistResult.skipped(
+          ReaderSessionPersistSkipReason.duplicateInFlight,
+        );
+      }
+      return result;
+    }
+
+    final persistFuture = _trackWrite(() async {
+      final result = await saveProgress(
         sessionId: sessionId,
         comicId: comicId,
         tabId: resolvedTabId,
@@ -77,11 +101,26 @@ class ReaderSessionRepository {
         pageOrderId: pageOrderId,
         makeActive: makeActive,
       );
-      _lastProgressByTabId[resolvedTabId] = snapshot;
-      if (makeActive) {
-        _lastActiveTabByComicId[comicId] = resolvedTabId;
+      if (result.written ||
+          result.skipReason == ReaderSessionPersistSkipReason.unchanged) {
+        _lastProgressByTabId[resolvedTabId] = snapshot;
+        if (makeActive) {
+          _lastActiveTabByComicId[comicId] = resolvedTabId;
+        }
       }
+      return result;
     });
+    _inFlightPersistByDesiredState[desiredState] = persistFuture;
+    try {
+      return await persistFuture;
+    } finally {
+      if (identical(
+        _inFlightPersistByDesiredState[desiredState],
+        persistFuture,
+      )) {
+        _inFlightPersistByDesiredState.remove(desiredState);
+      }
+    }
   }
 
   Future<void> markActiveTab({
@@ -96,10 +135,7 @@ class ReaderSessionRepository {
       throw StateError('No reader session exists for comic $comicId.');
     }
     await _trackWrite(() async {
-      await updateActiveTab(
-        sessionId: session.id,
-        activeTabId: tabId,
-      );
+      await updateActiveTab(sessionId: session.id, activeTabId: tabId);
       _lastActiveTabByComicId[comicId] = tabId;
     });
   }
@@ -128,7 +164,7 @@ class ReaderSessionRepository {
     );
   }
 
-  Future<void> saveProgress({
+  Future<ReaderSessionPersistResult> saveProgress({
     required String sessionId,
     required String comicId,
     required String tabId,
@@ -140,7 +176,7 @@ class ReaderSessionRepository {
   }) async {
     if (store is UnifiedComicsStore) {
       final dbStore = store as UnifiedComicsStore;
-      await dbStore.saveReaderProgress(
+      return dbStore.saveReaderProgress(
         session: ReaderSessionRecord(id: sessionId, comicId: comicId),
         tab: ReaderTabRecord(
           id: tabId,
@@ -153,7 +189,6 @@ class ReaderSessionRepository {
         ),
         makeActive: makeActive,
       );
-      return;
     }
 
     await upsertSession(sessionId: sessionId, comicId: comicId);
@@ -171,6 +206,7 @@ class ReaderSessionRepository {
     if (makeActive) {
       await updateActiveTab(sessionId: sessionId, activeTabId: tabId);
     }
+    return const ReaderSessionPersistResult.written();
   }
 
   Future<void> deleteSession(String comicId) async {
@@ -183,10 +219,10 @@ class ReaderSessionRepository {
     });
   }
 
-  Future<void> _trackWrite(Future<void> Function() action) async {
+  Future<T> _trackWrite<T>(Future<T> Function() action) async {
     _pendingWrites++;
     try {
-      await action();
+      return await action();
     } finally {
       _pendingWrites--;
     }
@@ -234,10 +270,36 @@ class _SessionProgressSnapshot {
   }
 
   @override
-  int get hashCode => Object.hash(
-    chapterId,
-    pageIndex,
-    sourceRefJson,
-    pageOrderId,
-  );
+  int get hashCode =>
+      Object.hash(chapterId, pageIndex, sourceRefJson, pageOrderId);
+}
+
+class _DesiredReaderSessionState {
+  const _DesiredReaderSessionState({
+    required this.comicId,
+    required this.sessionId,
+    required this.tabId,
+    required this.snapshot,
+    required this.makeActive,
+  });
+
+  final String comicId;
+  final String sessionId;
+  final String tabId;
+  final _SessionProgressSnapshot snapshot;
+  final bool makeActive;
+
+  @override
+  bool operator ==(Object other) {
+    return other is _DesiredReaderSessionState &&
+        other.comicId == comicId &&
+        other.sessionId == sessionId &&
+        other.tabId == tabId &&
+        other.snapshot == snapshot &&
+        other.makeActive == makeActive;
+  }
+
+  @override
+  int get hashCode =>
+      Object.hash(comicId, sessionId, tabId, snapshot, makeActive);
 }

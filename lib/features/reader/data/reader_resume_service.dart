@@ -1,27 +1,18 @@
-import 'dart:async';
-
 import 'package:flutter/foundation.dart';
 import 'package:venera/features/comic_detail/data/comic_detail_models.dart';
 import 'package:venera/foundation/comic_type.dart';
 import 'package:venera/foundation/db/remote_comic_sync.dart';
 import 'package:venera/foundation/reader/reader_diagnostics.dart';
+import 'package:venera/foundation/reader/reader_open_target.dart';
 import 'package:venera/features/reader/data/reader_runtime_context.dart';
 import 'package:venera/features/reader/data/reader_session_repository.dart';
-import 'package:venera/foundation/sources/source_ref.dart';
-
-typedef LegacyResumeSourceRefLoader =
-    FutureOr<SourceRef?> Function(String comicId, ComicType type);
 
 class ReaderResumeService {
-  const ReaderResumeService({
-    required this.readerSessions,
-    this.loadLegacyResumeSourceRef,
-  });
+  const ReaderResumeService({required this.readerSessions});
 
   final ReaderSessionRepository readerSessions;
-  final LegacyResumeSourceRefLoader? loadLegacyResumeSourceRef;
 
-  Future<SourceRef?> loadPreferredResumeSourceRef(
+  Future<ReaderOpenTarget?> loadPreferredResumeTarget(
     String comicId,
     ComicType type,
   ) async {
@@ -66,47 +57,16 @@ class ReaderResumeService {
         ),
         tabId: canonicalActiveTab.tabId,
       );
-      return canonicalActiveTab.sourceRef;
+      return ReaderOpenTarget(sourceRef: canonicalActiveTab.sourceRef);
     }
-    final legacyLoader = loadLegacyResumeSourceRef;
-    if (legacyLoader == null) {
-      ReaderDiagnostics.recordResumeLookupEvent(
-        event: 'reader.session.load.legacy_fallback_miss',
-        comicId: canonicalComicId,
-        sourceKey: type.sourceKey,
-        loadMode: type == ComicType.local ? 'local' : 'remote',
-        fallbackSource: 'none',
-      );
-      return null;
-    }
-    final legacySourceRef = await legacyLoader(comicId, type);
-    if (legacySourceRef != null) {
-      ReaderDiagnostics.recordResumeLookupEvent(
-        event: 'reader.session.load.legacy_fallback_hit',
-        comicId: canonicalComicId,
-        sourceKey: legacySourceRef.sourceKey,
-        loadMode: legacySourceRef.type == SourceRefType.local
-            ? 'local'
-            : 'remote',
-        chapterId: legacySourceRef.params['chapterId']?.toString(),
-        fallbackSource: 'reading_resume_targets_v1',
-      );
-      return legacySourceRef;
-    }
-    ReaderDiagnostics.recordResumeLookupEvent(
-      event: 'reader.session.load.legacy_fallback_miss',
-      comicId: canonicalComicId,
-      sourceKey: type.sourceKey,
-      loadMode: type == ComicType.local ? 'local' : 'remote',
-      fallbackSource: 'reading_resume_targets_v1',
-    );
     return null;
   }
 }
 
 @visibleForTesting
-SourceRef? choosePreferredResumeSourceRefForTesting({
+ReaderOpenTarget? choosePreferredResumeTargetForTesting({
   required ReaderTabVm? canonicalActiveTab,
 }) {
-  return canonicalActiveTab?.sourceRef;
+  final sourceRef = canonicalActiveTab?.sourceRef;
+  return sourceRef == null ? null : ReaderOpenTarget(sourceRef: sourceRef);
 }

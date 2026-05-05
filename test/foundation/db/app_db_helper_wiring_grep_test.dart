@@ -48,7 +48,10 @@ void main() {
       final content = await File(
         'lib/features/reader/data/reader_session_repository.dart',
       ).readAsString();
-      expect(content.contains('Future<void> saveProgress('), isTrue);
+      expect(
+        content.contains('Future<ReaderSessionPersistResult> saveProgress('),
+        isTrue,
+      );
       expect(content.contains('Future<void> updateActiveTab('), isTrue);
       expect(content.contains('dbStore.saveReaderProgress('), isTrue);
     },
@@ -362,7 +365,7 @@ void main() {
           ? content.substring(upsertSessionStart)
           : content.substring(upsertSessionStart, upsertSessionEnd);
       expect(upsertSessionBlock.contains('runCanonicalWrite<void>('), isTrue);
-      expect(upsertSessionBlock.contains("domain: 'reader_session'"), isTrue);
+      expect(upsertSessionBlock.contains("domain: 'reader_sessions'"), isTrue);
       expect(
         upsertSessionBlock.contains("operation: 'upsert_reader_session'"),
         isTrue,
@@ -525,14 +528,14 @@ void main() {
         ],
       },
       'reader session/tab': {
-        'prefixes': ['reader_sessions.', 'reader_session.'],
+        'prefixes': ['reader_sessions.'],
         'methods': [
           'Future<void> upsertReaderTab(ReaderTabRecord record)',
           'Future<void> deleteReaderSession(String sessionId)',
           'Future<void> deleteReaderTab(String tabId)',
           'Future<void> deleteReaderActivity(String comicId)',
           'Future<void> clearReaderActivity()',
-          'Future<void> saveReaderProgress({',
+          'Future<ReaderSessionPersistResult> saveReaderProgress({',
         ],
       },
       'remote match/import reconciliation': {

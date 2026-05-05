@@ -18,6 +18,8 @@ import 'package:venera/foundation/local_metadata/local_metadata.dart';
 import 'package:venera/foundation/reader/reader_open_target.dart';
 import 'package:venera/foundation/sources/source_ref.dart';
 import 'package:venera/network/download.dart';
+import 'package:venera/features/reader/data/reader_legacy_resume_migration_adapter.dart';
+import 'package:venera/features/reader/data/reader_resume_service.dart';
 import 'package:venera/features/reader/presentation/reader.dart';
 import 'package:venera/features/reader/presentation/reader_route_dispatch_authority.dart';
 import 'package:venera/utils/import_sort.dart';
@@ -239,7 +241,12 @@ class LocalManager with ChangeNotifier {
         await directory.create();
       }
     } catch (e, s) {
-      AppDiagnostics.error('io.runtime', e, stackTrace: s, message: 'create_local_folder_failed');
+      AppDiagnostics.error(
+        'io.runtime',
+        e,
+        stackTrace: s,
+        message: 'create_local_folder_failed',
+      );
     }
     _checkPathValidation();
     _checkNoMedia();
@@ -957,7 +964,11 @@ class LocalManager with ChangeNotifier {
         }
       } catch (e) {
         file.delete();
-        AppDiagnostics.error('local.manager', e, message: 'restore_downloading_tasks_failed');
+        AppDiagnostics.error(
+          'local.manager',
+          e,
+          message: 'restore_downloading_tasks_failed',
+        );
       }
     }
   }
@@ -1294,7 +1305,12 @@ class LocalManager with ChangeNotifier {
         );
       }
     } catch (e, s) {
-      AppDiagnostics.error('local.manager', e, stackTrace: s, message: 'batch_delete_comics_failed');
+      AppDiagnostics.error(
+        'local.manager',
+        e,
+        stackTrace: s,
+        message: 'batch_delete_comics_failed',
+      );
       _db.execute('ROLLBACK;');
       return;
     }

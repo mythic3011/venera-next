@@ -1,9 +1,11 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:venera/features/comic_detail/data/comic_detail_models.dart';
 import 'package:venera/features/sources/comic_source/comic_source.dart';
+import 'package:venera/foundation/diagnostics/diagnostics.dart';
 import 'package:venera/foundation/comic_type.dart';
 import 'package:venera/foundation/history.dart';
 import 'package:venera/foundation/local.dart';
+import 'package:venera/foundation/reader/reader_open_target.dart';
 import 'package:venera/features/reader/presentation/reader.dart';
 import 'package:venera/foundation/sources/source_ref.dart';
 import 'package:venera/pages/comic_details_page/comic_page.dart';
@@ -34,56 +36,66 @@ class _TestHistoryModel with HistoryMixin {
 }
 
 void main() {
-  test('resolve_reader_open_source_ref_handles_missing_source_key_fail_closed', () {
-    final resolved = resolveReaderOpenSourceRef(
-      comicId: 'comic-1',
-      explicitSourceRef: null,
-      resumeSourceRef: null,
-      sourceKey: null,
-    );
-    expect(resolved, isNull);
+  setUp(() {
+    AppDiagnostics.resetForTesting();
   });
 
-  test('resolve_reader_open_source_ref_precedence_explicit_then_resume_then_legacy', () {
-    final explicit = SourceRef.fromLegacyLocal(
-      localType: 'local',
-      localComicId: 'comic-1',
-      chapterId: 'ch-1',
-    );
-    final resume = SourceRef.fromLegacyRemote(
-      sourceKey: 'copymanga',
-      comicId: 'comic-1',
-      chapterId: 'ch-1',
-    );
+  test(
+    'resolve_reader_open_source_ref_handles_missing_source_key_fail_closed',
+    () {
+      final resolved = resolveReaderOpenSourceRef(
+        comicId: 'comic-1',
+        explicitSourceRef: null,
+        resumeSourceRef: null,
+        sourceKey: null,
+      );
+      expect(resolved, isNull);
+    },
+  );
 
-    final withExplicit = resolveReaderOpenSourceRef(
-      comicId: 'comic-1',
-      explicitSourceRef: explicit,
-      resumeSourceRef: resume,
-      sourceKey: 'another',
-    );
-    expect(withExplicit, isNotNull);
-    expect(withExplicit!.id, explicit.id);
+  test(
+    'resolve_reader_open_source_ref_precedence_explicit_then_resume_then_legacy',
+    () {
+      final explicit = SourceRef.fromLegacyLocal(
+        localType: 'local',
+        localComicId: 'comic-1',
+        chapterId: 'ch-1',
+      );
+      final resume = SourceRef.fromLegacyRemote(
+        sourceKey: 'copymanga',
+        comicId: 'comic-1',
+        chapterId: 'ch-1',
+      );
 
-    final withResume = resolveReaderOpenSourceRef(
-      comicId: 'comic-1',
-      explicitSourceRef: null,
-      resumeSourceRef: resume,
-      sourceKey: 'another',
-    );
-    expect(withResume, isNotNull);
-    expect(withResume!.id, resume.id);
+      final withExplicit = resolveReaderOpenSourceRef(
+        comicId: 'comic-1',
+        explicitSourceRef: explicit,
+        resumeSourceRef: resume,
+        sourceKey: 'another',
+      );
+      expect(withExplicit, isNotNull);
+      expect(withExplicit!.id, explicit.id);
 
-    final withLegacy = resolveReaderOpenSourceRef(
-      comicId: 'comic-1',
-      explicitSourceRef: null,
-      resumeSourceRef: null,
-      sourceKey: 'copymanga',
-    );
-    expect(withLegacy, isNotNull);
-    expect(withLegacy!.type, SourceRefType.remote);
-    expect(withLegacy.sourceKey, 'copymanga');
-  });
+      final withResume = resolveReaderOpenSourceRef(
+        comicId: 'comic-1',
+        explicitSourceRef: null,
+        resumeSourceRef: resume,
+        sourceKey: 'another',
+      );
+      expect(withResume, isNotNull);
+      expect(withResume!.id, resume.id);
+
+      final withLegacy = resolveReaderOpenSourceRef(
+        comicId: 'comic-1',
+        explicitSourceRef: null,
+        resumeSourceRef: null,
+        sourceKey: 'copymanga',
+      );
+      expect(withLegacy, isNotNull);
+      expect(withLegacy!.type, SourceRefType.remote);
+      expect(withLegacy.sourceKey, 'copymanga');
+    },
+  );
 
   test('reader open request uses sourceRef id as canonical identity', () {
     final sourceRef = SourceRef.fromLegacyLocal(
@@ -182,23 +194,55 @@ void main() {
     );
   });
 
-  test('ReaderWithLoading normalizes legacy id sourceKey initialEp into ReaderOpenRequest', () {
-    final request = normalizeLegacyReaderOpenRequest(
-      comicId: 'comic-1',
-      explicitSourceRef: null,
-      sourceKey: 'copymanga',
-      initialEp: 3,
-      initialPage: 7,
-      initialGroup: 2,
-    );
+  test(
+    'local reader open request rejects unresolved local target before dispatch',
+    () {
+      expect(
+        () => ReaderOpenRequest(
+          comicId: 'comic-local',
+          sourceRef: SourceRef.fromLegacyLocal(
+            localType: 'local',
+            localComicId: 'comic-local',
+            chapterId: null,
+          ),
+        ),
+        throwsA(
+          isA<ReaderOpenRequestIdentityError>().having(
+            (error) => error.code,
+            'code',
+            ReaderOpenRequestIdentityErrorCode.unresolvedLocalTarget,
+          ),
+        ),
+      );
 
-    expect(request.comicId, 'comic-1');
-    expect(request.sourceRef, isNotNull);
-    expect(request.sourceRef!.sourceKey, 'copymanga');
-    expect(request.initialEp, 3);
-    expect(request.initialPage, 7);
-    expect(request.initialGroup, 2);
-  });
+      final event = DevDiagnosticsApi.recent(channel: 'reader.route').single;
+      expect(event.message, 'reader.route.unresolved_target');
+      expect(event.data['comicId'], 'comic-local');
+      expect(event.data['sourceRefId'], 'local:local:comic-local:_');
+      expect(event.data['reason'], 'missingLocalChapterId');
+    },
+  );
+
+  test(
+    'ReaderWithLoading normalizes legacy id sourceKey initialEp into ReaderOpenRequest',
+    () {
+      final request = normalizeLegacyReaderOpenRequest(
+        comicId: 'comic-1',
+        explicitSourceRef: null,
+        sourceKey: 'copymanga',
+        initialEp: 3,
+        initialPage: 7,
+        initialGroup: 2,
+      );
+
+      expect(request.comicId, 'comic-1');
+      expect(request.sourceRef, isNotNull);
+      expect(request.sourceRef!.sourceKey, 'copymanga');
+      expect(request.initialEp, 3);
+      expect(request.initialPage, 7);
+      expect(request.initialGroup, 2);
+    },
+  );
 
   test('legacy sourceKey path remains supported when sourceRef is absent', () {
     final request = ReaderOpenRequest(
@@ -213,58 +257,67 @@ void main() {
     expect(request.sourceKey, 'copymanga');
   });
 
-  test('ReaderWithLoading accepts resolved ReaderOpenRequest as single contract', () {
-    final request = ReaderOpenRequest(
-      comicId: 'comic-local',
-      sourceRef: SourceRef.fromLegacyLocal(
-        localType: 'local',
-        localComicId: 'comic-local',
-        chapterId: '1:__imported__',
-      ),
-      sourceKey: 'local',
-      initialEp: 1,
-      initialPage: 3,
-    );
+  test(
+    'ReaderWithLoading accepts resolved ReaderOpenRequest as single contract',
+    () {
+      final request = ReaderOpenRequest(
+        comicId: 'comic-local',
+        sourceRef: SourceRef.fromLegacyLocal(
+          localType: 'local',
+          localComicId: 'comic-local',
+          chapterId: '1:__imported__',
+        ),
+        sourceKey: 'local',
+        initialEp: 1,
+        initialPage: 3,
+      );
 
-    final widget = ReaderWithLoading.fromRequest(request: request);
+      final widget = ReaderWithLoading.fromRequest(request: request);
 
-    expect(widget.normalizedRequest.comicId, 'comic-local');
-    expect(
-      widget.normalizedRequest.sourceRefId,
-      'local:local:comic-local:1:__imported__',
-    );
-    expect(widget.normalizedRequest.initialPage, 3);
-  });
+      expect(widget.normalizedRequest.comicId, 'comic-local');
+      expect(
+        widget.normalizedRequest.sourceRefId,
+        'local:local:comic-local:1:__imported__',
+      );
+      expect(widget.normalizedRequest.initialPage, 3);
+    },
+  );
 
-  test('legacy ReaderWithLoading constructor remains supported during migration', () {
-    final widget = ReaderWithLoading(
-      id: 'comic-legacy',
-      sourceKey: 'copymanga',
-      initialEp: 2,
-      initialPage: 6,
-    );
+  test(
+    'legacy ReaderWithLoading constructor remains supported during migration',
+    () {
+      final widget = ReaderWithLoading(
+        id: 'comic-legacy',
+        sourceKey: 'copymanga',
+        initialEp: 2,
+        initialPage: 6,
+      );
 
-    expect(widget.normalizedRequest.comicId, 'comic-legacy');
-    expect(widget.normalizedRequest.sourceRef, isNotNull);
-    expect(widget.normalizedRequest.sourceKey, 'copymanga');
-    expect(widget.normalizedRequest.initialEp, 2);
-    expect(widget.normalizedRequest.initialPage, 6);
-  });
+      expect(widget.normalizedRequest.comicId, 'comic-legacy');
+      expect(widget.normalizedRequest.sourceRef, isNotNull);
+      expect(widget.normalizedRequest.sourceKey, 'copymanga');
+      expect(widget.normalizedRequest.initialEp, 2);
+      expect(widget.normalizedRequest.initialPage, 6);
+    },
+  );
 
-  test('legacy_history_ep_page_group_controls_initial_position_when_no_override', () {
-    final position = resolveReaderInitialPosition(
-      requestedEp: null,
-      requestedPage: null,
-      requestedGroup: null,
-      historyEp: 7,
-      historyPage: 12,
-      historyGroup: 3,
-    );
+  test(
+    'legacy_history_ep_page_group_controls_initial_position_when_no_override',
+    () {
+      final position = resolveReaderInitialPosition(
+        requestedEp: null,
+        requestedPage: null,
+        requestedGroup: null,
+        historyEp: 7,
+        historyPage: 12,
+        historyGroup: 3,
+      );
 
-    expect(position.chapter, 7);
-    expect(position.page, 12);
-    expect(position.group, 3);
-  });
+      expect(position.chapter, 7);
+      expect(position.page, 12);
+      expect(position.group, 3);
+    },
+  );
 
   test('explicit_group_override_is_preserved_in_initial_position', () {
     final position = resolveReaderInitialPosition(
@@ -409,99 +462,109 @@ void main() {
     },
   );
 
-  test('canonical active tab seeds compatibility history without legacy lookup', () {
-    final history = buildReaderCompatibilityHistory(
-      model: _TestHistoryModel(
-        title: 'Comic 1',
-        subTitle: '',
-        cover: '',
-        id: 'comic-1',
-        historyType: ComicType.local,
-      ),
-      chapters: const ComicChapters({
-        'chapter-1': 'Episode 1',
-        'chapter-2': 'Episode 2',
-      }),
-      canonicalActiveTab: ReaderTabVm(
-        tabId: 'tab-1',
-        currentChapterId: 'chapter-2',
-        currentPageIndex: 9,
-        sourceRef: SourceRef.fromLegacyLocal(
-          localType: 'local',
-          localComicId: 'comic-1',
-          chapterId: 'chapter-2',
+  test(
+    'canonical active tab seeds compatibility history without legacy lookup',
+    () {
+      final history = buildReaderCompatibilityHistory(
+        model: _TestHistoryModel(
+          title: 'Comic 1',
+          subTitle: '',
+          cover: '',
+          id: 'comic-1',
+          historyType: ComicType.local,
         ),
-        loadMode: ReaderTabLoadMode.localLibrary,
-        isActive: true,
-      ),
-    );
+        chapters: const ComicChapters({
+          'chapter-1': 'Episode 1',
+          'chapter-2': 'Episode 2',
+        }),
+        canonicalActiveTab: ReaderTabVm(
+          tabId: 'tab-1',
+          currentChapterId: 'chapter-2',
+          currentPageIndex: 9,
+          sourceRef: SourceRef.fromLegacyLocal(
+            localType: 'local',
+            localComicId: 'comic-1',
+            chapterId: 'chapter-2',
+          ),
+          loadMode: ReaderTabLoadMode.localLibrary,
+          isActive: true,
+        ),
+      );
 
-    expect(history.ep, 2);
-    expect(history.page, 9);
-    expect(history.group, isNull);
-  });
+      expect(history.ep, 2);
+      expect(history.page, 9);
+      expect(history.group, isNull);
+    },
+  );
 
-  test('missing canonical active tab falls back to empty compatibility history', () {
-    final history = buildReaderCompatibilityHistory(
-      model: _TestHistoryModel(
-        title: 'Comic 1',
-        subTitle: '',
-        cover: '',
-        id: 'comic-1',
-        historyType: ComicType.local,
-      ),
-      chapters: const ComicChapters({'chapter-1': 'Episode 1'}),
-      canonicalActiveTab: null,
-    );
+  test(
+    'missing canonical active tab falls back to empty compatibility history',
+    () {
+      final history = buildReaderCompatibilityHistory(
+        model: _TestHistoryModel(
+          title: 'Comic 1',
+          subTitle: '',
+          cover: '',
+          id: 'comic-1',
+          historyType: ComicType.local,
+        ),
+        chapters: const ComicChapters({'chapter-1': 'Episode 1'}),
+        canonicalActiveTab: null,
+      );
 
-    expect(history.ep, 0);
-    expect(history.page, 0);
-  });
+      expect(history.ep, 0);
+      expect(history.page, 0);
+    },
+  );
 
-  test('detail and history reader requests produce the same resolved local reader identity', () {
-    final resolvedLocalRef = SourceRef.fromLegacyLocal(
-      localType: 'local',
-      localComicId: 'comic-local',
-      chapterId: '1:__imported__',
-    );
-    final detailRequest = buildComicDetailReaderOpenRequest(
-      comic: ComicDetails.fromJson({
-        'title': 'Local Comic',
-        'sourceKey': 'local',
-        'comicId': 'comic-local',
-      }),
-      sourceRef: resolvedLocalRef,
-      ep: 1,
-      page: 5,
-      group: null,
-    );
-    final localComic = LocalComic(
-      id: 'comic-local',
-      title: 'Local Comic',
-      subtitle: 'Imported',
-      tags: const <String>[],
-      directory: '/tmp/comic-local',
-      chapters: ComicChapters({
-        '1:__imported__': 'Imported Chapter',
-      }),
-      cover: 'cover.jpg',
-      comicType: ComicType.local,
-      downloadedChapters: const <String>['1:__imported__'],
-      createdAt: DateTime.utc(2026, 5, 3),
-    );
-    final historyRequest = buildLocalComicReaderOpenRequest(
-      comic: localComic,
-      history: History.fromModel(model: localComic, ep: 1, page: 5),
-      firstDownloadedChapter: 1,
-      firstDownloadedChapterGroup: null,
-      resumeSourceRef: resolvedLocalRef,
-    );
+  test(
+    'detail and history reader requests produce the same resolved local reader identity',
+    () {
+      final resolvedLocalRef = SourceRef.fromLegacyLocal(
+        localType: 'local',
+        localComicId: 'comic-local',
+        chapterId: '1:__imported__',
+      );
+      final detailRequest = buildComicDetailReaderOpenRequest(
+        comic: ComicDetails.fromJson({
+          'title': 'Local Comic',
+          'sourceKey': 'local',
+          'comicId': 'comic-local',
+        }),
+        sourceRef: resolvedLocalRef,
+        ep: 1,
+        page: 5,
+        group: null,
+      );
+      final localComic = LocalComic(
+        id: 'comic-local',
+        title: 'Local Comic',
+        subtitle: 'Imported',
+        tags: const <String>[],
+        directory: '/tmp/comic-local',
+        chapters: ComicChapters({'1:__imported__': 'Imported Chapter'}),
+        cover: 'cover.jpg',
+        comicType: ComicType.local,
+        downloadedChapters: const <String>['1:__imported__'],
+        createdAt: DateTime.utc(2026, 5, 3),
+      );
+      final historyRequest = buildLocalComicReaderOpenRequest(
+        comic: localComic,
+        history: History.fromModel(model: localComic, ep: 1, page: 5),
+        firstDownloadedChapter: 1,
+        firstDownloadedChapterGroup: null,
+        resumeTarget: ReaderOpenTarget(sourceRef: resolvedLocalRef),
+      );
 
-    expect(detailRequest.sourceRef.id, historyRequest.sourceRefId);
-    expect(detailRequest.sourceRef.id, 'local:local:comic-local:1:__imported__');
-  });
+      expect(detailRequest.sourceRef.id, historyRequest.sourceRefId);
+      expect(
+        detailRequest.sourceRef.id,
+        'local:local:comic-local:1:__imported__',
+      );
+    },
+  );
 
-  test('comic detail opens reader through ReaderOpenRequest', () {
+  test('comic detail request normalizes through ReaderOpenRequest', () {
     final sourceRef = SourceRef.fromLegacyLocal(
       localType: 'local',
       localComicId: 'comic-local',
@@ -531,16 +594,14 @@ void main() {
     expect(widget.normalizedRequest.initialPage, 2);
   });
 
-  test('history continue opens reader through ReaderOpenRequest', () {
+  test('history continue request normalizes through ReaderOpenRequest', () {
     final comic = LocalComic(
       id: 'comic-local',
       title: 'Local Comic',
       subtitle: 'Imported',
       tags: const <String>[],
       directory: '/tmp/comic-local',
-      chapters: ComicChapters({
-        '1:__imported__': 'Imported Chapter',
-      }),
+      chapters: ComicChapters({'1:__imported__': 'Imported Chapter'}),
       cover: 'cover.jpg',
       comicType: ComicType.local,
       downloadedChapters: const <String>['1:__imported__'],
@@ -556,7 +617,7 @@ void main() {
       history: History.fromModel(model: comic, ep: 1, page: 4),
       firstDownloadedChapter: 1,
       firstDownloadedChapterGroup: null,
-      resumeSourceRef: sourceRef,
+      resumeTarget: ReaderOpenTarget(sourceRef: sourceRef),
     );
 
     final widget = ReaderWithLoading.fromRequest(request: request);

@@ -325,6 +325,7 @@ class ReaderDiagnostics {
     String? sessionId,
     String? tabId,
     String? pageOrderId,
+    String? reason,
   }) {
     readerTraceRecorder.record(
       ReaderTraceEvent(
@@ -340,6 +341,7 @@ class ReaderDiagnostics {
           if (sessionId != null) 'sessionId=$sessionId',
           if (tabId != null) 'tabId=$tabId',
           if (pageOrderId != null) 'pageOrderId=$pageOrderId',
+          if (reason != null) 'reason=$reason',
         ].join(' '),
         phase: ReaderTracePhase.sourceResolution,
       ),
@@ -357,6 +359,7 @@ class ReaderDiagnostics {
         'sessionId': sessionId,
         'tabId': tabId,
         'pageOrderId': pageOrderId,
+        'reason': reason,
       },
     );
   }
@@ -622,14 +625,12 @@ class ReaderDiagnostics {
       providerTrackingKey: providerTrackingKey,
     );
     _pendingProviderSubscriptions[key] = now;
-    _pendingProviderKeysByImageKey.putIfAbsent(imageKey, () => <String>{}).add(
-      key,
-    );
+    _pendingProviderKeysByImageKey
+        .putIfAbsent(imageKey, () => <String>{})
+        .add(key);
   }
 
-  static void markImagePageAttached({
-    required String imageKey,
-  }) {
+  static void markImagePageAttached({required String imageKey}) {
     final lifecycle = _imageLifecycleByKey.putIfAbsent(
       imageKey,
       _ImageLifecycleState.new,
@@ -664,9 +665,7 @@ class ReaderDiagnostics {
     _clearPendingProviderSubscriptionsByImageKey(imageKey: imageKey);
   }
 
-  static void markImageProviderLoadSucceeded({
-    required String imageKey,
-  }) {
+  static void markImageProviderLoadSucceeded({required String imageKey}) {
     final lifecycle = _imageLifecycleByKey.putIfAbsent(
       imageKey,
       _ImageLifecycleState.new,

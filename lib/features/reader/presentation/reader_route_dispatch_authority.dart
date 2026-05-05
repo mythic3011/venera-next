@@ -37,9 +37,29 @@ class ReaderRouteDispatchAuthority {
   final ReaderNextExecutorResolver _resolveApprovedReaderNextExecutor;
   final ReaderNextExecutorDispatcher _dispatchApprovedReaderNextExecutor;
 
-  Future<bool> openLegacy(ReaderOpenRequest request, {BuildContext? context}) async {
-    _emitLegacyDispatchDiagnostic(request);
-    return _openLegacyRoute(request, context);
+  Future<bool> openLegacy(
+    ReaderLegacyDispatchRequest request, {
+    BuildContext? context,
+  }) async {
+    if (request.sourceRef case final sourceRef?
+        when isUnresolvedLocalReaderTarget(sourceRef)) {
+      emitUnresolvedLocalReaderTargetDiagnostic(
+        comicId: request.comicId,
+        sourceRef: sourceRef,
+        diagnosticEntrypoint: request.diagnosticEntrypoint,
+        diagnosticCaller: request.diagnosticCaller,
+      );
+      return false;
+    }
+    final normalizedRequest = switch (request) {
+      ReaderOpenRequest request => request,
+      ReaderRouteRequest request => request.toReaderOpenRequest(),
+      _ => throw ArgumentError(
+        'Unsupported legacy reader dispatch request: ${request.runtimeType}',
+      ),
+    };
+    _emitLegacyDispatchDiagnostic(normalizedRequest);
+    return _openLegacyRoute(normalizedRequest, context);
   }
 
   Future<void> openApprovedReaderNext({

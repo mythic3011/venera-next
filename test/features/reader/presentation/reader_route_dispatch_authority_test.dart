@@ -6,6 +6,7 @@ import 'package:venera/features/reader/presentation/reader.dart';
 import 'package:venera/features/reader/presentation/reader_route_dispatch_authority.dart';
 import 'package:venera/features/reader_next/bridge/approved_reader_next_navigation_executor.dart';
 import 'package:venera/features/reader_next/runtime/models.dart';
+import 'package:venera/foundation/sources/source_ref.dart' as legacy_reader;
 
 void main() {
   setUp(() {
@@ -59,62 +60,95 @@ void main() {
     expect(opened, isFalse);
   });
 
-  test('legacy dispatch fail-closed when main navigator is unavailable', () async {
-    final authority = const ReaderRouteDispatchAuthority();
-    final request = ReaderOpenRequest(
-      comicId: '646922',
-      sourceKey: 'nhentai',
-      initialEp: 2,
-      initialPage: 3,
-      diagnosticEntrypoint: 'test.blocked',
+  test('unresolved local reader target does not call opener', () async {
+    var openerCalled = false;
+    final authority = ReaderRouteDispatchAuthority(
+      openLegacyRoute: (request, context) async {
+        openerCalled = true;
+        fail('opener must not be called for unresolved local reader target');
+      },
+    );
+    final request = ReaderRouteRequest(
+      comicId: 'comic-1',
+      sourceRef: legacy_reader.SourceRef.fromLegacyLocal(
+        localType: 'local',
+        localComicId: 'comic-1',
+        chapterId: null,
+      ),
+      sourceKey: 'local',
+      diagnosticEntrypoint: 'comic_detail.read',
       diagnosticCaller: 'reader_route_dispatch_authority_test',
     );
 
     final opened = await authority.openLegacy(request);
+
     expect(opened, isFalse);
+    expect(openerCalled, isFalse);
     final events = AppDiagnostics.recent(channel: 'reader.route');
-    expect(events.map((event) => event.message), contains('open_blocked'));
-    final blockedEvent = events.firstWhere(
-      (event) => event.message == 'open_blocked',
-    );
-    expect(blockedEvent.data['selectedNavigatorRole'], 'main');
-    expect(blockedEvent.data['observerExpected'], true);
-    expect(
-      blockedEvent.data['selectedNavigatorSource'],
-      'App.mainNavigatorKey.currentState',
-    );
-    expect(blockedEvent.data['requestedRootNavigator'], false);
+    expect(events, hasLength(1));
+    expect(events.single.message, 'reader.route.unresolved_target');
+    expect(events.single.data['entrypoint'], 'comic_detail.read');
   });
 
-  test('reader route opens are centralized through router/dispatch authority', () {
-    final repoRoot = Directory.current.path;
-    final allowedFiles = <String>{
-      'lib/features/reader/presentation/loading.dart',
-      'lib/app/router.dart',
-    };
-    final matches = <String>[];
-    for (final entity in Directory('$repoRoot/lib')
-        .listSync(recursive: true, followLinks: false)
-        .whereType<File>()) {
-      final relative = entity.path.replaceFirst('$repoRoot/', '');
-      if (!relative.endsWith('.dart')) {
-        continue;
+  test(
+    'legacy dispatch fail-closed when main navigator is unavailable',
+    () async {
+      final authority = const ReaderRouteDispatchAuthority();
+      final request = ReaderOpenRequest(
+        comicId: '646922',
+        sourceKey: 'nhentai',
+        initialEp: 2,
+        initialPage: 3,
+        diagnosticEntrypoint: 'test.blocked',
+        diagnosticCaller: 'reader_route_dispatch_authority_test',
+      );
+
+      final opened = await authority.openLegacy(request);
+      expect(opened, isFalse);
+      final events = AppDiagnostics.recent(channel: 'reader.route');
+      expect(events.map((event) => event.message), contains('open_blocked'));
+      final blockedEvent = events.firstWhere(
+        (event) => event.message == 'open_blocked',
+      );
+      expect(blockedEvent.data['selectedNavigatorRole'], 'main');
+      expect(blockedEvent.data['observerExpected'], true);
+      expect(
+        blockedEvent.data['selectedNavigatorSource'],
+        'App.mainNavigatorKey.currentState',
+      );
+      expect(blockedEvent.data['requestedRootNavigator'], false);
+    },
+  );
+
+  test(
+    'reader route opens are centralized through router/dispatch authority',
+    () {
+      final repoRoot = Directory.current.path;
+      final allowedFiles = <String>{
+        'lib/features/reader/presentation/loading.dart',
+        'lib/app/router.dart',
+      };
+      final matches = <String>[];
+      for (final entity in Directory(
+        '$repoRoot/lib',
+      ).listSync(recursive: true, followLinks: false).whereType<File>()) {
+        final relative = entity.path.replaceFirst('$repoRoot/', '');
+        if (!relative.endsWith('.dart')) {
+          continue;
+        }
+        final content = entity.readAsStringSync();
+        if (content.contains('ReaderWithLoading.fromRequest(')) {
+          matches.add(relative);
+        }
       }
-      final content = entity.readAsStringSync();
-      if (content.contains('ReaderWithLoading.fromRequest(')) {
-        matches.add(relative);
-      }
-    }
-    expect(matches.toSet(), equals(allowedFiles));
-    expect(
-      matches,
-      everyElement(isNot(contains('reader_route_dispatch_authority.dart'))),
-    );
-    expect(
-      matches,
-      everyElement(isNot(contains('local/local_comic.dart'))),
-    );
-  });
+      expect(matches.toSet(), equals(allowedFiles));
+      expect(
+        matches,
+        everyElement(isNot(contains('reader_route_dispatch_authority.dart'))),
+      );
+      expect(matches, everyElement(isNot(contains('local/local_comic.dart'))));
+    },
+  );
 
   test(
     'approved ReaderNext dispatch uses injected executor through one centralized executor path',
@@ -129,6 +163,7 @@ void main() {
         dispatchedRequest = request;
         dispatchedExecutor = executor;
       }
+
       final authority = ReaderRouteDispatchAuthority(
         dispatchApprovedReaderNextExecutor: dispatcher,
       );
@@ -173,6 +208,7 @@ void main() {
         dispatchedRequest = request;
         dispatchedExecutor = executor;
       }
+
       final authority = ReaderRouteDispatchAuthority(
         dispatchApprovedReaderNextExecutor: dispatcher,
       );

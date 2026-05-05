@@ -1,4 +1,5 @@
 import 'package:flutter/foundation.dart';
+import 'package:venera/foundation/db/unified_comics_store.dart';
 import 'package:venera/foundation/reader/reader_diagnostics.dart';
 import 'package:venera/features/reader/data/reader_runtime_context.dart';
 import 'package:venera/features/reader/data/reader_session_repository.dart';
@@ -10,6 +11,7 @@ typedef ReaderSessionEventRecorder =
       String? sessionId,
       String? tabId,
       String? pageOrderId,
+      String? reason,
     });
 
 void recordReaderSessionDiagnosticEvent(
@@ -18,6 +20,7 @@ void recordReaderSessionDiagnosticEvent(
   String? sessionId,
   String? tabId,
   String? pageOrderId,
+  String? reason,
 }) {
   ReaderDiagnostics.recordCanonicalSessionEvent(
     event: event,
@@ -30,6 +33,7 @@ void recordReaderSessionDiagnosticEvent(
     sessionId: sessionId,
     tabId: tabId,
     pageOrderId: pageOrderId,
+    reason: reason,
   );
 }
 
@@ -59,13 +63,24 @@ class ReaderSessionPersistenceService {
       tabId: tabId,
       pageOrderId: pageOrderId,
     );
-    await repository.upsertCurrentLocation(
+    final result = await repository.upsertCurrentLocation(
       comicId: context.canonicalComicId,
       chapterId: context.chapterId,
       pageIndex: context.page,
       sourceRef: context.sourceRef,
       pageOrderId: pageOrderId,
     );
+    if (!result.written) {
+      recordEvent?.call(
+        'reader.session.upsert.skip',
+        context: context,
+        sessionId: sessionId,
+        tabId: tabId,
+        pageOrderId: pageOrderId,
+        reason: _persistSkipReasonName(result.skipReason),
+      );
+      return;
+    }
     recordEvent?.call(
       'reader.session.upsert.success',
       context: context,
@@ -74,6 +89,15 @@ class ReaderSessionPersistenceService {
       pageOrderId: pageOrderId,
     );
   }
+}
+
+String _persistSkipReasonName(ReaderSessionPersistSkipReason? reason) {
+  return switch (reason) {
+    ReaderSessionPersistSkipReason.unchanged => 'unchanged',
+    ReaderSessionPersistSkipReason.unchangedMemory => 'unchanged_memory',
+    ReaderSessionPersistSkipReason.duplicateInFlight => 'duplicate_in_flight',
+    null => 'unknown',
+  };
 }
 
 @visibleForTesting

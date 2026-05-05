@@ -5,9 +5,11 @@ import 'package:path/path.dart' as p;
 import 'package:venera/features/sources/comic_source/comic_source.dart';
 import 'package:venera/foundation/comic_type.dart';
 import 'package:venera/foundation/db/unified_comics_store.dart';
+import 'package:venera/foundation/diagnostics/diagnostics.dart';
 import 'package:venera/foundation/reader/canonical_reader_pages.dart';
 import 'package:venera/foundation/reader/canonical_remote_page_provider.dart';
 import 'package:venera/foundation/reader/page_provider.dart';
+import 'package:venera/foundation/reader/reader_open_target.dart';
 import 'package:venera/foundation/reader/reader_page_loader.dart';
 import 'package:venera/features/reader/data/reader_runtime_context.dart';
 import 'package:venera/features/reader/data/reader_session_repository.dart';
@@ -210,7 +212,7 @@ void main() {
         }),
         ep: 2,
         group: null,
-        resumeSourceRef: resumeRef,
+        resumeTarget: ReaderOpenTarget(sourceRef: resumeRef),
       );
 
       expect(resolved.type, SourceRefType.remote);
@@ -319,8 +321,9 @@ void main() {
     var liveCalls = 0;
     final loader = ReaderPageLoader(
       loadLocalPages:
-          ({required localType, required localComicId, chapterId}) async =>
-              ['local'],
+          ({required localType, required localComicId, chapterId}) async => [
+            'local',
+          ],
       loadRemotePages:
           ({required sourceKey, required comicId, required chapterId}) async {
             liveCalls++;
@@ -382,7 +385,14 @@ void main() {
             sourceRef: localRef,
           ),
           recordEvent:
-              (event, {required context, sessionId, tabId, pageOrderId}) {
+              (
+                event, {
+                required context,
+                sessionId,
+                tabId,
+                pageOrderId,
+                reason,
+              }) {
                 events.add(event);
               },
         );
@@ -405,6 +415,494 @@ void main() {
       }
     },
   );
+
+  test(
+    'reader open + identical pageList persist writes once and then skips',
+    () async {
+      AppDiagnostics.resetForTesting();
+      final tempDir = await Directory.systemTemp.createTemp(
+        'venera-reader-session-dedupe-flow-',
+      );
+      final store = UnifiedComicsStore(p.join(tempDir.path, 'venera.db'));
+      await store.init();
+      try {
+        await store.upsertComic(
+          const ComicRecord(
+            id: 'comic-local',
+            title: 'Local Comic',
+            normalizedTitle: 'local comic',
+          ),
+        );
+        final repository = ReaderSessionRepository(store: store);
+        final localRef = SourceRef.fromLegacyLocal(
+          localType: 'local',
+          localComicId: 'comic-local',
+          chapterId: 'chapter-1',
+        );
+        final context = buildReaderRuntimeContextForTesting(
+          comicId: 'comic-local',
+          type: ComicType.local,
+          chapterIndex: 1,
+          page: 4,
+          chapterId: 'chapter-1',
+          sourceRef: localRef,
+        );
+        final events = <String>[];
+
+        await persistReaderSessionContextForTesting(
+          repository: repository,
+          context: context,
+          pageOrderId: 'order-1',
+          recordEvent:
+              (
+                event, {
+                required context,
+                sessionId,
+                tabId,
+                pageOrderId,
+                reason,
+              }) {
+                events.add(reason == null ? event : '$event:$reason');
+              },
+        );
+        final firstWriteCount = AppDiagnostics.recent(
+          channel: 'db.write',
+        ).where((event) => event.message == 'db.write.start').length;
+
+        await persistReaderSessionContextForTesting(
+          repository: repository,
+          context: context,
+          pageOrderId: 'order-1',
+          recordEvent:
+              (
+                event, {
+                required context,
+                sessionId,
+                tabId,
+                pageOrderId,
+                reason,
+              }) {
+                events.add(reason == null ? event : '$event:$reason');
+              },
+        );
+        final secondWriteCount = AppDiagnostics.recent(
+          channel: 'db.write',
+        ).where((event) => event.message == 'db.write.start').length;
+
+        expect(secondWriteCount, firstWriteCount);
+        expect(events, const <String>[
+          'reader.session.upsert.start',
+          'reader.session.upsert.success',
+          'reader.session.upsert.start',
+          'reader.session.upsert.skip:unchanged_memory',
+        ]);
+      } finally {
+        await store.close();
+        if (tempDir.existsSync()) {
+          tempDir.deleteSync(recursive: true);
+        }
+      }
+    },
+  );
+
+  test('reader session persist still writes on page change', () async {
+    AppDiagnostics.resetForTesting();
+    final tempDir = await Directory.systemTemp.createTemp(
+      'venera-reader-session-page-change-',
+    );
+    final store = UnifiedComicsStore(p.join(tempDir.path, 'venera.db'));
+    await store.init();
+    try {
+      await store.upsertComic(
+        const ComicRecord(
+          id: 'comic-local',
+          title: 'Local Comic',
+          normalizedTitle: 'local comic',
+        ),
+      );
+      final repository = ReaderSessionRepository(store: store);
+      final localRef = SourceRef.fromLegacyLocal(
+        localType: 'local',
+        localComicId: 'comic-local',
+        chapterId: 'chapter-1',
+      );
+      await persistReaderSessionContextForTesting(
+        repository: repository,
+        context: buildReaderRuntimeContextForTesting(
+          comicId: 'comic-local',
+          type: ComicType.local,
+          chapterIndex: 1,
+          page: 4,
+          chapterId: 'chapter-1',
+          sourceRef: localRef,
+        ),
+        pageOrderId: 'order-1',
+      );
+      final firstWriteCount = AppDiagnostics.recent(
+        channel: 'db.write',
+      ).where((event) => event.message == 'db.write.start').length;
+
+      await persistReaderSessionContextForTesting(
+        repository: repository,
+        context: buildReaderRuntimeContextForTesting(
+          comicId: 'comic-local',
+          type: ComicType.local,
+          chapterIndex: 1,
+          page: 5,
+          chapterId: 'chapter-1',
+          sourceRef: localRef,
+        ),
+        pageOrderId: 'order-1',
+      );
+      final secondWriteCount = AppDiagnostics.recent(
+        channel: 'db.write',
+      ).where((event) => event.message == 'db.write.start').length;
+      expect(secondWriteCount, greaterThan(firstWriteCount));
+    } finally {
+      await store.close();
+      if (tempDir.existsSync()) {
+        tempDir.deleteSync(recursive: true);
+      }
+    }
+  });
+
+  test(
+    'reader open + concurrent identical pageList persist emits one success and one duplicate skip',
+    () async {
+      AppDiagnostics.resetForTesting();
+      final tempDir = await Directory.systemTemp.createTemp(
+        'venera-reader-session-dedupe-inflight-',
+      );
+      final store = UnifiedComicsStore(p.join(tempDir.path, 'venera.db'));
+      await store.init();
+      try {
+        await store.upsertComic(
+          const ComicRecord(
+            id: 'comic-local',
+            title: 'Local Comic',
+            normalizedTitle: 'local comic',
+          ),
+        );
+        final repository = ReaderSessionRepository(store: store);
+        final localRef = SourceRef.fromLegacyLocal(
+          localType: 'local',
+          localComicId: 'comic-local',
+          chapterId: 'chapter-1',
+        );
+        final context = buildReaderRuntimeContextForTesting(
+          comicId: 'comic-local',
+          type: ComicType.local,
+          chapterIndex: 1,
+          page: 4,
+          chapterId: 'chapter-1',
+          sourceRef: localRef,
+        );
+        final events = <String>[];
+
+        await Future.wait([
+          persistReaderSessionContextForTesting(
+            repository: repository,
+            context: context,
+            pageOrderId: 'order-1',
+            recordEvent:
+                (
+                  event, {
+                  required context,
+                  sessionId,
+                  tabId,
+                  pageOrderId,
+                  reason,
+                }) {
+                  events.add(reason == null ? event : '$event:$reason');
+                },
+          ),
+          persistReaderSessionContextForTesting(
+            repository: repository,
+            context: context,
+            pageOrderId: 'order-1',
+            recordEvent:
+                (
+                  event, {
+                  required context,
+                  sessionId,
+                  tabId,
+                  pageOrderId,
+                  reason,
+                }) {
+                  events.add(reason == null ? event : '$event:$reason');
+                },
+          ),
+        ]);
+
+        expect(
+          events
+              .where((event) => event == 'reader.session.upsert.start')
+              .length,
+          2,
+        );
+        expect(
+          events
+              .where((event) => event == 'reader.session.upsert.success')
+              .length,
+          1,
+        );
+        expect(
+          events
+              .where(
+                (event) =>
+                    event == 'reader.session.upsert.skip:duplicate_in_flight',
+              )
+              .length,
+          1,
+        );
+      } finally {
+        await store.close();
+        if (tempDir.existsSync()) {
+          tempDir.deleteSync(recursive: true);
+        }
+      }
+    },
+  );
+
+  test(
+    'reader open + concurrent same-tab different page persists both desired states',
+    () async {
+      AppDiagnostics.resetForTesting();
+      final tempDir = await Directory.systemTemp.createTemp(
+        'venera-reader-session-dedupe-different-state-',
+      );
+      final store = UnifiedComicsStore(p.join(tempDir.path, 'venera.db'));
+      await store.init();
+      try {
+        await store.upsertComic(
+          const ComicRecord(
+            id: 'comic-local',
+            title: 'Local Comic',
+            normalizedTitle: 'local comic',
+          ),
+        );
+        final repository = ReaderSessionRepository(store: store);
+        final localRef = SourceRef.fromLegacyLocal(
+          localType: 'local',
+          localComicId: 'comic-local',
+          chapterId: 'chapter-1',
+        );
+        final page4 = buildReaderRuntimeContextForTesting(
+          comicId: 'comic-local',
+          type: ComicType.local,
+          chapterIndex: 1,
+          page: 4,
+          chapterId: 'chapter-1',
+          sourceRef: localRef,
+        );
+        final page5 = buildReaderRuntimeContextForTesting(
+          comicId: 'comic-local',
+          type: ComicType.local,
+          chapterIndex: 1,
+          page: 5,
+          chapterId: 'chapter-1',
+          sourceRef: localRef,
+        );
+        final events = <String>[];
+
+        await Future.wait([
+          persistReaderSessionContextForTesting(
+            repository: repository,
+            context: page4,
+            pageOrderId: 'order-1',
+            recordEvent:
+                (
+                  event, {
+                  required context,
+                  sessionId,
+                  tabId,
+                  pageOrderId,
+                  reason,
+                }) {
+                  events.add(reason == null ? event : '$event:$reason');
+                },
+          ),
+          persistReaderSessionContextForTesting(
+            repository: repository,
+            context: page5,
+            pageOrderId: 'order-1',
+            recordEvent:
+                (
+                  event, {
+                  required context,
+                  sessionId,
+                  tabId,
+                  pageOrderId,
+                  reason,
+                }) {
+                  events.add(reason == null ? event : '$event:$reason');
+                },
+          ),
+        ]);
+        final activeTab = await repository.loadActiveReaderTab('comic-local');
+
+        expect(
+          events
+              .where((event) => event == 'reader.session.upsert.start')
+              .length,
+          2,
+        );
+        expect(
+          events
+              .where((event) => event == 'reader.session.upsert.success')
+              .length,
+          2,
+        );
+        expect(
+          events.where(
+            (event) => event.startsWith('reader.session.upsert.skip'),
+          ),
+          isEmpty,
+        );
+        expect(activeTab?.currentPageIndex, 5);
+      } finally {
+        await store.close();
+        if (tempDir.existsSync()) {
+          tempDir.deleteSync(recursive: true);
+        }
+      }
+    },
+  );
+
+  test('reader session persist still writes on chapter change', () async {
+    AppDiagnostics.resetForTesting();
+    final tempDir = await Directory.systemTemp.createTemp(
+      'venera-reader-session-chapter-change-',
+    );
+    final store = UnifiedComicsStore(p.join(tempDir.path, 'venera.db'));
+    await store.init();
+    try {
+      await store.upsertComic(
+        const ComicRecord(
+          id: 'comic-local',
+          title: 'Local Comic',
+          normalizedTitle: 'local comic',
+        ),
+      );
+      final repository = ReaderSessionRepository(store: store);
+      final localRefChapter1 = SourceRef.fromLegacyLocal(
+        localType: 'local',
+        localComicId: 'comic-local',
+        chapterId: 'chapter-1',
+      );
+      final localRefChapter2 = SourceRef.fromLegacyLocal(
+        localType: 'local',
+        localComicId: 'comic-local',
+        chapterId: 'chapter-2',
+      );
+      await persistReaderSessionContextForTesting(
+        repository: repository,
+        context: buildReaderRuntimeContextForTesting(
+          comicId: 'comic-local',
+          type: ComicType.local,
+          chapterIndex: 1,
+          page: 4,
+          chapterId: 'chapter-1',
+          sourceRef: localRefChapter1,
+        ),
+        pageOrderId: 'order-1',
+      );
+      final firstWriteCount = AppDiagnostics.recent(
+        channel: 'db.write',
+      ).where((event) => event.message == 'db.write.start').length;
+
+      await persistReaderSessionContextForTesting(
+        repository: repository,
+        context: buildReaderRuntimeContextForTesting(
+          comicId: 'comic-local',
+          type: ComicType.local,
+          chapterIndex: 2,
+          page: 4,
+          chapterId: 'chapter-2',
+          sourceRef: localRefChapter2,
+        ),
+        pageOrderId: 'order-2',
+      );
+      final secondWriteCount = AppDiagnostics.recent(
+        channel: 'db.write',
+      ).where((event) => event.message == 'db.write.start').length;
+      expect(secondWriteCount, greaterThan(firstWriteCount));
+    } finally {
+      await store.close();
+      if (tempDir.existsSync()) {
+        tempDir.deleteSync(recursive: true);
+      }
+    }
+  });
+
+  test('reader session persist still writes on active tab change', () async {
+    AppDiagnostics.resetForTesting();
+    final tempDir = await Directory.systemTemp.createTemp(
+      'venera-reader-session-tab-change-',
+    );
+    final store = UnifiedComicsStore(p.join(tempDir.path, 'venera.db'));
+    await store.init();
+    try {
+      await store.upsertComic(
+        const ComicRecord(
+          id: 'comic-local',
+          title: 'Local Comic',
+          normalizedTitle: 'local comic',
+        ),
+      );
+      final repository = ReaderSessionRepository(store: store);
+      final localRefA = SourceRef.fromLegacyLocal(
+        localType: 'local',
+        localComicId: 'comic-local',
+        chapterId: 'chapter-1',
+      );
+      final localRefB = SourceRef(
+        id: '${localRefA.id}:mirror',
+        type: localRefA.type,
+        sourceKey: localRefA.sourceKey,
+        sourceIdentity: localRefA.sourceIdentity,
+        refId: localRefA.refId,
+        params: localRefA.params,
+      );
+      await persistReaderSessionContextForTesting(
+        repository: repository,
+        context: buildReaderRuntimeContextForTesting(
+          comicId: 'comic-local',
+          type: ComicType.local,
+          chapterIndex: 1,
+          page: 4,
+          chapterId: 'chapter-1',
+          sourceRef: localRefA,
+        ),
+        pageOrderId: 'order-1',
+      );
+      final firstWriteCount = AppDiagnostics.recent(
+        channel: 'db.write',
+      ).where((event) => event.message == 'db.write.start').length;
+
+      await persistReaderSessionContextForTesting(
+        repository: repository,
+        context: buildReaderRuntimeContextForTesting(
+          comicId: 'comic-local',
+          type: ComicType.local,
+          chapterIndex: 1,
+          page: 4,
+          chapterId: 'chapter-1',
+          sourceRef: localRefB,
+        ),
+        pageOrderId: 'order-1',
+      );
+      final secondWriteCount = AppDiagnostics.recent(
+        channel: 'db.write',
+      ).where((event) => event.message == 'db.write.start').length;
+      expect(secondWriteCount, greaterThan(firstWriteCount));
+    } finally {
+      await store.close();
+      if (tempDir.existsSync()) {
+        tempDir.deleteSync(recursive: true);
+      }
+    }
+  });
 
   test(
     'local reader session upsert does not clear active tab when page order differs',

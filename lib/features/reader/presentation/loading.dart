@@ -60,6 +60,7 @@ enum ReaderOpenRequestIdentityErrorCode {
   missingSourceAuthority,
   sourceKeyMismatch,
   localComicIdMismatch,
+  unresolvedLocalTarget,
 }
 
 class ReaderOpenRequestIdentityError implements Exception {
@@ -74,20 +75,91 @@ class ReaderOpenRequestIdentityError implements Exception {
     ReaderOpenRequestIdentityErrorCode.sourceKeyMismatch => 'sourceKeyMismatch',
     ReaderOpenRequestIdentityErrorCode.localComicIdMismatch =>
       'localComicIdMismatch',
+    ReaderOpenRequestIdentityErrorCode.unresolvedLocalTarget =>
+      'unresolvedLocalTarget',
   };
 
   @override
   String toString() => 'ReaderOpenRequestIdentityError($codeKey): $message';
 }
 
-class ReaderOpenRequest {
+abstract interface class ReaderLegacyDispatchRequest {
+  String get comicId;
+  SourceRef? get sourceRef;
+  String? get sourceKey;
+  int? get initialEp;
+  int? get initialPage;
+  int? get initialGroup;
+  String? get diagnosticEntrypoint;
+  String? get diagnosticCaller;
+}
+
+class ReaderRouteRequest implements ReaderLegacyDispatchRequest {
+  const ReaderRouteRequest({
+    required this.comicId,
+    this.sourceRef,
+    this.sourceKey,
+    this.initialEp,
+    this.initialPage,
+    this.initialGroup,
+    this.diagnosticEntrypoint,
+    this.diagnosticCaller,
+  });
+
+  @override
   final String comicId;
+
+  @override
   final SourceRef? sourceRef;
+
+  @override
   final String? sourceKey;
+
+  @override
   final int? initialEp;
+
+  @override
   final int? initialPage;
+
+  @override
   final int? initialGroup;
+
+  @override
   final String? diagnosticEntrypoint;
+
+  @override
+  final String? diagnosticCaller;
+
+  ReaderOpenRequest toReaderOpenRequest() {
+    return ReaderOpenRequest(
+      comicId: comicId,
+      sourceRef: sourceRef,
+      sourceKey: sourceKey,
+      initialEp: initialEp,
+      initialPage: initialPage,
+      initialGroup: initialGroup,
+      diagnosticEntrypoint: diagnosticEntrypoint,
+      diagnosticCaller: diagnosticCaller,
+    );
+  }
+}
+
+class ReaderOpenRequest implements ReaderLegacyDispatchRequest {
+  @override
+  final String comicId;
+  @override
+  final SourceRef? sourceRef;
+  @override
+  final String? sourceKey;
+  @override
+  final int? initialEp;
+  @override
+  final int? initialPage;
+  @override
+  final int? initialGroup;
+  @override
+  final String? diagnosticEntrypoint;
+  @override
   final String? diagnosticCaller;
 
   factory ReaderOpenRequest({
@@ -150,6 +222,34 @@ String? _resolveReaderOpenRequestSourceKey({
   return explicitKey;
 }
 
+bool isUnresolvedLocalReaderTarget(SourceRef? sourceRef) {
+  if (sourceRef?.type != SourceRefType.local) {
+    return false;
+  }
+  final chapterId = sourceRef?.params['chapterId']?.toString();
+  return chapterId == null || chapterId.isEmpty;
+}
+
+void emitUnresolvedLocalReaderTargetDiagnostic({
+  required String comicId,
+  required SourceRef sourceRef,
+  String? diagnosticEntrypoint,
+  String? diagnosticCaller,
+}) {
+  AppDiagnostics.warn(
+    'reader.route',
+    'reader.route.unresolved_target',
+    data: <String, Object?>{
+      'comicId': comicId,
+      'sourceKey': sourceRef.sourceKey,
+      'sourceRefId': sourceRef.id,
+      'reason': 'missingLocalChapterId',
+      'entrypoint': diagnosticEntrypoint,
+      'caller': diagnosticCaller,
+    },
+  );
+}
+
 void _assertReaderOpenRequestAuthority({
   required String comicId,
   required SourceRef? sourceRef,
@@ -184,6 +284,18 @@ void _assertReaderOpenRequestAuthority({
         message:
             'Reader open request comicId "$comicId" does not match '
             'local SourceRef comicId "$localComicId".',
+      );
+    }
+    final chapterId = sourceRef?.params['chapterId']?.toString();
+    if (chapterId == null || chapterId.isEmpty) {
+      emitUnresolvedLocalReaderTargetDiagnostic(
+        comicId: comicId,
+        sourceRef: sourceRef!,
+      );
+      throw const ReaderOpenRequestIdentityError(
+        ReaderOpenRequestIdentityErrorCode.unresolvedLocalTarget,
+        message:
+            'Reader open request requires a resolved local chapter target before dispatch.',
       );
     }
   }
@@ -500,10 +612,9 @@ class _ReaderWithLoadingState
     if (activeTab?.tabId != expectedReaderTabId) {
       return;
     }
-    final routeLifecycleEvent =
-        navigatorLifecycleDiagnosticForRouteHash(
-          _routeHashSnapshot,
-        )?['event']?.toString();
+    final routeLifecycleEvent = navigatorLifecycleDiagnosticForRouteHash(
+      _routeHashSnapshot,
+    )?['event']?.toString();
     emitReaderParentUnmountDiagnosticForTesting(
       buildReaderParentShellDiagnosticForTesting(
         owner: 'ReaderWithLoading.parentUnmount',
@@ -657,19 +768,18 @@ class _ReaderWithLoadingState
   Future<Res<ReaderProps>> loadData() async {
     final request = widget.normalizedRequest;
     final sourceKey = request.sourceKey;
-    final resumeSourceRef = sourceKey == null
+    final resumeTarget = sourceKey == null
         ? null
         : await ReaderResumeService(
             readerSessions: App.repositories.readerSession,
-            loadLegacyResumeSourceRef: HistoryManager().findResumeSourceRef,
-          ).loadPreferredResumeSourceRef(
+          ).loadPreferredResumeTarget(
             request.comicId,
             ComicType.fromKey(sourceKey),
           );
     final resolvedRefResult = resolveReaderLoadSourceRef(
       comicId: request.comicId,
       explicitSourceRef: request.sourceRef,
-      resumeSourceRef: resumeSourceRef,
+      resumeSourceRef: resumeTarget?.sourceRef,
       sourceKey: sourceKey,
       sourceExists: (sourceKey) => ComicSource.find(sourceKey) != null,
     );

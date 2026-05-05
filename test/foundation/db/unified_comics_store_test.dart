@@ -1980,6 +1980,121 @@ void main() {
     },
   );
 
+  test(
+    'saveReaderProgress returns skipped unchanged without extra mutation',
+    () async {
+      await store.upsertComic(
+        const ComicRecord(
+          id: 'session-comic-unchanged',
+          title: 'Session Comic Unchanged',
+          normalizedTitle: 'session comic unchanged',
+        ),
+      );
+      UnifiedComicsStore.resetReaderSessionSaveDebugCounters();
+
+      final firstResult = await store.saveReaderProgress(
+        session: const ReaderSessionRecord(
+          id: 'session-unchanged',
+          comicId: 'session-comic-unchanged',
+        ),
+        tab: const ReaderTabRecord(
+          id: 'tab-unchanged',
+          sessionId: 'session-unchanged',
+          comicId: 'session-comic-unchanged',
+          chapterId: 'chapter-1',
+          pageIndex: 3,
+          sourceRefJson: '{"id":"tab-unchanged"}',
+          pageOrderId: 'order-1',
+        ),
+        makeActive: true,
+      );
+      expect(firstResult.written, isTrue);
+
+      final secondResult = await store.saveReaderProgress(
+        session: const ReaderSessionRecord(
+          id: 'session-unchanged',
+          comicId: 'session-comic-unchanged',
+        ),
+        tab: const ReaderTabRecord(
+          id: 'tab-unchanged',
+          sessionId: 'session-unchanged',
+          comicId: 'session-comic-unchanged',
+          chapterId: 'chapter-1',
+          pageIndex: 3,
+          sourceRefJson: '{"id":"tab-unchanged"}',
+          pageOrderId: 'order-1',
+        ),
+        makeActive: true,
+      );
+      final writeCounts =
+          UnifiedComicsStore.readerSessionSaveDebugCountersSnapshot();
+
+      expect(secondResult.written, isFalse);
+      expect(secondResult.skipReason, ReaderSessionPersistSkipReason.unchanged);
+      expect(writeCounts['sessionUpserts'], 1);
+      expect(writeCounts['tabUpserts'], 1);
+      expect(writeCounts['activeTabUpdates'], 1);
+    },
+  );
+
+  test(
+    'concurrent identical saveReaderProgress performs one real DB mutation',
+    () async {
+      await store.upsertComic(
+        const ComicRecord(
+          id: 'session-comic-concurrent',
+          title: 'Session Comic Concurrent',
+          normalizedTitle: 'session comic concurrent',
+        ),
+      );
+      UnifiedComicsStore.resetReaderSessionSaveDebugCounters();
+
+      final results = await Future.wait([
+        store.saveReaderProgress(
+          session: const ReaderSessionRecord(
+            id: 'session-concurrent',
+            comicId: 'session-comic-concurrent',
+          ),
+          tab: const ReaderTabRecord(
+            id: 'tab-concurrent',
+            sessionId: 'session-concurrent',
+            comicId: 'session-comic-concurrent',
+            chapterId: 'chapter-1',
+            pageIndex: 3,
+            sourceRefJson: '{"id":"tab-concurrent"}',
+            pageOrderId: 'order-1',
+          ),
+          makeActive: true,
+        ),
+        store.saveReaderProgress(
+          session: const ReaderSessionRecord(
+            id: 'session-concurrent',
+            comicId: 'session-comic-concurrent',
+          ),
+          tab: const ReaderTabRecord(
+            id: 'tab-concurrent',
+            sessionId: 'session-concurrent',
+            comicId: 'session-comic-concurrent',
+            chapterId: 'chapter-1',
+            pageIndex: 3,
+            sourceRefJson: '{"id":"tab-concurrent"}',
+            pageOrderId: 'order-1',
+          ),
+          makeActive: true,
+        ),
+      ]);
+      final writeCounts =
+          UnifiedComicsStore.readerSessionSaveDebugCountersSnapshot();
+
+      expect(results.first.written, isTrue);
+      expect(results.last.written, isFalse);
+      expect(results.last.skipReason, ReaderSessionPersistSkipReason.unchanged);
+      expect(writeCounts['sessionUpserts'], 1);
+      expect(writeCounts['tabUpserts'], 1);
+      expect(writeCounts['activeTabUpdates'], 1);
+    },
+  );
+
   test('deleting a session cascades to its tabs', () async {
     await store.upsertComic(
       const ComicRecord(

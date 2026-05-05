@@ -125,7 +125,7 @@ void main() {
       chapters: chapters,
       ep: 1,
       group: null,
-      resumeSourceRef: null,
+      resumeTarget: null,
     );
 
     expect(sourceRef.type, SourceRefType.local);

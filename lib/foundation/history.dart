@@ -304,12 +304,22 @@ class HistoryManager with ChangeNotifier {
     appdata.writeImplicitData();
   }
 
-  SourceRef? findResumeSourceRef(String comicId, ComicType type) {
+  ResumeSnapshotReadResult readResumeSnapshotWithDiagnostic(
+    String comicId,
+    ComicType type,
+  ) {
     final result = _resumeStore.readWithDiagnostic(comicId, type);
     if (result.diagnostic != null) {
-      AppDiagnostics.info('history.refresh', _mapSnapshotDiagnostic(result.diagnostic!));
+      AppDiagnostics.info(
+        'history.refresh',
+        _mapSnapshotDiagnostic(result.diagnostic!),
+      );
     }
-    return result.snapshot?.sourceRef;
+    return result;
+  }
+
+  SourceRef? findResumeSourceRef(String comicId, ComicType type) {
+    return readResumeSnapshotWithDiagnostic(comicId, type).snapshot?.sourceRef;
   }
 
   String _mapSnapshotDiagnostic(ResumeSnapshotDiagnosticCode code) {
@@ -525,7 +535,12 @@ class HistoryManager with ChangeNotifier {
         await addHistory(updatedHistory);
         return true;
       } catch (e, s) {
-        AppDiagnostics.error('history.refresh', e, stackTrace: s, message: 'refresh_history_info_failed');
+        AppDiagnostics.error(
+          'history.refresh',
+          e,
+          stackTrace: s,
+          message: 'refresh_history_info_failed',
+        );
         await Future.delayed(const Duration(seconds: 2));
         retries--;
         if (retries == 0) {

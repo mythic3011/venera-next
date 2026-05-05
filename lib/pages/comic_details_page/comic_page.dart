@@ -28,6 +28,7 @@ import 'package:venera/foundation/repositories/local_library_repository.dart';
 import 'package:venera/foundation/sources/source_ref.dart';
 import 'package:venera/foundation/sources/identity/source_identity.dart';
 import 'package:venera/foundation/reader/reader_open_target.dart';
+import 'package:venera/features/reader/data/reader_legacy_resume_migration_adapter.dart';
 import 'package:venera/features/reader/data/reader_resume_service.dart';
 import 'package:venera/foundation/res.dart';
 import 'package:venera/network/download.dart';

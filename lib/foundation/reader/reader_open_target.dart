@@ -1,6 +1,14 @@
 import 'package:venera/features/sources/comic_source/comic_source.dart';
 import 'package:venera/foundation/sources/source_ref.dart';
 
+class ReaderOpenTarget {
+  const ReaderOpenTarget({required this.sourceRef});
+
+  final SourceRef sourceRef;
+
+  String? get chapterId => sourceRef.params['chapterId']?.toString();
+}
+
 String? resolveReaderTargetChapterId({
   required ComicChapters? chapters,
   required int? ep,
@@ -25,7 +33,7 @@ SourceRef resolveReaderTargetSourceRef({
   required ComicChapters? chapters,
   required int? ep,
   required int? group,
-  required SourceRef? resumeSourceRef,
+  required ReaderOpenTarget? resumeTarget,
 }) {
   final targetChapterId = resolveReaderTargetChapterId(
     chapters: chapters,
@@ -33,7 +41,7 @@ SourceRef resolveReaderTargetSourceRef({
     group: group,
   );
   final sourceRef =
-      resumeSourceRef ??
+      resumeTarget?.sourceRef ??
       SourceRef.fromLegacy(
         comicId: comicId,
         sourceKey: sourceKey,

@@ -660,6 +660,60 @@ class ReaderTabRecord {
   final String? updatedAt;
 }
 
+enum ReaderSessionPersistSkipReason {
+  unchanged,
+  unchangedMemory,
+  duplicateInFlight,
+}
+
+class ReaderSessionPersistResult {
+  const ReaderSessionPersistResult.written()
+    : written = true,
+      skipReason = null;
+
+  const ReaderSessionPersistResult.skipped(this.skipReason) : written = false;
+
+  final bool written;
+  final ReaderSessionPersistSkipReason? skipReason;
+}
+
+class _ReaderSessionSaveDebugCounters {
+  const _ReaderSessionSaveDebugCounters({
+    required this.sessionUpserts,
+    required this.tabUpserts,
+    required this.activeTabUpdates,
+  });
+
+  const _ReaderSessionSaveDebugCounters.zero()
+    : sessionUpserts = 0,
+      tabUpserts = 0,
+      activeTabUpdates = 0;
+
+  final int sessionUpserts;
+  final int tabUpserts;
+  final int activeTabUpdates;
+
+  Map<String, int> toMap() {
+    return {
+      'sessionUpserts': sessionUpserts,
+      'tabUpserts': tabUpserts,
+      'activeTabUpdates': activeTabUpdates,
+    };
+  }
+
+  _ReaderSessionSaveDebugCounters copyWith({
+    int? sessionUpserts,
+    int? tabUpserts,
+    int? activeTabUpdates,
+  }) {
+    return _ReaderSessionSaveDebugCounters(
+      sessionUpserts: sessionUpserts ?? this.sessionUpserts,
+      tabUpserts: tabUpserts ?? this.tabUpserts,
+      activeTabUpdates: activeTabUpdates ?? this.activeTabUpdates,
+    );
+  }
+}
+
 class ReaderActivityRecord {
   const ReaderActivityRecord({
     required this.comicId,
@@ -783,9 +837,20 @@ class UnifiedComicsStore extends GeneratedDatabase
       );
 
   final String dbPath;
+  static _ReaderSessionSaveDebugCounters _readerSessionSaveDebugCounters =
+      const _ReaderSessionSaveDebugCounters.zero();
 
   UnifiedComicsStore.atCanonicalPath(String rootPath)
     : this(canonicalDomainDatabasePath(rootPath));
+
+  static void resetReaderSessionSaveDebugCounters() {
+    _readerSessionSaveDebugCounters =
+        const _ReaderSessionSaveDebugCounters.zero();
+  }
+
+  static Map<String, int> readerSessionSaveDebugCountersSnapshot() {
+    return _readerSessionSaveDebugCounters.toMap();
+  }
 
   static File _prepareDatabaseFile(String dbPath) {
     final file = File(dbPath);
@@ -2655,7 +2720,7 @@ class UnifiedComicsStore extends GeneratedDatabase
     );
   }
 
-  Future<void> saveReaderProgress({
+  Future<ReaderSessionPersistResult> saveReaderProgress({
     required ReaderSessionRecord session,
     required ReaderTabRecord tab,
     required bool makeActive,
@@ -2664,7 +2729,52 @@ class UnifiedComicsStore extends GeneratedDatabase
       'reader_sessions.saveProgress',
       this,
       () async {
+        final existingSessionRow = await customSelect(
+          '''
+          SELECT * FROM reader_sessions
+          WHERE id = ?
+          LIMIT 1;
+          ''',
+          variables: [Variable<String>(session.id)],
+        ).getSingleOrNull();
+        final existingTabRow = await customSelect(
+          '''
+          SELECT * FROM reader_tabs
+          WHERE id = ?
+          LIMIT 1;
+          ''',
+          variables: [Variable<String>(tab.id)],
+        ).getSingleOrNull();
+        if (existingSessionRow != null && existingTabRow != null) {
+          final existingSession = _readerSessionRecordFromRow(
+            existingSessionRow,
+          );
+          final existingTab = _readerTabRecordFromRow(existingTabRow);
+          final sameSession =
+              existingSession.id == session.id &&
+              existingSession.comicId == session.comicId;
+          final sameTab =
+              existingTab.id == tab.id &&
+              existingTab.sessionId == tab.sessionId &&
+              existingTab.comicId == tab.comicId &&
+              existingTab.chapterId == tab.chapterId &&
+              existingTab.pageIndex == tab.pageIndex &&
+              existingTab.sourceRefJson == tab.sourceRefJson &&
+              existingTab.pageOrderId == tab.pageOrderId;
+          final sameActiveTab =
+              !makeActive || existingSession.activeTabId == tab.id;
+          if (sameSession && sameTab && sameActiveTab) {
+            return const ReaderSessionPersistResult.skipped(
+              ReaderSessionPersistSkipReason.unchanged,
+            );
+          }
+        }
+
         await _runReaderSessionUpsert(session);
+        _readerSessionSaveDebugCounters = _readerSessionSaveDebugCounters
+            .copyWith(
+              tabUpserts: _readerSessionSaveDebugCounters.tabUpserts + 1,
+            );
         await customStatement(
           '''
         INSERT INTO reader_tabs (
@@ -2701,6 +2811,11 @@ class UnifiedComicsStore extends GeneratedDatabase
           ],
         );
         if (makeActive) {
+          _readerSessionSaveDebugCounters = _readerSessionSaveDebugCounters
+              .copyWith(
+                activeTabUpdates:
+                    _readerSessionSaveDebugCounters.activeTabUpdates + 1,
+              );
           await customStatement(
             '''
           UPDATE reader_sessions
@@ -2710,13 +2825,17 @@ class UnifiedComicsStore extends GeneratedDatabase
             [tab.id, session.id],
           );
         }
+        return const ReaderSessionPersistResult.written();
       },
     );
   }
 
   Future<void> _runReaderSessionUpsert(ReaderSessionRecord record) {
+    _readerSessionSaveDebugCounters = _readerSessionSaveDebugCounters.copyWith(
+      sessionUpserts: _readerSessionSaveDebugCounters.sessionUpserts + 1,
+    );
     return runCanonicalWrite<void>(
-      domain: 'reader_session',
+      domain: 'reader_sessions',
       operation: 'upsert_reader_session',
       action: () => customStatement(
         '''

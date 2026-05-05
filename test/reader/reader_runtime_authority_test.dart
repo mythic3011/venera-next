@@ -15,6 +15,41 @@ import 'package:venera/foundation/sources/source_ref.dart';
 import 'package:venera/features/reader/presentation/reader.dart';
 
 void main() {
+  test('live reader runtime does not read legacy resume state directly', () async {
+    final repoRoot = Directory.current.path;
+    final liveRuntimeFiles = <String>{
+      'lib/features/reader/data/reader_resume_service.dart',
+      'lib/features/reader/presentation/loading.dart',
+      'lib/features/reader/presentation/reader_route_dispatch_authority.dart',
+      'lib/pages/comic_details_page/actions.dart',
+      'lib/foundation/local/local_comic.dart',
+    };
+    for (final relativePath in liveRuntimeFiles) {
+      final content = await File('$repoRoot/$relativePath').readAsString();
+      expect(
+        content.contains('findResumeSourceRef('),
+        isFalse,
+        reason: '$relativePath must not read legacy resume state directly',
+      );
+      expect(
+        content.contains('reading_resume_targets_v1'),
+        isFalse,
+        reason: '$relativePath must not depend on legacy resume appdata state',
+      );
+      expect(
+        content.contains('implicitData'),
+        isFalse,
+        reason: '$relativePath must not bind live reader routing to appdata',
+      );
+    }
+
+    final migrationAdapter = await File(
+      '$repoRoot/lib/features/reader/data/reader_legacy_resume_migration_adapter.dart',
+    ).readAsString();
+    expect(migrationAdapter.contains('readResumeSnapshotWithDiagnostic'), isTrue);
+    expect(migrationAdapter.contains('reading_resume_targets_v1'), isTrue);
+  });
+
   test(
     'canonical session persistence does not create legacy runtime stores',
     () async {
@@ -100,7 +135,7 @@ void main() {
 
     final preferred = await ReaderResumeService(
       readerSessions: ReaderSessionRepository(store: store),
-    ).loadPreferredResumeSourceRef('legacy', ComicType.local);
+    ).loadPreferredResumeTarget('legacy', ComicType.local);
 
     expect(preferred, isNull);
     expect(legacyJson.existsSync(), isTrue);

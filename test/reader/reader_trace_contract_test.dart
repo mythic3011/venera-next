@@ -450,10 +450,7 @@ void main() {
           comicId: 'comic-1',
           loadMode: 'remote',
           sourceKey: 'nhentai',
-          chapterId: safeElementAtOrNullForDiagnostics(
-            const ['ch-1'],
-            -1,
-          ),
+          chapterId: safeElementAtOrNullForDiagnostics(const ['ch-1'], -1),
           chapterIndex: null,
           page: 1,
           selectedIndex: -1,
@@ -472,10 +469,7 @@ void main() {
         comicId: 'comic-1',
         loadMode: 'remote',
         sourceKey: 'nhentai',
-        chapterId: safeElementAtOrNullForDiagnostics(
-          const ['ch-1'],
-          -1,
-        ),
+        chapterId: safeElementAtOrNullForDiagnostics(const ['ch-1'], -1),
         chapterIndex: null,
         page: 1,
         selectedIndex: -1,
@@ -669,7 +663,10 @@ void main() {
   test('short lived reader dispose warning is suppressed for didRemove', () {
     expect(shouldWarnOnShortLivedReaderDisposeForTesting('didRemove'), isFalse);
     expect(shouldWarnOnShortLivedReaderDisposeForTesting('didPop'), isFalse);
-    expect(shouldWarnOnShortLivedReaderDisposeForTesting('didReplace'), isFalse);
+    expect(
+      shouldWarnOnShortLivedReaderDisposeForTesting('didReplace'),
+      isFalse,
+    );
     expect(shouldWarnOnShortLivedReaderDisposeForTesting('didPush'), isTrue);
     expect(shouldWarnOnShortLivedReaderDisposeForTesting(null), isTrue);
   });

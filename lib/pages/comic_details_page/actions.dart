@@ -7,7 +7,7 @@ SourceRef resolveComicDetailsReadSourceRef({
   required ComicChapters? chapters,
   required int? ep,
   required int? group,
-  required SourceRef? resumeSourceRef,
+  required ReaderOpenTarget? resumeTarget,
 }) {
   return resolveReaderTargetSourceRef(
     comicId: comicId,
@@ -15,7 +15,7 @@ SourceRef resolveComicDetailsReadSourceRef({
     chapters: chapters,
     ep: ep,
     group: group,
-    resumeSourceRef: resumeSourceRef,
+    resumeTarget: resumeTarget,
   );
 }
 
@@ -45,6 +45,19 @@ class ComicDetailReaderOpenRequest {
 
   ReaderOpenRequest toReaderOpenRequest() {
     return ReaderOpenRequest(
+      comicId: comicId,
+      sourceRef: sourceRef,
+      sourceKey: sourceKey,
+      initialEp: initialEp,
+      initialPage: initialPage,
+      initialGroup: initialGroup,
+      diagnosticEntrypoint: diagnosticEntrypoint,
+      diagnosticCaller: diagnosticCaller,
+    );
+  }
+
+  ReaderRouteRequest toReaderRouteRequest() {
+    return ReaderRouteRequest(
       comicId: comicId,
       sourceRef: sourceRef,
       sourceKey: sourceKey,
@@ -204,17 +217,21 @@ mixin _ComicPageActions on State<ComicPage> {
     int? group, {
     required String entrypoint,
   }) async {
-    final resumeSourceRef = await ReaderResumeService(
-      readerSessions: App.repositories.readerSession,
-      loadLegacyResumeSourceRef: HistoryManager().findResumeSourceRef,
-    ).loadPreferredResumeSourceRef(comic.id, comic.comicType);
+    final readerSessions = App.repositories.readerSession;
+    final resumeTarget =
+        await ReaderResumeService(
+          readerSessions: readerSessions,
+        ).loadPreferredResumeTarget(comic.id, comic.comicType) ??
+        await ReaderLegacyResumeMigrationAdapter.fromHistoryManager(
+          readerSessions: readerSessions,
+        ).loadAndMigratePreferredResumeTarget(comic.id, comic.comicType);
     final sourceRef = resolveComicDetailsReadSourceRef(
       comicId: comic.id,
       sourceKey: comic.comicType.sourceKey,
       chapters: comic.chapters,
       ep: ep,
       group: group,
-      resumeSourceRef: resumeSourceRef,
+      resumeTarget: resumeTarget,
     );
     final request = buildComicDetailReaderOpenRequest(
       comic: comic,
@@ -227,7 +244,7 @@ mixin _ComicPageActions on State<ComicPage> {
     );
     Future<void> openLegacyReader() async {
       await const ReaderRouteDispatchAuthority().openLegacy(
-        request.toReaderOpenRequest(),
+        request.toReaderRouteRequest(),
       );
       onReadEnd();
     }
@@ -388,9 +405,7 @@ mixin _ComicPageActions on State<ComicPage> {
                           legacyAddDownloadTask(
                             ArchiveDownloadTask(res.data, comic),
                           );
-                          context.showMessage(
-                            message: "Download started".tl,
-                          );
+                          context.showMessage(message: "Download started".tl);
                         }
                         context.pop();
                       }
@@ -623,10 +638,7 @@ mixin _ComicPageActions on State<ComicPage> {
   }
 
   void showComments() {
-    showSideBar(
-      context,
-      CommentsPage(data: comic, source: comicSource),
-    );
+    showSideBar(context, CommentsPage(data: comic, source: comicSource));
   }
 
   void starRating() {
@@ -667,9 +679,7 @@ mixin _ComicPageActions on State<ComicPage> {
                           comicSource.starRatingFunc!(comic.id, rating.round())
                               .then((value) {
                                 if (value.success) {
-                                  context.showMessage(
-                                    message: "Success".tl,
-                                  );
+                                  context.showMessage(message: "Success".tl);
                                   Navigator.of(dialogContext).pop();
                                 } else {
                                   context.showMessage(
