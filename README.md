@@ -1,54 +1,63 @@
 # venera
 
-> Upstream status: the original repository is no longer maintained by the
-> upstream author.
+> [!WARNING]
+> This fork is a breaking-change, personal-use-first fork.
 >
-> The upstream repository was archived by its owner and is read-only. GitHub
-> documents archived repositories as read-only repositories used to indicate
-> that a project is no longer actively maintained.
-> Reference: [GitHub repository archiving
-> documentation](https://docs.github.com/en/repositories/archiving-a-github-repository/archiving-repositories).
+> The original upstream repository is archived/read-only and is no longer treated
+> as the architecture authority for this fork. Archived GitHub repositories are
+> read-only and commonly indicate that a project is no longer actively
+> maintained. See GitHub's repository archiving documentation:
+> https://docs.github.com/en/repositories/archiving-a-github-repository/archiving-repositories
 >
-> This fork is maintained by `mythic3011` as a personal side-project fork.
-> Maintenance is best-effort, personal-use first, and not a guaranteed support
-> service.
->
-> **Breaking-change fork notice:** this fork does **not** preserve the old
-> fragmented local data / DB design as a compatibility target. Previous
-> runtime/storage layouts may be removed, migrated, or replaced without
-> backward-compatible guarantees.
->
-> 上游狀態：原始儲存庫已由上游作者停止維護。
->
-> 上游 repository 已由 owner archived，並成為 read-only。
->
-> 此 fork 由 `mythic3011` 作為個人 side project 維護。維護屬
-> best-effort，優先服務本人使用流程，並不提供保證式支援。
->
-> **Breaking-change fork notice：**此 fork **不會**把舊有分散式 local
-> data / DB 設計視為相容性目標。舊有 runtime/storage 佈局之後可能被移除、
-> 遷移或直接替換，不保證 backward compatibility。
+> This fork is maintained by `mythic3011` on a best-effort basis. It is not a
+> guaranteed support service and does not promise backward compatibility with the
+> old fragmented runtime/storage design.
 
 [![flutter](https://img.shields.io/badge/flutter-3.41.4-blue)](https://flutter.dev/)
 [![License](https://img.shields.io/github/license/mythic3011/venera)](https://github.com/mythic3011/venera/blob/master/LICENSE)
 [![stars](https://img.shields.io/github/stars/mythic3011/venera?style=flat)](https://github.com/mythic3011/venera/stargazers)
 [![Download](https://img.shields.io/github/v/release/mythic3011/venera)](https://github.com/mythic3011/venera/releases)
 
-A comic reader that supports reading local and network comics.
+A comic reader for local and network comics.
 
 ## Fork Direction
 
 This fork is not a conservative maintenance fork.
 
-The current refactor direction is to simplify and replace legacy architecture
-where it blocks local/remote comic management, source citation, tags, chapters,
-reader sessions, page ordering, source installation, routing ownership, and
-reliable debugging.
+The old codebase is treated as a legacy reference and extraction source, not as
+an architecture that must be preserved. The current direction is closer to a
+runtime/data-model restructure than a small refactor.
 
-In particular, this fork does **not** intend to keep the old fragmented data
-model as a permanent compatibility layer.
+The main goal is to extract useful behavior from the legacy implementation and
+rebuild the live runtime around clear ownership boundaries:
 
-Examples of compatibility surfaces under review include:
+- UI expresses user intent only.
+- Application/use-case services coordinate flows.
+- Domain models define stable identity and rules.
+- Repositories access canonical storage.
+- Database code owns schema, migration, and transactions.
+- Runtime code owns loading, reader execution, and source execution.
+- Diagnostics report identity, authority, lifecycle phase, and correlation.
+- Legacy code must not own live runtime authority.
+
+This fork may simplify, replace, or remove legacy architecture when it blocks:
+
+- local/remote comic management
+- source/provider identity
+- tags and metadata
+- chapters and page ordering
+- reader sessions
+- source installation
+- routing ownership
+- database ownership
+- diagnostics and debugging
+
+## Legacy Quarantine Policy
+
+Legacy code may remain temporarily for reference, extraction, or migration.
+However, new runtime code must not depend on legacy paths as authority.
+
+Legacy compatibility surfaces under review include:
 
 ```text
 local.db
@@ -58,74 +67,31 @@ implicitData.json
 fragmented local databases
 mixed app/domain state in JSON files
 runtime identity derived from legacy IDs/source keys
+UI-built reader SourceRef values
+reader fallback state stored outside canonical sessions
 unclear ownership boundaries across routing, models, storage, and diagnostics
 ```
 
 The intended direction is:
 
-- one canonical relational domain database
-- source/platform resolver
-- unified local/remote `ComicDetailPage(comicId)`
-- local/remote shared management model
-- explicit reader open contracts and centralized reader navigation ownership
-- ownership-based placement for feature contracts, view models, and runtime models
-- diagnostics that include identity, authority, lifecycle phase, and correlation IDs
-
-SQLite is a small, self-contained relational database engine, which fits this
-type of local app domain model better than scattering core domain state across
-multiple feature-specific stores. Foreign key enforcement, WAL mode, and proper
-schema ownership should be treated as part of the baseline DB design.
-Reference: [SQLite official documentation](https://www.sqlite.org/docs.html).
-
-This fork is moving toward clearer ownership boundaries for storage, routing,
-reader sessions, source management, and diagnostics. Critical flows should have
-one declared owner. UI pages should express user intent, feature modules should
-own request and model contracts, routing should own navigation and route
-diagnostics, and storage layers should declare whether they are canonical
-authority, compatibility fallback, cache, preference, or diagnostic-only
-state.
-
-See also: [Ownership Lessons From Reader Debugging](./docs/tech-notes/routing-model-storage-diagnostics-ownership.md).
-
-### 中文說明
-
-此 fork 不是保守維護版。
-
-目前重構方向是：只要舊架構阻礙 local/remote comic 管理、source citation、
-tags、chapters、reader sessions、page ordering、source installation、routing
-ownership、debug / smoke verification，就會直接簡化、替換或移除。
-
-此 fork 不打算長期維護舊有分散式 data model 作為 compatibility layer。
-
-正在檢視中的 compatibility surface 例子包括：
-
 ```text
-local.db
-history.db
-local_favorite.db
-implicitData.json
-分散式 local databases
-JSON 內混入 app state / domain state
-以 legacy IDs / source keys 推導 runtime identity
-routing、model、storage、diagnostics ownership 邊界不清
+core/database/        DB connection, schema, migration, write gates
+core/diagnostics/     structured diagnostics and exportable evidence
+features/reader/      reader identity, open contracts, runtime, sessions
+features/comic_library/ comic, chapter, page, and page-order domain
+features/local_import/  import pipeline and canonical page ordering
+features/sources/     source/provider manifests and source runtime
+features/favorites/   favorite domain and persistence
+features/settings/    preferences/config only
+legacy/               quarantined legacy reference or migration code
 ```
 
-目標方向是：
+The rule is:
 
-- 一個 canonical relational domain database
-- source/platform resolver
-- 統一 local/remote `ComicDetailPage(comicId)`
-- local/remote 共用管理模型
-- 明確 reader open contract 與集中式 reader navigation ownership
-- 以 ownership 劃分 feature contracts、view models、runtime models 的放置位置
-- diagnostics 需要包含 identity、authority、lifecycle phase 與 correlation IDs
-
-此 fork 正朝向更清晰的 ownership boundary：storage、routing、
-reader sessions、source management、diagnostics 等 critical flows 都應有明確
-owner。UI page 只應表達 user intent；feature module 應擁有 request/model
-contract；routing layer 應擁有 navigation 與 route diagnostics；storage layer
-必須標明自己是 canonical authority、compatibility fallback、cache、
-preference，還是 diagnostic-only state。
+```text
+shared DB file is acceptable
+shared god database API is not
+```
 
 ## Data Compatibility Policy
 
@@ -139,15 +105,19 @@ New versions may:
 - drop old compatibility paths
 - reset or rebuild local metadata if the old format is unsafe or inconsistent
 
-Old local data stores are treated as optional import sources only, not as a
-permanent runtime contract.
+Old local data stores are optional import sources only. They are not permanent
+runtime contracts.
 
-A storage surface should not become authoritative just because a function can
-read it. New storage-backed work should identify its domain authority before
-adding reads or writes. Compatibility reads should be explicit, narrow, and
-removable.
+A storage surface must not become authoritative only because some function can
+read it. New storage-backed work must identify whether a store is:
 
-Expected future direction:
+- canonical authority
+- compatibility fallback
+- cache
+- preference/config
+- diagnostic-only state
+
+Expected future layout:
 
 ```text
 data/venera.db         canonical domain DB
@@ -167,56 +137,127 @@ local_favorite.db
 implicitData.json
 ```
 
-### 中文說明
+## Reader Runtime Direction
 
-此 fork 可能會引入 local data storage 的 breaking changes。
+The reader is moving toward a canonical runtime path.
 
-新版本可能會：
-
-- 建立新的 canonical database
-- 停止寫入舊 DB files
-- 只提供 best-effort 舊資料匯入
-- 移除舊 compatibility path
-- 在舊格式不安全或不一致時重建 local metadata
-
-舊 local data stores 只會被視為 optional import sources，不會被視為永久
-runtime contract。
-
-一個 storage surface 不應只因為某個 function 可以讀取它，就變成 runtime
-authority。新增 storage-backed 功能前，必須先定義 domain authority；
-compatibility reads 應保持明確、狹窄，而且日後可移除。
-
-預期未來方向：
+The old reader UI/routing path is treated as untrusted when it creates or
+repairs runtime identity. The desired reader flow is:
 
 ```text
-data/venera.db         canonical domain DB
-blobs/                 covers, pages, imports, cache files
-plugins/comic_source/  comic source implementation files
-logs/                  diagnostics and exported logs
-config/                app preferences only
-cookies/               optional auth/session storage
+UI intent
+  -> ReaderOpenTargetResolver
+  -> resolved ReaderOpenTarget
+  -> validated ReaderOpenRequest
+  -> canonical reader runtime
+  -> page list load
+  -> image provider
+  -> decode/render
+  -> canonical reader session persistence
 ```
 
-以下舊 domain stores 不應長期繼續作為 runtime truth：
+The following legacy pattern should not remain in live runtime:
 
 ```text
-local.db
-history.db
-local_favorite.db
-implicitData.json
+UI builds SourceRef
+  -> route accepts incomplete identity
+  -> ReaderWithLoading repairs chapter
+  -> legacy resume fallback reads appdata
+  -> session repairs active tab
+  -> diagnostics hides invalid state
 ```
 
-## Features
+Reader runtime must not represent unresolved targets as placeholder IDs such as:
 
-- Read local comics
-- Use JavaScript to create comic sources
-- Read comics from network sources
-- Manage favorite comics
-- Download comics
-- View comments, tags, and other information of comics if the source supports
-  them
-- Login to comment, rate, and perform other operations if the source supports
-  them
+```text
+local:local:<comicId>:_
+```
+
+Unresolved reader targets should return typed failures and emit structured
+diagnostics instead.
+
+## Database And Model Direction
+
+The fork is moving away from positional string IDs that encode multiple domain
+relationships into one value.
+
+Bad pattern:
+
+```text
+local:local:<comicId>:<chapterId>
+```
+
+Preferred pattern:
+
+```text
+DB authority:       columns + foreign keys
+Runtime authority:  typed domain objects
+Debug/log view:     rendered readable references
+```
+
+In other words:
+
+```text
+String refs are projections, not authority.
+```
+
+The database should express relationships using columns such as:
+
+```text
+comic_id
+chapter_id
+local_library_item_id
+provider_id
+remote_work_id
+page_index
+source_kind
+```
+
+The runtime should pass typed objects such as `ReaderOpenTarget`, not parse one
+magic string to recover authority.
+
+## Diagnostics Direction
+
+Diagnostics should answer decision questions, not merely record that something
+happened.
+
+Important runtime diagnostics should include:
+
+- identity
+- authority
+- lifecycle phase
+- route/request correlation
+- entrypoint/caller where relevant
+- rejection reason when a boundary blocks invalid state
+
+Preferred diagnostic shape:
+
+```text
+event=reader.route.unresolved_target
+comic.id=<comicId>
+source.kind=local
+chapter.id=null
+reason=missing_local_chapter
+boundary=route.dispatch
+action=rejected
+```
+
+Diagnostics should report violations. They should not repair state or downgrade
+invalid runtime identity into harmless-looking pending state.
+
+## Current Feature Scope
+
+Existing and intended capabilities include:
+
+- read local comics
+- read comics from network sources
+- manage favorite comics
+- download comics
+- use JavaScript-based comic sources
+- view comments, tags, and metadata if a source supports them
+- login to perform source-specific operations if a source supports them
+
+Feature availability may change while the architecture is being restructured.
 
 ## Build From Source
 
@@ -237,19 +278,21 @@ Releases unless stated otherwise.
 AUR, F-Droid, or other third-party packages may still point to the abandoned
 upstream project and are not maintained by this fork.
 
-此 fork 的官方 release channel 僅限本 repository 的 GitHub Releases，除非另有說明。
-
-AUR、F-Droid 或其他第三方 package 可能仍指向已停止維護的上游專案，並不由此
-fork 維護。
-
 ## Contributing
 
 Before opening an issue or pull request, read
 [Contribution And Issue Policy](./CONTRIBUTING.md).
 
-This repository is not a feature request queue. Issues must be actionable and
-include reproduction steps, logs, affected platform/version, and a concrete
-proposal where relevant.
+This repository is not a feature request queue.
+
+Issues must be actionable and include:
+
+- reproduction steps
+- logs or diagnostics where relevant
+- affected platform/version
+- expected behavior
+- actual behavior
+- concrete proposal where relevant
 
 Low-effort wishlist issues may be closed without implementation.
 
@@ -257,28 +300,87 @@ Because this fork intentionally allows breaking changes, proposals that depend
 on preserving the old fragmented storage model may be rejected unless they
 include a clear migration path and do not block the new canonical data model.
 
-開 issue 或 PR 前，請先閱讀[貢獻與 Issue 政策](./CONTRIBUTING.md)。
+## Architecture Notes
 
-本 repo 不是許願池。Issue 必須可執行，bug 回報必須包含重現步驟、log、受影響平台/版本；
-功能建議必須提供具體行為、設計方向與相關風險。
+See also:
 
-低成本、不可執行的許願式 issue 可能會被直接關閉，不會實作。
+- [Ownership Lessons From Reader Debugging](./docs/tech-notes/routing-model-storage-diagnostics-ownership.md)
+- [Comic Source](./doc/comic_source.md)
+- [Headless Doc](./doc/headless_doc.md)
+- [Debug Diagnostics API](./doc/debug_api.md)
 
-由於此 fork 明確允許 breaking changes，若提案依賴保留舊有分散式 storage
-model，除非同時提供清楚 migration path，且不阻礙新的 canonical data
-model，否則可能會被拒絕。
+## 中文說明
 
-## Create A New Comic Source
+### Fork 狀態
 
-See [Comic Source](./doc/comic_source.md).
+此 fork 不是保守維護版。
 
-## Headless Mode
+上游 repository 已 archived / read-only，並不再被視為此 fork 的架構權威。
+此 fork 由 `mythic3011` 以 best-effort 方式維護，優先服務個人使用流程，
+不提供保證式支援，亦不保證與舊有 fragmented runtime/storage 設計保持相容。
 
-See [Headless Doc](./doc/headless_doc.md).
+### 重構方向
 
-## Debug Diagnostics API
+目前方向不是單純修補幾個 bug，而是把有用行為從 legacy code 中抽出，重新建立
+清晰的 runtime、database、model、repository、routing、diagnostics ownership。
 
-See [Debug Diagnostics API](./doc/debug_api.md).
+基本原則是：
+
+- UI 只表達 user intent
+- application/use-case layer 協調流程
+- domain model 定義 identity 與規則
+- repository 負責讀寫 canonical storage
+- database layer 負責 schema、migration、transaction
+- runtime layer 負責 reader/source execution
+- diagnostics 負責記錄 evidence，不負責修補 state
+- legacy code 不應擁有 live runtime authority
+
+### Data compatibility
+
+此 fork 可能會引入 local data storage breaking changes。
+
+舊有 `local.db`、`history.db`、`local_favorite.db`、`implicitData.json` 等資料面，
+只會被視為 optional import source，不會被視為永久 runtime contract。
+
+之後可能會：
+
+- 建立新的 canonical database
+- 停止寫入舊 DB files
+- 只提供 best-effort 舊資料匯入
+- 移除舊 compatibility path
+- 在舊格式不安全或不一致時重建 local metadata
+
+### Reader runtime
+
+Reader 正朝向 canonical-only runtime path。
+
+舊 reader UI / routing path 如果仍然會建立、修補或推斷 runtime identity，就會被視為
+untrusted。正確方向是 UI 只傳 intent，由 resolver 建立 resolved ReaderOpenTarget，
+runtime 只接收 validated ReaderOpenRequest。
+
+舊流程中這類模式不應繼續留在 live runtime：
+
+```text
+UI builds SourceRef
+  -> route accepts incomplete identity
+  -> ReaderWithLoading repairs chapter
+  -> legacy resume fallback reads appdata
+  -> session repairs active tab
+  -> diagnostics hides invalid state
+```
+
+未 resolved 的 reader target 不應再用 `local:local:<comicId>:_` 這類 placeholder ID 表達。
+應改為 typed failure + structured diagnostics。
+
+### 貢獻說明
+
+開 issue 或 PR 前，請先閱讀 [Contribution And Issue Policy](./CONTRIBUTING.md)。
+
+本 repo 不是許願池。Issue 必須可執行，bug 回報需要包含重現步驟、log / diagnostics、
+受影響平台與版本；功能建議需要提供具體行為、設計方向與相關風險。
+
+由於此 fork 明確允許 breaking changes，若提案依賴保留舊有 fragmented storage model，
+除非同時提供清楚 migration path，且不阻礙新的 canonical data model，否則可能會被拒絕。
 
 ## Thanks
 
