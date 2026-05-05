@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 // ignore_for_file: annotate_overrides
@@ -7,6 +8,7 @@ import 'package:drift/native.dart';
 import 'package:path/path.dart' as p;
 import 'package:sqlite3/common.dart' as sqlite_common;
 import 'package:venera/features/sources/comic_source/comic_source.dart';
+import 'package:venera/foundation/db/canonical_db_write_gate.dart';
 import 'package:venera/foundation/db/remote_comic_sync.dart';
 import 'package:venera/foundation/ports/comic_detail_store_port.dart';
 import 'package:venera/foundation/ports/local_library_browse_store_port.dart';
@@ -801,6 +803,19 @@ class UnifiedComicsStore extends GeneratedDatabase
   @override
   int get schemaVersion => 6;
 
+  Future<T> runCanonicalWrite<T>({
+    required String domain,
+    required String operation,
+    required Future<T> Function() action,
+  }) {
+    return CanonicalDbWriteGate.run<T>(
+      dbPath: dbPath,
+      domain: domain,
+      operation: operation,
+      callback: action,
+    );
+  }
+
   @override
   MigrationStrategy get migration => MigrationStrategy(
     onCreate: (m) async {
@@ -1002,23 +1017,27 @@ class UnifiedComicsStore extends GeneratedDatabase
   }
 
   Future<void> upsertAppSetting(AppSettingRecord record) {
-    return customStatement(
-      '''
-      INSERT INTO app_settings (key, value_json, value_type, sync_policy, updated_at_ms)
-      VALUES (?, ?, ?, ?, ?)
-      ON CONFLICT(key) DO UPDATE SET
-        value_json = excluded.value_json,
-        value_type = excluded.value_type,
-        sync_policy = excluded.sync_policy,
-        updated_at_ms = excluded.updated_at_ms;
-      ''',
-      [
-        record.key,
-        record.valueJson,
-        record.valueType,
-        record.syncPolicy,
-        record.updatedAtMs,
-      ],
+    return runCanonicalWrite<void>(
+      domain: 'appdata',
+      operation: 'upsert_app_setting',
+      action: () => customStatement(
+        '''
+        INSERT INTO app_settings (key, value_json, value_type, sync_policy, updated_at_ms)
+        VALUES (?, ?, ?, ?, ?)
+        ON CONFLICT(key) DO UPDATE SET
+          value_json = excluded.value_json,
+          value_type = excluded.value_type,
+          sync_policy = excluded.sync_policy,
+          updated_at_ms = excluded.updated_at_ms;
+        ''',
+        [
+          record.key,
+          record.valueJson,
+          record.valueType,
+          record.syncPolicy,
+          record.updatedAtMs,
+        ],
+      ),
     );
   }
 
@@ -1040,19 +1059,27 @@ class UnifiedComicsStore extends GeneratedDatabase
   }
 
   Future<void> clearAppSettings() {
-    return customStatement('DELETE FROM app_settings;');
+    return runCanonicalWrite<void>(
+      domain: 'appdata',
+      operation: 'clear_app_settings',
+      action: () => customStatement('DELETE FROM app_settings;'),
+    );
   }
 
   Future<void> upsertSearchHistory(SearchHistoryRecord record) {
-    return customStatement(
-      '''
-      INSERT INTO search_history (keyword, position, updated_at_ms)
-      VALUES (?, ?, ?)
-      ON CONFLICT(keyword) DO UPDATE SET
-        position = excluded.position,
-        updated_at_ms = excluded.updated_at_ms;
-      ''',
-      [record.keyword, record.position, record.updatedAtMs],
+    return runCanonicalWrite<void>(
+      domain: 'appdata',
+      operation: 'upsert_search_history',
+      action: () => customStatement(
+        '''
+        INSERT INTO search_history (keyword, position, updated_at_ms)
+        VALUES (?, ?, ?)
+        ON CONFLICT(keyword) DO UPDATE SET
+          position = excluded.position,
+          updated_at_ms = excluded.updated_at_ms;
+        ''',
+        [record.keyword, record.position, record.updatedAtMs],
+      ),
     );
   }
 
@@ -1072,19 +1099,27 @@ class UnifiedComicsStore extends GeneratedDatabase
   }
 
   Future<void> clearSearchHistory() {
-    return customStatement('DELETE FROM search_history;');
+    return runCanonicalWrite<void>(
+      domain: 'appdata',
+      operation: 'clear_search_history',
+      action: () => customStatement('DELETE FROM search_history;'),
+    );
   }
 
   Future<void> upsertImplicitData(ImplicitDataRecord record) {
-    return customStatement(
-      '''
-      INSERT INTO implicit_data (key, value_json, updated_at_ms)
-      VALUES (?, ?, ?)
-      ON CONFLICT(key) DO UPDATE SET
-        value_json = excluded.value_json,
-        updated_at_ms = excluded.updated_at_ms;
-      ''',
-      [record.key, record.valueJson, record.updatedAtMs],
+    return runCanonicalWrite<void>(
+      domain: 'appdata',
+      operation: 'upsert_implicit_data',
+      action: () => customStatement(
+        '''
+        INSERT INTO implicit_data (key, value_json, updated_at_ms)
+        VALUES (?, ?, ?)
+        ON CONFLICT(key) DO UPDATE SET
+          value_json = excluded.value_json,
+          updated_at_ms = excluded.updated_at_ms;
+        ''',
+        [record.key, record.valueJson, record.updatedAtMs],
+      ),
     );
   }
 
@@ -1104,7 +1139,11 @@ class UnifiedComicsStore extends GeneratedDatabase
   }
 
   Future<void> clearImplicitData() {
-    return customStatement('DELETE FROM implicit_data;');
+    return runCanonicalWrite<void>(
+      domain: 'appdata',
+      operation: 'clear_implicit_data',
+      action: () => customStatement('DELETE FROM implicit_data;'),
+    );
   }
 
   Future<void> upsertSourceRepository(SourceRepositoryRecord record) {
@@ -2394,32 +2433,7 @@ class UnifiedComicsStore extends GeneratedDatabase
   }
 
   Future<void> upsertReaderSession(ReaderSessionRecord record) {
-    return customStatement(
-      '''
-      INSERT INTO reader_sessions (
-        id,
-        comic_id,
-        active_tab_id,
-        created_at,
-        updated_at
-      )
-      VALUES (?, ?, ?, COALESCE(?, CURRENT_TIMESTAMP), COALESCE(?, CURRENT_TIMESTAMP))
-      ON CONFLICT(id) DO UPDATE SET
-        comic_id = excluded.comic_id,
-        active_tab_id = COALESCE(
-          excluded.active_tab_id,
-          reader_sessions.active_tab_id
-        ),
-        updated_at = COALESCE(excluded.updated_at, CURRENT_TIMESTAMP);
-      ''',
-      [
-        record.id,
-        record.comicId,
-        record.activeTabId,
-        record.createdAt,
-        record.updatedAt,
-      ],
-    );
+    return _runReaderSessionUpsert(record);
   }
 
   Future<void> upsertReaderTab(ReaderTabRecord record) {
@@ -2480,14 +2494,57 @@ class UnifiedComicsStore extends GeneratedDatabase
         );
       }
     }
-    await customStatement(
+    final existing = await customSelect(
       '''
-      UPDATE reader_sessions
-      SET active_tab_id = ?,
-          updated_at = CURRENT_TIMESTAMP
-      WHERE id = ?;
+      SELECT comic_id
+      FROM reader_sessions
+      WHERE id = ?
+      LIMIT 1;
       ''',
-      [activeTabId, sessionId],
+      variables: [Variable<String>(sessionId)],
+    ).getSingleOrNull();
+    if (existing == null) {
+      throw StateError('Reader session $sessionId does not exist.');
+    }
+    await upsertReaderSession(
+      ReaderSessionRecord(
+        id: sessionId,
+        comicId: existing.read<String>('comic_id'),
+        activeTabId: activeTabId,
+      ),
+    );
+  }
+
+  Future<void> _runReaderSessionUpsert(ReaderSessionRecord record) {
+    return runCanonicalWrite<void>(
+      domain: 'reader_session',
+      operation: 'upsert_reader_session',
+      action: () => customStatement(
+        '''
+        INSERT INTO reader_sessions (
+          id,
+          comic_id,
+          active_tab_id,
+          created_at,
+          updated_at
+        )
+        VALUES (?, ?, ?, COALESCE(?, CURRENT_TIMESTAMP), COALESCE(?, CURRENT_TIMESTAMP))
+        ON CONFLICT(id) DO UPDATE SET
+          comic_id = excluded.comic_id,
+          active_tab_id = COALESCE(
+            excluded.active_tab_id,
+            reader_sessions.active_tab_id
+          ),
+          updated_at = COALESCE(excluded.updated_at, CURRENT_TIMESTAMP);
+        ''',
+        [
+          record.id,
+          record.comicId,
+          record.activeTabId,
+          record.createdAt,
+          record.updatedAt,
+        ],
+      ),
     );
   }
 
@@ -2753,6 +2810,14 @@ class UnifiedComicsStore extends GeneratedDatabase
       return null;
     }
     return _localLibraryItemRecordFromRow(row);
+  }
+
+  Future<List<LocalLibraryItemRecord>> loadAllLocalLibraryItems() async {
+    final rows = await customSelect('''
+      SELECT * FROM local_library_items
+      ORDER BY updated_at DESC, imported_at DESC, id DESC;
+      ''').get();
+    return rows.map(_localLibraryItemRecordFromRow).toList(growable: false);
   }
 
   Future<void> deleteLocalLibraryItemById(String localLibraryItemId) {
