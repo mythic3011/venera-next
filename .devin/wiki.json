@@ -1,0 +1,307 @@
+{
+  "repo_notes": [
+    {
+      "content": "Generate wiki pages from the current repository state, not from assumed upstream behavior. Prefer README.md, docs/tech-notes, docs/dev-notes, docs/plans, and concrete files under lib/ and test/ as evidence."
+    },
+    {
+      "content": "For every page, explain ownership boundaries explicitly: identify which surface is canonical authority, which surfaces are legacy compatibility or migration bridges, and which surfaces are UI-only or diagnostic-only."
+    },
+    {
+      "content": "Do not flatten the repo into a generic Flutter app summary. This fork is in active migration, so pages should call out where lib/features is replacing older logic in lib/pages, lib/foundation, or utils."
+    },
+    {
+      "content": "Use concrete file and directory names in the generated wiki text. Point readers to the main entrypoints, owner modules, and the highest-signal tests for each subsystem."
+    },
+    {
+      "content": "Do not overclaim centralization or completion. If a subsystem is mid-cutover, say that clearly and name the current bridge, fallback, or residual legacy surface."
+    },
+    {
+      "content": "Treat diagnostics and tests as part of the architecture contract. When a page covers routing, persistence, or cutover behavior, mention the guard tests or trace contracts that enforce that behavior."
+    },
+    {
+      "content": "Keep the wiki focused on how this fork works today: startup, routing, storage, source runtime, reader runtime, migration/cutover lanes, and docs/tracker surfaces. Avoid low-signal restatements of obvious Flutter concepts."
+    }
+  ],
+  "pages": [
+    {
+      "title": "Overview",
+      "purpose": "Introduce the Venera fork, explain the breaking-change direction, summarize the main subsystem boundaries, and orient readers to the rest of the wiki.",
+      "page_notes": [
+        {
+          "content": "Use README.md as the primary source. Explain that this is a maintained fork of an archived upstream project and that fragmented legacy local data layouts are not treated as a permanent compatibility target."
+        }
+      ]
+    },
+    {
+      "title": "Setup & Bootstrap",
+      "purpose": "Document how to run the app and how process startup flows into the runtime bootstrap and App singleton.",
+      "parent": "Overview",
+      "page_notes": [
+        {
+          "content": "Cover lib/main.dart, lib/headless.dart, lib/init.dart, lib/utils/init.dart, and the current Flutter/tooling baseline from README.md. Explain the boot path clearly instead of listing dependencies mechanically."
+        }
+      ]
+    },
+    {
+      "title": "Fork Direction & Active Roadmap",
+      "purpose": "Explain the architectural migration direction, what the fork is replacing, and where active planning and tracking live.",
+      "parent": "Overview",
+      "page_notes": [
+        {
+          "content": "Use docs/plans/tracker.md plus recent active plans under docs/plans/. Distinguish long-term targets from work that is still in progress, and mention docs/plans/done/ and docs/plans/old/ as historical context rather than current authority."
+        }
+      ]
+    },
+    {
+      "title": "Core Architecture & App Lifecycle",
+      "purpose": "Describe app-wide runtime ownership: the App singleton, initialization lifecycle, global state, and cross-feature foundation surfaces.",
+      "page_notes": [
+        {
+          "content": "Focus on lib/foundation/app/app.dart, lib/foundation/app/global_state.dart, lib/init.dart, and nearby owner modules. Make the page about ownership and lifecycle, not just class names."
+        }
+      ]
+    },
+    {
+      "title": "Navigation & Routing Ownership",
+      "purpose": "Explain adaptive navigation, route construction, AppRouter ownership, AppPageRoute behavior, and the fork’s routing authority model.",
+      "parent": "Core Architecture & App Lifecycle",
+      "page_notes": [
+        {
+          "content": "Use lib/app/router.dart, lib/pages/main_page.dart, lib/foundation/app/app_page_route.dart, lib/foundation/adaptive/app_window_class.dart, and docs/tech-notes/routing-model-storage-diagnostics-ownership.md. Emphasize the move toward one route owner for critical flows."
+        }
+      ]
+    },
+    {
+      "title": "Settings, Appdata & Configuration",
+      "purpose": "Document Appdata, typed settings, runtime preferences, and the current split between configuration state and domain authority.",
+      "parent": "Core Architecture & App Lifecycle",
+      "page_notes": [
+        {
+          "content": "Use lib/foundation/appdata.dart, lib/pages/settings/, docs/plans/2026-05-03-appdata-owner-decisions.md, and related tests. Be explicit about what still lives in appdata and what should not remain domain authority."
+        }
+      ]
+    },
+    {
+      "title": "Diagnostics, Logging & Debugging",
+      "purpose": "Describe the structured diagnostics stack, legacy logging surfaces, debug export, lifecycle guards, and debugging conventions.",
+      "parent": "Core Architecture & App Lifecycle",
+      "page_notes": [
+        {
+          "content": "Use lib/foundation/diagnostics/diagnostics.dart, debug_log_exporter.dart, app_lifecycle_guard.dart, lib/foundation/reader/reader_diagnostics.dart, and the relevant diagnostics tests. Treat diagnostics as behavior contracts, not optional observability garnish."
+        }
+      ]
+    },
+    {
+      "title": "Source Plugin System Overview",
+      "purpose": "Explain the JavaScript-based source/plugin architecture, its main boundaries, and how source runtime ownership is organized.",
+      "page_notes": [
+        {
+          "content": "Orient readers across lib/features/sources/comic_source/, lib/foundation/js/, and lib/network/. Make clear which surfaces are source-runtime owners versus shared runtime utilities."
+        }
+      ]
+    },
+    {
+      "title": "Source Models, Parser & JS Runtime",
+      "purpose": "Describe source models, parser handoff, validation, and the QuickJS-backed runtime bridge.",
+      "parent": "Source Plugin System Overview",
+      "page_notes": [
+        {
+          "content": "Use comic_source.dart, comic_source_parser.dart, direct_js_parser_handoff.dart, direct_js_source_validator.dart, lib/foundation/js/js_engine.dart, and the corresponding tests. Show how parsing and execution are separated."
+        }
+      ]
+    },
+    {
+      "title": "Source Auth, WebView & Account Data",
+      "purpose": "Explain per-source authentication, cookies, login flows, and persisted account/session surfaces.",
+      "parent": "Source Plugin System Overview",
+      "page_notes": [
+        {
+          "content": "Use lib/pages/auth_page.dart, lib/pages/webview.dart, lib/network/cookie_jar.dart, and source account/config code. Keep cookie/session storage distinct from canonical comic-domain state."
+        }
+      ]
+    },
+    {
+      "title": "Source Management & Direct Install",
+      "purpose": "Document source repository registry work, staged source writing, validation/install flow, and the current boundary between enabled and unfinished install behavior.",
+      "parent": "Source Plugin System Overview",
+      "page_notes": [
+        {
+          "content": "Use source_management_controller.dart, direct_js_install_command.dart, direct_js_staged_source_writer.dart, source_management_redaction.dart, and the source_management tests. Be explicit if UI surfaces are validate-only or staged-write-only."
+        }
+      ]
+    },
+    {
+      "title": "Data Layer & Persistence Overview",
+      "purpose": "Map canonical and legacy storage surfaces, ports/adapters, authority boundaries, and current persistence direction.",
+      "page_notes": [
+        {
+          "content": "Use lib/foundation/db/, lib/foundation/database/, lib/foundation/ports/, lib/foundation/repositories/, and docs/dev-notes/app_db_helper_write_audit.md. This page should frame the storage model before deeper child pages."
+        }
+      ]
+    },
+    {
+      "title": "AppDbHelper Write Serialization",
+      "purpose": "Explain the canonical runtime write entry boundary, write queue semantics, transaction/customWrite helpers, label conventions, and retry behavior.",
+      "parent": "Data Layer & Persistence Overview",
+      "page_notes": [
+        {
+          "content": "Use lib/foundation/database/app_db_helper.dart, docs/dev-notes/app_db_helper_write_audit.md, test/foundation/database/app_db_helper_test.dart, and test/foundation/db/app_db_helper_wiring_grep_test.dart. Clarify what counts as normal runtime writes versus setup/migration exceptions."
+        }
+      ]
+    },
+    {
+      "title": "UnifiedComicsStore & Repository Adapters",
+      "purpose": "Describe the canonical Drift/SQLite store, split schema files, WAL/foreign-key setup, record types, and adapters that expose store behavior to features.",
+      "parent": "Data Layer & Persistence Overview",
+      "page_notes": [
+        {
+          "content": "Use lib/foundation/db/unified_comics_store.dart, the split files under lib/foundation/db/unified_comics_store/, and lib/foundation/db/adapters/. Explain why this store is the canonical comic-domain authority."
+        }
+      ]
+    },
+    {
+      "title": "Reader Sessions, Tabs & Progress Persistence",
+      "purpose": "Document reader session records, tab records, active-tab behavior, persistence orchestration, and write/skip diagnostics.",
+      "parent": "Data Layer & Persistence Overview",
+      "page_notes": [
+        {
+          "content": "Use lib/features/reader/data/reader_session_repository.dart, reader_session_persistence.dart, lib/foundation/db/unified_comics_store.dart, and tests around reader persistence. Explain DB-authoritative correctness versus repository fast-path coalescing."
+        }
+      ]
+    },
+    {
+      "title": "Source Identity & Platform Resolver",
+      "purpose": "Explain canonical source/platform identity, alias mapping, legacy key bridging, and the sourceRef/sourceIdentity model used by storage and routing.",
+      "parent": "Data Layer & Persistence Overview",
+      "page_notes": [
+        {
+          "content": "Use lib/foundation/sources/identity/, lib/foundation/sources/source_ref.dart, and source resolver tests. Make this page about identity ownership, not just enum/value listings."
+        }
+      ]
+    },
+    {
+      "title": "Local Library, History & Favorites Authority",
+      "purpose": "Explain how local-library, history, favorites, follow-updates, and reading progress currently span canonical and compatibility surfaces.",
+      "parent": "Data Layer & Persistence Overview",
+      "page_notes": [
+        {
+          "content": "Use lib/foundation/local/, local.dart, history.dart, favorites.dart, favorite_runtime_authority.dart, follow_updates.dart, and related tests. Be explicit about which parts are still bridges and which parts are canonical owners."
+        }
+      ]
+    },
+    {
+      "title": "Networking, Proxy & Caching",
+      "purpose": "Describe the app-wide networking stack, request configuration, proxy and DNS handling, cookies, downloads, and cache policy.",
+      "page_notes": [
+        {
+          "content": "Use lib/network/app_dio.dart, proxy.dart, cookie_jar.dart, cache.dart, images.dart, file_downloader.dart, and settings/network.dart. Explain cross-cutting impact on sources, downloads, auth, and reader image loading."
+        }
+      ]
+    },
+    {
+      "title": "UI Architecture & Shared Components",
+      "purpose": "Map the shared component layer and the older page-centric UI structure that still hosts much of the application.",
+      "page_notes": [
+        {
+          "content": "Use lib/components/ and lib/pages/. Clarify that shared components should remain UI-only, while new feature/runtime ownership is increasingly moving into lib/features."
+        }
+      ]
+    },
+    {
+      "title": "Comic Reader",
+      "purpose": "Document the main reader widget, read modes, gesture and chrome behavior, image provider usage, and page loading flow.",
+      "parent": "UI Architecture & Shared Components",
+      "page_notes": [
+        {
+          "content": "Use lib/features/reader/presentation/, lib/foundation/image_provider/reader_image.dart, and lib/foundation/reader/. Distinguish UI lifecycle events from real persistence or route changes."
+        }
+      ]
+    },
+    {
+      "title": "Reader Lifecycle & Route Boundary",
+      "purpose": "Explain ReaderWithLoading, route dispatch authority, expectedReaderTabId semantics, retained-tab diagnostics, and parent/child lifecycle debugging.",
+      "parent": "UI Architecture & Shared Components",
+      "page_notes": [
+        {
+          "content": "Use docs/tech-notes/routing-model-storage-diagnostics-ownership.md, docs/plans/2026-05-05-reader-cutover-local-reader-lifecycle-plan.md, lib/features/reader/presentation/diagnostics.dart, and reader trace tests. Make pending expectedReaderTabId semantics explicit."
+        }
+      ]
+    },
+    {
+      "title": "Comic Details & Shared Local-Remote Contract",
+      "purpose": "Describe the comic detail page stack, local/remote normalization, read/download/favorite actions, and the current shared contract direction.",
+      "parent": "UI Architecture & Shared Components",
+      "page_notes": [
+        {
+          "content": "Use lib/pages/comic_details_page/, lib/features/comic_detail/data/, lib/foundation/comic_detail/, and comic detail tests. Emphasize the fork goal of a unified local/remote detail contract."
+        }
+      ]
+    },
+    {
+      "title": "Discovery, Search, Explore & Ranking",
+      "purpose": "Document browsing and search flows across explore, aggregated search, categories, rankings, and result pages.",
+      "parent": "UI Architecture & Shared Components",
+      "page_notes": [
+        {
+          "content": "Use explore_page.dart, search_page.dart, aggregated_search_page.dart, categories_page.dart, ranking_page.dart, and search_result_page.dart. Explain which parts are page orchestration versus source-runtime integration."
+        }
+      ]
+    },
+    {
+      "title": "Home, Favorites, History & Image Favorites Pages",
+      "purpose": "Explain the current dashboard and collection pages and how they expose the state of migration/cutover work to end users.",
+      "parent": "UI Architecture & Shared Components",
+      "page_notes": [
+        {
+          "content": "Use home_page.dart, favorites/, history_page.dart, image_favorites_page/, and related tests. Call out where these pages still read from bridges or compatibility surfaces."
+        }
+      ]
+    },
+    {
+      "title": "Reader Next Runtime & Cutover",
+      "purpose": "Describe the newer reader_next runtime, shell/open-controller flow, runtime models, bridges, and why it exists as a cutover track.",
+      "page_notes": [
+        {
+          "content": "Use lib/features/reader_next/runtime/, presentation/, bridge/, and infrastructure/. Present reader_next as an active migration/runtime lane, not as a fully finished replacement."
+        }
+      ]
+    },
+    {
+      "title": "Reader Next Preflight, Backfill & Importer",
+      "purpose": "Document the readiness gates, cutover preflights, explicit identity backfill, and importer/validation helpers tied to reader_next migration work.",
+      "parent": "Reader Next Runtime & Cutover",
+      "page_notes": [
+        {
+          "content": "Use lib/features/reader_next/preflight/, backfill/, importer/, and docs/release/readernext-cutover-rollback-guide.md. Make clear which pieces are migration-time tooling versus steady-state runtime."
+        }
+      ]
+    },
+    {
+      "title": "Import, Export, WebDAV Sync & Backup",
+      "purpose": "Explain archive import/export, WebDAV sync, backup behavior, headless automation surfaces, and authority risks when moving data across formats.",
+      "page_notes": [
+        {
+          "content": "Use lib/utils/data_sync.dart, import/export utilities, lib/headless.dart, and related docs/tests. State which payloads are canonical data, which are compatibility imports, and which are preferences or caches."
+        }
+      ]
+    },
+    {
+      "title": "Docs, Plans & Release Notes",
+      "purpose": "Map the documentation structure so contributors know where to find architecture notes, active plans, done slices, and rollback guides.",
+      "page_notes": [
+        {
+          "content": "Use docs/tech-notes/, docs/dev-notes/, docs/plans/, docs/plans/done/, docs/plans/old/, and docs/release/. This page should function as a docs navigation guide for engineers."
+        }
+      ]
+    },
+    {
+      "title": "Tests & Guard Rails",
+      "purpose": "Describe the test layout and highlight the suites that enforce routing, persistence, authority, migration, and source-management contracts.",
+      "page_notes": [
+        {
+          "content": "Use test/foundation/, test/reader/, test/features/reader_next/, test/features/source_management/, test/pages/, and static guard tests. Explain how these suites act as architecture enforcement, not just regression checks."
+        }
+      ]
+    }
+  ]
+}
