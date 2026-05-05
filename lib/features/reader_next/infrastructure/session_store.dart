@@ -55,11 +55,7 @@ class DriftReaderSessionStore implements ReaderSessionStore {
       ),
     );
     await _store.upsertReaderSession(
-      ReaderSessionRecord(
-        id: sessionId,
-        comicId: canonicalComicId,
-        activeTabId: null,
-      ),
+      ReaderSessionRecord(id: sessionId, comicId: canonicalComicId),
     );
     await _store.upsertReaderTab(
       ReaderTabRecord(
@@ -72,9 +68,12 @@ class DriftReaderSessionStore implements ReaderSessionStore {
         pageOrderId: session.pageOrderId,
       ),
     );
-    await _store.setReaderSessionActiveTab(
-      sessionId: sessionId,
-      activeTabId: tabId,
+    await _store.upsertReaderSession(
+      ReaderSessionRecord(
+        id: sessionId,
+        comicId: canonicalComicId,
+        activeTabId: tabId,
+      ),
     );
   }
 
