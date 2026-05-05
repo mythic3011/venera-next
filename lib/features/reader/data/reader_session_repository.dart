@@ -66,9 +66,12 @@ class ReaderSessionRepository {
       ),
     );
     if (makeActive) {
-      await store.setReaderSessionActiveTab(
-        sessionId: sessionId,
-        activeTabId: resolvedTabId,
+      await store.upsertReaderSession(
+        ReaderSessionRecord(
+          id: sessionId,
+          comicId: comicId,
+          activeTabId: resolvedTabId,
+        ),
       );
     }
   }
