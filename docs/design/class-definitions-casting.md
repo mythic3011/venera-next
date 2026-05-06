@@ -71,16 +71,17 @@ Entity: PageOrder
 
 Entity: SourcePlatform
   ├─ Immutable: id, canonicalKey, kind, createdAt
-  ├─ Mutable: displayName, isEnabled
+  ├─ Mutable: displayName, status
   └─ Invariants:
      - canonicalKey is unique
      - kind in [local, remote, virtual]
+     - status in [active, disabled, deprecated]
 
 Entity: SourceManifest
   ├─ Immutable: id, sourcePlatformId, version, createdAt
   └─ Invariants:
      - id is deterministic hash of content
-     - validates against schemas/source_manifest.schema.json
+     - validates against canonical repository/package manifest contract
 
 Entity: Favorite
   ├─ Immutable: id, comicId, markedAt, createdAt
@@ -890,4 +891,3 @@ For each casting rule, implement:
 - [ ] **Logger**: Log transformation (no sensitive data)
 - [ ] **Tests**: Unit tests for validation + transformation
 - [ ] **Documentation**: Document assumptions and invariants
-

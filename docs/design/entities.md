@@ -164,7 +164,7 @@ Entity: SourcePlatform
   canonicalKey: String (stable identifier, e.g., "copymanga", "local")
   displayName: String (user-facing name)
   kind: Enum (local | remote | virtual)
-  isEnabled: Boolean (whether source is active)
+  status: Enum (active | disabled | deprecated)
   createdAt: Timestamp
   updatedAt: Timestamp
 ```
@@ -173,6 +173,7 @@ Entity: SourcePlatform
 - `id` is immutable
 - `canonicalKey` is unique and immutable (stable across sessions)
 - `kind` is immutable
+- `status` is mutable but constrained to `active | disabled | deprecated`
 
 ---
 
@@ -199,7 +200,7 @@ Entity: SourceManifest
 ```
 
 **Invariants**:
-- Validated against `schemas/source_manifest.schema.json`
+- Validated against canonical repository/package manifest contract
 - No auth tokens or secrets in headers
 - Permissions explicitly declared
 - Immutable (new version = new manifest ID)
@@ -336,10 +337,11 @@ ImportBatch ──→ Comic (optional, after completion)
 ### SourcePlatform
 - `canonicalKey` must be unique
 - `kind` must be one of: local, remote, virtual
+- `status` must be one of: active, disabled, deprecated
 - `id` must be valid UUID v4
 
 ### SourceManifest
-- Must validate against `schemas/source_manifest.schema.json`
+- Must validate against canonical repository/package manifest contract
 - No secrets in headers
 - Permissions must be declared
 
@@ -352,4 +354,3 @@ ImportBatch ──→ Comic (optional, after completion)
 - Files must be ordered by index
 - All checksums must be SHA256 format
 - One ImportBatch completes to one Comic
-

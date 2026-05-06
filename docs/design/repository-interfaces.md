@@ -306,12 +306,12 @@ Persistence layer for SourcePlatform entities.
 #### `listAllSourcePlatforms(includeDisabled: Boolean = false) -> List<SourcePlatform> | Error`
 **Contract**:
 - Returns all platforms
-- If `includeDisabled` false, filters to `is_enabled = true`
+- If `includeDisabled` false, filters to `status = 'active'`
 - Ordered by `display_name` ascending
 
 #### `listEnabledSourcePlatforms() -> List<SourcePlatform> | Error`
 **Contract**:
-- Returns only enabled platforms
+- Returns only active platforms (`status = 'active'`)
 - Ordered by `display_name` ascending
 
 ### Commands
@@ -324,10 +324,12 @@ Persistence layer for SourcePlatform entities.
 - Throws: `ValidationError` if kind not in [local, remote, virtual]
 - Returns created SourcePlatform
 
-#### `updateSourcePlatform(id: SourcePlatformId, displayName: String = null, isEnabled: Boolean = null) -> SourcePlatform | Error`
+#### `updateSourcePlatform(id: SourcePlatformId, displayName: String = null, status: String = null) -> SourcePlatform | Error`
 **Contract**:
 - Updates platform metadata
+- `status` must be one of `active | disabled | deprecated` when provided
 - Throws: `NotFoundError` if not found
+- Throws: `ValidationError` if status is invalid
 - Returns updated SourcePlatform
 
 #### `deleteSourcePlatform(id: SourcePlatformId) -> Boolean | Error`
@@ -366,7 +368,7 @@ Persistence layer for SourceManifest entities.
 #### `createManifest(sourcePlatformId: SourcePlatformId, manifest: Object) -> SourceManifest | Error`
 **Contract**:
 - Creates new manifest (version)
-- Validates against `schemas/source_manifest.schema.json`
+- Validates against canonical repository/package manifest contract
 - Computes deterministic ID (hash of content)
 - Throws: `NotFoundError` if platform not found
 - Throws: `ValidationError` if manifest invalid
@@ -497,9 +499,8 @@ All repositories throw these error types:
 - **Durability**: Successful operations persisted (committed)
 
 **Deadlock handling**:
-- Repositories must implement retry logic (exponential backoff)
-- Max 3 retries before throwing `TransactionError`
-- Timeout: 30 seconds per operation
+- Repository layer should return deterministic `TransactionError` / `StorageError` outcomes for lock contention and busy-state failures.
+- Retry/backoff policy is orchestration/infrastructure policy and is not mandated by this contract slice.
 
 ---
 

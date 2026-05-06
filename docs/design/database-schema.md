@@ -181,7 +181,7 @@ Provider-specific behavior manifests (loaded from JSON, validated).
 
 **Validation**:
 - All JSON columns must be valid JSON
-- Must validate against `schemas/source_manifest.schema.json`
+- Must validate against canonical repository/package manifest contract
 - No secrets in `headers` column
 
 ---
