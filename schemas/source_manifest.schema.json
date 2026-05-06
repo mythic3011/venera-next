@@ -1,0 +1,63 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Source Manifest",
+  "description": "Provider-specific source manifest describing how to load comics from a provider",
+  "type": "object",
+  "required": ["version", "provider", "displayName", "baseUrl", "headers"],
+  "properties": {
+    "version": {
+      "type": "string",
+      "pattern": "^1\\.0\\.0$",
+      "description": "Schema version (currently 1.0.0)"
+    },
+    "provider": {
+      "type": "string",
+      "description": "Canonical provider key (e.g., 'copymanga', 'manhuagui')"
+    },
+    "displayName": {
+      "type": "string",
+      "description": "User-facing provider name"
+    },
+    "baseUrl": {
+      "type": "string",
+      "format": "uri",
+      "description": "Base URL for API requests"
+    },
+    "headers": {
+      "type": "object",
+      "description": "Static HTTP headers (no auth tokens)",
+      "additionalProperties": { "type": "string" }
+    },
+    "search": {
+      "type": "object",
+      "description": "Search endpoint configuration"
+    },
+    "comicDetail": {
+      "type": "object",
+      "description": "Comic detail endpoint configuration"
+    },
+    "chapterList": {
+      "type": "object",
+      "description": "Chapter list endpoint configuration"
+    },
+    "pageList": {
+      "type": "object",
+      "description": "Page list endpoint configuration"
+    },
+    "imageUrl": {
+      "type": "object",
+      "description": "Image URL transformation rules"
+    },
+    "permissions": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Required permissions (e.g., 'network.http', 'storage.cache')",
+      "default": []
+    },
+    "runtimeVersion": {
+      "type": "string",
+      "description": "Minimum required runtime version"
+    }
+  },
+  "additionalProperties": false
+}

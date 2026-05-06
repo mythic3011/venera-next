@@ -1,0 +1,49 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Reader Event",
+  "description": "Reader runtime event: navigation, page load, session state",
+  "type": "object",
+  "required": ["event", "timestamp"],
+  "properties": {
+    "event": {
+      "type": "string",
+      "enum": [
+        "reader.session.opened",
+        "reader.session.closed",
+        "reader.page.loaded",
+        "reader.page.failed",
+        "reader.chapter.changed",
+        "reader.position.saved"
+      ]
+    },
+    "timestamp": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "sessionId": {
+      "type": ["string", "null"],
+      "format": "uuid"
+    },
+    "comicId": {
+      "type": ["string", "null"],
+      "format": "uuid"
+    },
+    "chapterId": {
+      "type": ["string", "null"],
+      "format": "uuid"
+    },
+    "pageIndex": {
+      "type": ["integer", "null"],
+      "minimum": 0
+    },
+    "duration": {
+      "type": ["number", "null"],
+      "description": "Duration in milliseconds (for load events)"
+    },
+    "error": {
+      "type": ["string", "null"],
+      "description": "Error details if event indicates failure"
+    }
+  },
+  "additionalProperties": false
+}

@@ -1,0 +1,60 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Diagnostics Event",
+  "description": "Structured diagnostics event for tracking decision points, boundaries, and runtime authority",
+  "type": "object",
+  "required": ["event", "level", "boundary", "action", "timestamp"],
+  "properties": {
+    "event": {
+      "type": "string",
+      "description": "Fully qualified event name (e.g., 'reader.route.unresolved_target')",
+      "pattern": "^[a-z_][a-z0-9_.]*$"
+    },
+    "level": {
+      "type": "string",
+      "enum": ["debug", "info", "warn", "error"],
+      "description": "Severity level"
+    },
+    "boundary": {
+      "type": "string",
+      "description": "Architectural boundary where decision was made (e.g., 'route.dispatch', 'repository.write')"
+    },
+    "action": {
+      "type": "string",
+      "enum": ["allowed", "rejected", "repaired", "logged", "queued"],
+      "description": "Outcome action"
+    },
+    "timestamp": {
+      "type": "string",
+      "format": "date-time",
+      "description": "ISO 8601 timestamp"
+    },
+    "correlationId": {
+      "type": ["string", "null"],
+      "description": "Correlation ID for tracing related events"
+    },
+    "comicId": {
+      "type": ["string", "null"],
+      "description": "Associated comic ID (UUID)"
+    },
+    "chapterId": {
+      "type": ["string", "null"],
+      "description": "Associated chapter ID (UUID)"
+    },
+    "sourceKind": {
+      "type": ["string", "null"],
+      "enum": ["local", "remote", "virtual", null],
+      "description": "Source kind"
+    },
+    "reason": {
+      "type": ["string", "null"],
+      "description": "Rejection or decision reason code"
+    },
+    "details": {
+      "type": "object",
+      "additionalProperties": true,
+      "description": "Additional context (no sensitive data)"
+    }
+  },
+  "additionalProperties": false
+}
