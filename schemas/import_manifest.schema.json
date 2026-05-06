@@ -1,0 +1,71 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Import Manifest",
+  "description": "Manifest describing a batch of files being imported (CBZ, PDF, directories)",
+  "type": "object",
+  "required": ["version", "importBatchId", "importedAt", "sourceType", "files"],
+  "properties": {
+    "version": {
+      "type": "string",
+      "pattern": "^1\\.0\\.0$",
+      "description": "Schema version"
+    },
+    "importBatchId": {
+      "type": "string",
+      "format": "uuid",
+      "description": "Unique import batch ID"
+    },
+    "importedAt": {
+      "type": "string",
+      "format": "date-time",
+      "description": "Import timestamp"
+    },
+    "sourceType": {
+      "type": "string",
+      "enum": ["cbz", "pdf", "directory"],
+      "description": "Type of import source"
+    },
+    "sourcePath": {
+      "type": "string",
+      "description": "Original file or directory path"
+    },
+    "files": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["path", "fileType", "index"],
+        "properties": {
+          "path": {
+            "type": "string",
+            "description": "Path within import source"
+          },
+          "fileType": {
+            "type": "string",
+            "enum": ["image", "metadata", "other"],
+            "description": "File classification"
+          },
+          "index": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Canonical page index"
+          },
+          "checksum": {
+            "type": "string",
+            "description": "SHA256 checksum for deduplication"
+          }
+        }
+      },
+      "description": "Files in canonical order"
+    },
+    "metadata": {
+      "type": "object",
+      "properties": {
+        "title": { "type": "string" },
+        "author": { "type": "string" },
+        "pages": { "type": "integer" }
+      },
+      "description": "Extracted metadata (optional)"
+    }
+  },
+  "additionalProperties": false
+}
