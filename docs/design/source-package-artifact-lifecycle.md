@@ -22,6 +22,8 @@ Rules:
 
 - `source_platform` mutation is not allowed before verified artifact package store commit.
 - Failed package store commit prevents `source_platform` mutation.
+- Package-store commit must not require a pre-existing `source_platform` reference.
+- `sourcePlatformId` linkage is optional until mutation succeeds and should be attached only as a post-activation reference.
 - Failed `source_platform` mutation must either:
   - roll back the package store commit when transaction boundaries support rollback, or
   - mark the committed package artifact as orphaned/unreferenced for deterministic cleanup.
@@ -55,6 +57,7 @@ Package install success requires both package store commit and `source_platform`
 
 - `source_platform mutation`
   - Occurs only after package store commit succeeds.
+  - Attaches/updates `sourcePlatformId` only after successful activation.
   - Must not create dangling providers.
 
 - `rollback / cleanup`

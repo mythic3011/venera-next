@@ -12,9 +12,24 @@ Use cases orchestrate repositories to implement business logic. Each use case:
 - Documents pre-conditions and post-conditions
 - May involve multiple repositories (transactional)
 
+Error model note:
+- Error names in this document are conceptual categories.
+- runtime/core implementations return `Result<T, CoreError>`-shaped outcomes; adapters may map them to thrown exceptions or transport responses.
+
+Status model in this document:
+- `Implemented (Core+DB)` = current canonical authority for runtime/core contract surface
+- `Planned Canonical` = intended canonical direction, not current implementation authority
+- `Deferred/Legacy` = historical or future-facing flow kept for reference only
+
+Auth/permission note:
+- Current runtime/core canonical slice does not define a user/auth domain model.
+- Any `userId` attribution and permission enforcement belongs to adapter/auth layer policy until an explicit core auth contract is added.
+
 ---
 
 ## Comic Management Use Cases
+
+### Implemented (Core+DB)
 
 ### UC-001: Create New Comic
 
@@ -23,7 +38,6 @@ Use cases orchestrate repositories to implement business logic. Each use case:
 **Actors**: User, System
 
 **Pre-conditions**:
-- User has write permissions
 - Title is not empty
 
 **Input**:
@@ -31,6 +45,7 @@ Use cases orchestrate repositories to implement business logic. Each use case:
 {
   title: String (non-empty)
   description: String (optional)
+  idempotencyKey: String (optional)
 }
 ```
 
@@ -40,32 +55,35 @@ Use cases orchestrate repositories to implement business logic. Each use case:
 3. If `idempotencyKey` is present, the system replays only a previously completed result with the same canonical input hash
 4. If the same `idempotencyKey` is reused with different canonical input, the system returns `IDEMPOTENCY_CONFLICT` and performs no mutation
 5. System creates Comic with ComicMetadata
-6. System creates default ReaderSession (chapter 0, page 0)
-7. System emits `comic.created` event
-8. Return new Comic with ID
+6. System emits `comic.created` event
+7. Return new Comic with ID
 
 **Post-conditions**:
 - Comic exists in database
 - ComicMetadata populated from input
-- ReaderSession initialized
-- Comic marked as modified
+- `created_at` / `updated_at` timestamps recorded
 
 **Error Handling**:
 - If the same `idempotencyKey` is reused with a different canonical input: throw `IDEMPOTENCY_CONFLICT`, no changes
-- If write permission denied: throw `ForbiddenError`
 - If database fails: throw `StorageError`, transaction rolled back
 
 **Output**:
 ```
 {
   comic: Comic (with assigned ID)
-  event: DiagnosticsEvent (type: "comic.created")
+  metadata: ComicMetadata
+  primaryTitle: ComicTitle
 }
 ```
+
+Diagnostics note:
+- May record diagnostics event `comic.created` through diagnostics port when configured.
 
 ---
 
 ### UC-002: Import Comic from File
+
+**Status**: Deferred/Legacy (not current core canonical authority)
 
 **Purpose**: Import comic from CBZ, PDF, or directory.
 
@@ -79,11 +97,11 @@ Use cases orchestrate repositories to implement business logic. Each use case:
 ```
 {
   sourceType: String ("cbz" | "pdf" | "directory")
-  sourcePath: String (absolute path)
+  sourcePath: String (legacy absolute path input; future canonical input should come via storage/import adapter contract)
   importMetadata: Object {
     title: String (optional, override from file)
     authorName: String (optional)
-    genreTags: List<String> (optional)
+    tags: List<TagReference> (optional, projection shape)
   }
 }
 ```
@@ -133,24 +151,22 @@ Use cases orchestrate repositories to implement business logic. Each use case:
 
 **Pre-conditions**:
 - Comic exists
-- User has write permissions
 
 **Input**:
 ```
 {
   comicId: ComicId
-  title: String (optional, if new, check for duplicates)
+  title: String (optional)
   description: String (optional)
-  coverLocalPath: String (optional)
+  coverStorageObjectId: StorageObjectId (optional)
   authorName: String (optional)
-  genreTags: List<String> (optional)
+  tags: List<TagReference> (optional, projection shape)
 }
 ```
 
 **Main Flow**:
 1. System retrieves Comic by ID
-2. If new title provided:
-   - System normalizes and checks for duplicates → DuplicateError
+2. If new title provided: system normalizes title for matching only (no duplicate-title rejection)
 3. System updates ComicMetadata with provided fields
 4. System emits `comic.updated` event with changes
 5. Return updated Comic
@@ -162,8 +178,7 @@ Use cases orchestrate repositories to implement business logic. Each use case:
 
 **Error Handling**:
 - If comic not found: throw `NotFoundError`
-- If title duplicate: throw `DuplicateError`, no changes
-- If permission denied: throw `ForbiddenError`
+- If title is invalid/empty after normalization rules: throw `ValidationError`
 
 **Output**:
 ```
@@ -178,13 +193,15 @@ Use cases orchestrate repositories to implement business logic. Each use case:
 
 ### UC-004: Delete Comic
 
+**Status**: Planned Canonical
+
 **Purpose**: Remove comic and all related data.
 
 **Actors**: User, System
 
 **Pre-conditions**:
 - Comic exists
-- User has delete permissions
+- Adapter/auth layer may enforce delete permissions (outside current core authority)
 
 **Input**:
 ```
@@ -226,6 +243,13 @@ Use cases orchestrate repositories to implement business logic. Each use case:
 
 ## Reader Management Use Cases
 
+### Implemented (Core+DB)
+
+Implemented use-case mapping in current core slice:
+- ResolveReaderTarget
+- OpenReader
+- UpdateReaderPosition
+
 ### UC-005: Read Comic (Update Position)
 
 **Purpose**: Record reader's current position in comic.
@@ -250,15 +274,14 @@ Use cases orchestrate repositories to implement business logic. Each use case:
 1. System validates chapter belongs to comic
 2. System validates pageIndex < page count in chapter
 3. System updates ReaderSession with new position
-4. If comic is favorited: System updates `favorite.last_accessed_at`
-5. System emits `reader.position_changed` event
-6. Return updated ReaderSession
+4. System emits `reader.position_changed` event
+5. Return updated ReaderSession
 
 **Post-conditions**:
 - ReaderSession updated
-- Favorite timestamp updated (if favorited)
 - Reader position persisted
 - `updated_at` timestamp refreshed
+- Favorite timestamp coupling is deferred to future favorite/read activity policy
 
 **Error Handling**:
 - If comic not found: throw `NotFoundError`
@@ -294,11 +317,11 @@ Use cases orchestrate repositories to implement business logic. Each use case:
 
 **Main Flow**:
 1. System retrieves ReaderSession for comic
-2. If not found: System creates default session (chapter 0, page 0)
+2. If not found: system returns NotFound and lets orchestration/reader target resolution choose creation behavior
 3. Return ReaderSession
 
 **Post-conditions**:
-- ReaderSession exists (may be newly created)
+- ReaderSession unchanged (read-only)
 - No modification to position (read-only operation)
 
 **Error Handling**:
@@ -307,13 +330,15 @@ Use cases orchestrate repositories to implement business logic. Each use case:
 **Output**:
 ```
 {
-  session: ReaderSession (current position or default)
+  session: ReaderSession (current persisted position)
 }
 ```
 
 ---
 
 ### UC-007: Clear Reader Position
+
+**Status**: Planned Canonical
 
 **Purpose**: Reset reader position to start.
 
@@ -331,7 +356,7 @@ Use cases orchestrate repositories to implement business logic. Each use case:
 
 **Main Flow**:
 1. System retrieves ReaderSession
-2. System resets position to chapter 0, page 0
+2. System clears stored session state or resets using canonical reader-target policy (for example first chapter by ordering policy, pageIndex = 0)
 3. System emits `reader.position_cleared` event
 4. Return updated ReaderSession
 
@@ -354,6 +379,8 @@ Use cases orchestrate repositories to implement business logic. Each use case:
 
 ## Favorites Management Use Cases
 
+### Deferred/Legacy
+
 ### UC-008: Mark Comic as Favorite
 
 **Purpose**: Add comic to user's favorites list.
@@ -374,7 +401,7 @@ Use cases orchestrate repositories to implement business logic. Each use case:
 **Main Flow**:
 1. System retrieves Comic
 2. System checks if already favorited → idempotent, return existing Favorite
-3. System creates Favorite with `marked_at = NOW()`
+3. System creates Favorite with `marked_at = CURRENT_TIMESTAMP`
 4. System emits `favorite.marked` event
 5. Return Favorite
 
@@ -484,6 +511,8 @@ Use cases orchestrate repositories to implement business logic. Each use case:
 
 ## Chapter & Page Management Use Cases
 
+### Deferred/Legacy
+
 ### UC-011: Create Chapters from Import
 
 **Purpose**: Create ordered chapters from imported files.
@@ -562,7 +591,7 @@ Use cases orchestrate repositories to implement business logic. Each use case:
 2. System validates all page IDs exist in chapter
 3. System validates all chapter pages are included
 4. System updates PageOrder with `order_type = 'user_override'`
-5. System stores user page order
+5. System stores user page order through `PageOrder` + `PageOrderItem` entries (not delimited strings)
 6. System emits `chapter.pages_reordered` event
 7. Return updated PageOrder
 
@@ -588,6 +617,8 @@ Use cases orchestrate repositories to implement business logic. Each use case:
 ---
 
 ## Search & Browse Use Cases
+
+### Deferred/Legacy
 
 ### UC-013: Search Comics
 
@@ -632,6 +663,9 @@ Use cases orchestrate repositories to implement business logic. Each use case:
   offset: Integer
 }
 ```
+
+Diagnostics note:
+- Raw query may be returned to caller, but diagnostics should persist `queryHash` and optional sanitized preview.
 
 ---
 
@@ -688,9 +722,10 @@ All use cases emit `DiagnosticsEvent` for audit trail and monitoring:
 ```
 Entity: DiagnosticsEvent
   id: String (UUID v4)
+  schemaVersion: String ("1.0.0")
   timestamp: Timestamp (UTC)
   eventType: String (e.g., "comic.created", "reader.position_changed")
-  userId: String (optional, who triggered)
+  userId: String (optional, adapter-provided attribution, not core-owned identity)
   correlationId: String (trace ID)
   resourceId: String (entity ID affected)
   resourceType: String (entity type)
@@ -698,6 +733,7 @@ Entity: DiagnosticsEvent
   payload: Object (event-specific data)
   severity: String ("info", "warning", "error")
   duration: Integer (milliseconds)
+  queryHash: String (optional, salted per debug bundle/export scope; redaction policy applies)
 ```
 
 **DiagnosticsEvent Examples**:
@@ -721,19 +757,21 @@ Entity: DiagnosticsEvent
 
 ## Use Case Error Matrix
 
-| Use Case | NotFound | Duplicate | Validation | Permission | Storage |
-|----------|----------|-----------|-----------|-----------|---------|
-| Create Comic | - | X | X | X | X |
-| Import Comic | X | X | X | - | X |
-| Update Metadata | X | X | X | X | X |
-| Delete Comic | X | - | X | X | X |
-| Read Position | X | - | X | - | X |
-| Get Position | X | - | - | - | - |
-| Clear Position | X | - | - | - | X |
-| Mark Favorite | X | - | - | - | X |
-| Unmark Favorite | X | - | - | - | X |
-| List Favorites | - | - | - | - | - |
-| Create Chapters | X | - | X | - | X |
-| Reorder Pages | X | - | X | - | X |
-| Search Comics | - | - | X | - | X |
-| List Comics | - | - | X | - | - |
+| Use Case | Status | NotFound | Duplicate | IdempotencyConflict | Validation | Permission* | Storage |
+|----------|--------|----------|-----------|---------------------|------------|-------------|---------|
+| Create Comic | Implemented | - | - | X | X | - | X |
+| Import Comic | Deferred/Legacy | X | X | - | X | - | X |
+| Update Metadata | Implemented | X | - | - | X | - | X |
+| Delete Comic | Planned Canonical | X | - | - | X | X | X |
+| Read Position | Implemented | X | - | - | X | - | X |
+| Get Position | Implemented | X | - | - | - | - | - |
+| Clear Position | Planned Canonical | X | - | - | - | - | X |
+| Mark Favorite | Deferred/Legacy | X | - | - | - | - | X |
+| Unmark Favorite | Deferred/Legacy | X | - | - | - | - | X |
+| List Favorites | Deferred/Legacy | - | - | - | - | - | - |
+| Create Chapters | Deferred/Legacy | X | - | - | X | - | X |
+| Reorder Pages | Deferred/Legacy | X | - | - | X | - | X |
+| Search Comics | Deferred/Legacy | - | - | - | X | - | X |
+| List Comics | Deferred/Legacy | - | - | - | X | - | - |
+
+\* `Permission` is adapter/auth-layer concern in current core slice, not core-owned domain authority.

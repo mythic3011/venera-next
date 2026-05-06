@@ -44,16 +44,11 @@ Persistence layer for Comic and ComicMetadata entities.
 
 #### `searchComics(query: String, limit: Integer = 100) -> List<Comic> | Error`
 **Contract**:
-- Full-text search on `title` and `description`
+- Full-text search on `title`, `description`, and `author`
 - Case-insensitive
 - Ordered by relevance
 - Returns up to `limit` results
 - Returns empty list if no matches
-
-#### `getFavoritesCount() -> Integer`
-**Contract**:
-- Returns count of favorited comics
-- No error possible
 
 ### Commands
 
@@ -101,10 +96,11 @@ Persistence layer for Chapter entities.
 - Returns empty list if no chapters
 - Throws: `NotFoundError` if comic ID not found
 
-#### `getChapterByNumber(comicId: ComicId, chapterNumber: Float) -> Chapter | Error`
+#### `findChaptersByNumber(comicId: ComicId, chapterNumber: Float) -> List<Chapter> | Error`
 **Contract**:
-- Retrieves chapter by comic ID and chapter number
-- Throws: `NotFoundError` if not found
+- Lookup helper for ordering/matching only (chapterNumber is not identity authority)
+- May return multiple chapters for the same `chapterNumber`
+- Returns empty list if no matches
 
 #### `getChapterCount(comicId: ComicId) -> Integer | Error`
 **Contract**:
@@ -118,7 +114,6 @@ Persistence layer for Chapter entities.
 - Creates new chapter
 - Generates UUID for ID
 - Throws: `NotFoundError` if comic not found
-- Throws: `DuplicateError` if chapter number already exists for comic
 - Throws: `ValidationError` if chapter_number <= 0
 - Returns created Chapter with ID assigned
 
@@ -127,7 +122,6 @@ Persistence layer for Chapter entities.
 - Updates chapter metadata
 - If `chapterNumber` provided and different, re-orders within comic
 - Throws: `NotFoundError` if ID not found
-- Throws: `DuplicateError` if new chapter number conflicts
 - Returns updated Chapter
 
 #### `deleteChapter(id: ChapterId) -> Boolean | Error`
@@ -172,11 +166,13 @@ Persistence layer for Page entities.
 
 ### Commands
 
-#### `createPage(chapterId: ChapterId, pageIndex: Integer, localCachePath: String = null) -> Page | Error`
+#### `createPage(chapterId: ChapterId, pageIndex: Integer, storageObjectId: StorageObjectId = null) -> Page | Error`
 **Contract**:
 - Creates new page at given index
 - Automatically reindexes pages if necessary (shifts higher indices)
 - Generates UUID for ID
+- Stores page identity plus optional storage object reference only
+- Must not expose raw filesystem/cache paths as canonical fields
 - Throws: `NotFoundError` if chapter not found
 - Throws: `ValidationError` if pageIndex < 0
 - Returns created Page with ID assigned
@@ -189,9 +185,10 @@ Persistence layer for Page entities.
 - Returns list of created Pages
 - Atomic: all pages inserted or all fail
 
-#### `updatePage(id: PageId, localCachePath: String = null) -> Page | Error`
+#### `updatePage(id: PageId, storageObjectId: StorageObjectId = null) -> Page | Error`
 **Contract**:
-- Updates page metadata (cache path, etc.)
+- Updates page metadata (storage object reference, etc.)
+- Must not expose raw filesystem/cache paths as canonical fields
 - Throws: `NotFoundError` if not found
 - Returns updated Page
 
@@ -219,8 +216,8 @@ Persistence layer for ReaderSession entities.
 #### `getReaderSession(comicId: ComicId) -> ReaderSession | Error`
 **Contract**:
 - Retrieves reader position for a comic
-- Creates default session (chapter 0, page 0) if not found
-- Never throws `NotFoundError` (creates on demand)
+- No write side effects in query path
+- Throws: `NotFoundError` if session not found
 - Returns ReaderSession
 
 #### `listReaderSessions(limit: Integer = 1000) -> List<ReaderSession> | Error`
@@ -234,16 +231,17 @@ Persistence layer for ReaderSession entities.
 #### `updateReaderPosition(comicId: ComicId, chapterId: ChapterId, pageIndex: Integer) -> ReaderSession | Error`
 **Contract**:
 - Updates reader position
-- Creates session if not found
+- Session creation/fallback policy is use-case-owned, not query-owned
 - Throws: `NotFoundError` if comic not found
 - Throws: `ValidationError` if chapter not in comic or page index invalid
 - Returns updated ReaderSession
 - Last-write-wins semantics (no locking)
-- Atomic: position update + favorite timestamp update (if favorited)
+- Atomic within reader-session persistence scope only
 
 #### `clearReaderSession(comicId: ComicId) -> Boolean | Error`
 **Contract**:
-- Resets reader position to start (chapter 0, page 0)
+- Clears stored reader session state for the comic
+- Reset target policy (for example first chapter/page) is use-case-owned, not repository-owned
 - Throws: `NotFoundError` if comic not found
 - Returns true on success
 
@@ -258,7 +256,8 @@ Persistence layer for PageOrder policy.
 #### `getPageOrder(chapterId: ChapterId) -> PageOrder | Error`
 **Contract**:
 - Retrieves page order policy for chapter
-- Creates default (source order) if not found
+- No write side effects in query path
+- Throws: `NotFoundError` if chapter has no stored PageOrder
 - Returns PageOrder
 
 #### `getPageOrderType(chapterId: ChapterId) -> String | Error`
@@ -340,40 +339,18 @@ Persistence layer for SourcePlatform entities.
 
 ---
 
-## SourceManifestRepository
+## Source Package Contract Repositories (Deferred)
 
-Persistence layer for SourceManifest entities.
+Repository/package manifest persistence is deferred until PackageStore implementation boundaries are finalized.
 
-### Queries
+Current authority for this boundary is:
 
-#### `getManifestById(id: String) -> SourceManifest | Error`
-**Contract**:
-- Retrieves manifest by deterministic ID (hash)
-- Throws: `NotFoundError` if not found
-- Manifest is immutable once stored
+- Source-contract validators
+- In-memory integrity verifier
+- Source package artifact lifecycle contract
+- Source package store contract
 
-#### `getManifestByPlatform(sourcePlatformId: SourcePlatformId) -> SourceManifest | Error`
-**Contract**:
-- Retrieves latest manifest for a platform
-- Throws: `NotFoundError` if platform or manifest not found
-
-#### `listManifestsByPlatform(sourcePlatformId: SourcePlatformId) -> List<SourceManifest> | Error`
-**Contract**:
-- Returns all manifests for a platform (versions)
-- Ordered by `created_at` descending
-- Returns empty list if none
-
-### Commands
-
-#### `createManifest(sourcePlatformId: SourcePlatformId, manifest: Object) -> SourceManifest | Error`
-**Contract**:
-- Creates new manifest (version)
-- Validates against canonical repository/package manifest contract
-- Computes deterministic ID (hash of content)
-- Throws: `NotFoundError` if platform not found
-- Throws: `ValidationError` if manifest invalid
-- Returns created SourceManifest
-- Idempotent: same manifest content = same ID (deduplicates)
+No canonical runtime/core repository port is committed here yet for installed package artifact storage.
 
 ---
 
@@ -391,8 +368,13 @@ Persistence layer for Favorite entities.
 #### `listFavorites(limit: Integer = 1000, offset: Integer = 0) -> List<Favorite> | Error`
 **Contract**:
 - Returns paginated list of favorites
-- Ordered by `last_accessed_at` descending (most recent first)
+- Ordered by `marked_at` descending by default in current core
 - Returns empty list if none
+
+#### `getFavoritesCount() -> Integer`
+**Contract**:
+- Returns count of favorited comics
+- No error possible
 
 #### `isFavorited(comicId: ComicId) -> Boolean`
 **Contract**:
@@ -405,7 +387,7 @@ Persistence layer for Favorite entities.
 **Contract**:
 - Adds comic to favorites
 - Throws: `NotFoundError` if comic not found
-- If already favorited, updates `last_accessed_at`
+- If already favorited, returns existing favorite (idempotent)
 - Returns Favorite
 
 #### `unmarkFavorite(comicId: ComicId) -> Boolean | Error`
@@ -424,7 +406,9 @@ Persistence layer for Favorite entities.
 
 ## ImportBatchRepository
 
-Persistence layer for ImportBatch entities.
+**Status**: Deferred adapter/import boundary.
+
+Import provenance handling is adapter-owned; this section is not current core canonical authority.
 
 ### Queries
 
@@ -444,25 +428,25 @@ Persistence layer for ImportBatch entities.
 - Ordered by `completed_at` descending
 - Returns up to `limit` results
 
-#### `getImportBatchBySource(sourceType: String, sourcePath: String) -> ImportBatch | Error`
+#### `getImportBatchBySource(sourceType: String, sourceRef: String) -> ImportBatch | Error`
 **Contract**:
-- Retrieves batch by source (for idempotency check)
+- Retrieves batch by import provenance descriptor (for adapter-owned idempotency checks)
 - Throws: `NotFoundError` if not found
 
 ### Commands
 
-#### `createImportBatch(sourceType: String, sourcePath: String, files: List<ImportFile>, metadata: Object) -> ImportBatch | Error`
+#### `createImportBatch(sourceType: String, sourceRef: String, files: List<ImportFile>, metadata: Object) -> ImportBatch | Error`
 **Contract**:
 - Creates new import batch
 - Generates UUID for ID
 - Throws: `ValidationError` if sourceType invalid or files empty
-- Throws: `DuplicateError` if same (sourceType, sourcePath) already exists as active batch
+- Throws: `DuplicateError` if same provenance descriptor already exists as active batch
 - Returns created ImportBatch with `completed_at = null`
 
 #### `completeImportBatch(id: ImportBatchId, comicId: ComicId = null) -> ImportBatch | Error`
 **Contract**:
 - Marks batch as completed
-- Sets `completed_at = NOW()`
+- Sets `completed_at = CURRENT_TIMESTAMP`
 - Links to comic if `comicId` provided
 - Throws: `NotFoundError` if batch not found
 - Returns updated ImportBatch
@@ -477,13 +461,17 @@ Persistence layer for ImportBatch entities.
 
 ## Error Codes (Standard)
 
-All repositories throw these error types:
+Repository ports in runtime/core return `Result<T, CoreError>`-shaped failures.
+
+Names below are conceptual error categories, not required thrown exception classes:
 
 | Error | Meaning | HTTP Equivalent |
 |-------|---------|-----------------|
 | `NotFoundError` | Entity or relation not found | 404 |
 | `DuplicateError` | Constraint violated (unique, etc.) | 409 |
 | `ValidationError` | Data invalid (type, range, etc.) | 422 |
+| `ForbiddenError` | Operation denied by policy/permissions | 403 |
+| `IdempotencyConflictError` | Same idempotency key with different input hash | 409 |
 | `ConstraintError` | Foreign key or check constraint | 422 |
 | `TransactionError` | Atomic operation failed | 500 |
 | `StorageError` | Database unavailable | 503 |
@@ -506,10 +494,12 @@ All repositories throw these error types:
 
 ## Batch Operations
 
-For performance, repositories support batch commands:
+**Status**: Planned/Deferred unless explicitly implemented by the active core slice.
+
+Potential performance-oriented batch commands:
 
 - `createPages(chapterId, pages)` - insert multiple pages
 - `updateReaderPositions(sessions)` - bulk reader position updates
 - `deletePages(pageIds)` - bulk delete with reindexing
 
-Batch operations are atomic: all succeed or all fail.
+When implemented, batch operations must be atomic: all succeed or all fail.

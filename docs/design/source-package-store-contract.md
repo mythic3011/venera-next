@@ -22,11 +22,12 @@ It does not define runtime implementation details, storage engines, or TypeScrip
 - Commit artifact state atomically, with no durable partial install state.
 - Expose a read contract for installed artifact metadata required by orchestration.
 - Support deterministic orphan marking and cleanup after downstream mutation failure.
+- Treat `sourcePlatformId` as optional until successful `source_platform` mutation (post-activation reference only).
 
 ## Failure Semantics
 
 - Commit failure means no durable partial install state is observable.
-- If `source_platform` mutation fails after package store commit, artifact state must be transitioned to orphaned/unreferenced state and routed to deterministic cleanup.
+- If `source_platform` mutation fails after package store commit, artifact state must either be rolled back (when transaction boundaries support rollback) or transitioned to orphaned/unreferenced state and routed to deterministic cleanup.
 - Orphan cleanup must be auditable through explicit state and cleanup-path signaling at contract level.
 - Orphaned artifacts must not be loadable or executable as active source packages.
 
@@ -37,6 +38,7 @@ It does not define runtime implementation details, storage engines, or TypeScrip
 ```text
 committed:
   verified artifact is durably stored and eligible for source_platform mutation
+  sourcePlatformId may be null at this state
 active:
   artifact is referenced by a successful source_platform mutation
 orphaned:
@@ -62,6 +64,7 @@ removed:
 - `PackageStore` may store `packageKey`, `providerKey`, `version`, and `archiveSha256` as metadata, but it must not decide whether they are compatible with an existing `source_platform`.
 - Compatibility decisions belong to installer orchestration and `source_platform` mutation policy.
 - Same `packageKey`, `providerKey`, and `version` with different `archiveSha256` must be treated as a conflict by orchestration, not silently overwritten by `PackageStore`.
+- Missing `sourcePlatformId` during pre-activation states is expected and must not be treated as integrity failure by `PackageStore`.
 
 ## Read Contract Rule
 
@@ -71,6 +74,7 @@ They must not:
 
 - infer provider compatibility
 - repair missing `source_platform` rows
+- require `sourcePlatformId` before activation
 - execute package code
 - validate source runtime behavior
 - decide taxonomy semantics
