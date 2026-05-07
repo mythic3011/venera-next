@@ -8,6 +8,8 @@ This canonical runtime schema is in pre-stable schema-definition stage. Define c
 
 `normalized_title` is a matching/search signal only. It is non-unique and must never be treated as canonical comic identity authority.
 
+This schema document is dialect-portable authority. The current `runtime/core/src/db/database.ts` SQLite path is a Node/SQLite infrastructure adapter that remains valid for local, dev, embedded, test, and temporary demo modes, while production web persistence is a future PostgreSQL-backed deployment target and must not be described as `:memory:` or demo SQLite. The current `apps/web` shell remains `demo-memory` only and intentionally non-persistent. Canonical deployment-mode rules live in `docs/design/production-database-adapter-strategy.md`.
+
 ## Table: comics
 
 Canonical identity for comic works.

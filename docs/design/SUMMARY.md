@@ -18,6 +18,7 @@ Adapter transport (UI/HTTP/CLI/IPC) is replaceable and non-authoritative compare
 - `docs/design/entities.md`
 - `docs/design/database-schema.md`
 - `docs/design/repository-interfaces.md`
+- `docs/design/production-database-adapter-strategy.md`
 - `docs/design/use-cases.md`
 - `docs/design/diagnostics-events.md`
 - `docs/design/source-package-artifact-lifecycle.md`

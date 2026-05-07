@@ -14,6 +14,8 @@ Repositories provide abstraction over data storage. Each repository interface de
 
 All repositories are **transactional** (operations either fully succeed or fully fail). Boundary enforcement keeps `src/domain`, `src/application`, and `src/ports` free of Kysely, SQLite, DB schema, and repository adapter imports.
 
+Repository ports stay above DB dialects. SQLite and any future PostgreSQL adapters are infrastructure implementations of the same repository/use-case contracts; adapter-specific SQL, pooling, deployment, or transport concerns must not leak into `src/domain`, `src/application`, or `src/ports`. The current `runtime/core/src/db/database.ts` file is a Node/SQLite infrastructure adapter, not portable shared logic. Canonical deployment-mode strategy lives in `docs/design/production-database-adapter-strategy.md`.
+
 All operations return a `Result`-shaped value: either a success value or a failure carrying a `CoreError`. Callers must not assume an exception-based protocol.
 
 The `CoreRepositories` aggregate bundles all active ports under a single injectable object:
