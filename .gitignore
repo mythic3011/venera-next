@@ -64,3 +64,5 @@ android/build/
 docs/plans/.DS_Store
 :memory:*
 runtime/core/node_modules/
+.claude/
+node_modules/
