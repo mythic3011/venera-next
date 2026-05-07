@@ -14,454 +14,373 @@ Repositories provide abstraction over data storage. Each repository interface de
 
 All repositories are **transactional** (operations either fully succeed or fully fail). Boundary enforcement keeps `src/domain`, `src/application`, and `src/ports` free of Kysely, SQLite, DB schema, and repository adapter imports.
 
+All operations return a `Result`-shaped value: either a success value or a failure carrying a `CoreError`. Callers must not assume an exception-based protocol.
+
+The `CoreRepositories` aggregate bundles all active ports under a single injectable object:
+
+| Key | Port |
+|-----|------|
+| `comics` | ComicRepositoryPort |
+| `comicMetadata` | ComicMetadataRepositoryPort |
+| `comicTitles` | ComicTitleRepositoryPort |
+| `chapters` | ChapterRepositoryPort |
+| `pages` | PageRepositoryPort |
+| `pageOrders` | PageOrderRepositoryPort |
+| `readerSessions` | ReaderSessionRepositoryPort |
+| `sourcePlatforms` | SourcePlatformRepositoryPort |
+| `sourceLinks` | SourceLinkRepositoryPort |
+| `chapterSourceLinks` | ChapterSourceLinkRepositoryPort |
+| `storageObjects` | StorageObjectRepositoryPort |
+| `storagePlacements` | StoragePlacementRepositoryPort |
+| `diagnosticsEvents` | DiagnosticsEventRepositoryPort |
+| `operationIdempotency` | OperationIdempotencyRepositoryPort |
+
 ---
 
-## ComicRepository
+## ComicRepositoryPort
 
-Persistence layer for Comic and ComicMetadata entities.
+Persistence layer for `Comic` entities.
 
 ### Queries
 
-#### `getComicById(id: ComicId) -> Comic | Error`
-**Contract**:
-- Retrieves a comic by ID
-- Returns Comic with all metadata
-- Throws: `NotFoundError` if ID not in database
+#### `getById(id) -> Comic | null | Error`
 
-#### `listByNormalizedTitle(normalizedTitle: NormalizedTitle) -> List<Comic> | Error`
-**Contract**:
-- Retrieves all comics sharing the same normalized title
-- Returns domain-shaped comics with all metadata
-- Returns empty list if the title is not found
-- Used for lookup only, not canonical identity
+- Retrieves a comic by its `ComicId`.
+- Returns `null` if the ID does not exist (not a hard error).
 
-#### `listAllComics(limit: Integer = 1000, offset: Integer = 0) -> List<Comic> | Error`
-**Contract**:
-- Returns paginated list of all comics
-- Default page size 1000
-- Ordered by `created_at` ascending
-- Returns empty list if no comics
+#### `listByNormalizedTitle(title) -> List<Comic> | Error`
 
-#### `searchComics(query: String, limit: Integer = 100) -> List<Comic> | Error`
-**Contract**:
-- Full-text search on `title`, `description`, and `author`
-- Case-insensitive
-- Ordered by relevance
-- Returns up to `limit` results
-- Returns empty list if no matches
+- Returns all comics sharing the same `NormalizedTitle`.
+- Returns an empty list if no match is found.
+- Used for lookup and deduplication — not canonical identity.
 
 ### Commands
 
-#### `createComic(title: String, description: String = null) -> Comic | Error`
-**Contract**:
-- Creates new Comic with ComicMetadata
-- Generates UUID for ID
-- Normalizes title for `normalized_title`
-- Returns created Comic with ID assigned
-- Atomic: both Comic and ComicMetadata inserted or both fail
+#### `create(input) -> Comic | Error`
 
-Idempotent mutation replay is a separate persistence concern. Stored `result_json` must be treated as a public DTO projection and validated strictly before replay reaches the application layer.
-
-#### `updateComicMetadata(id: ComicId, metadata: ComicMetadata) -> Comic | Error`
-**Contract**:
-- Updates only metadata (title, description, cover, etc.)
-- Throws: `NotFoundError` if ID not found
-- Returns updated Comic
-
-#### `deleteComic(id: ComicId) -> Boolean | Error`
-**Contract**:
-- Deletes comic and all related data (cascading)
-- Throws: `NotFoundError` if ID not found
-- Returns true on success
-- Atomic: all related chapters, pages, favorites deleted together
+- Creates a new `Comic` from `CreateComicInput`.
+- Assigns a generated `ComicId`.
+- Returns the created `Comic`.
 
 ---
 
-## ChapterRepository
+## ComicMetadataRepositoryPort
 
-Persistence layer for Chapter entities.
+Persistence layer for `ComicMetadata` entities (one-to-one with `Comic`).
 
 ### Queries
 
-#### `getChapterById(id: ChapterId) -> Chapter | Error`
-**Contract**:
-- Retrieves chapter by ID
-- Returns Chapter with all metadata
-- Throws: `NotFoundError` if ID not found
+#### `getByComicId(comicId) -> ComicMetadata | null | Error`
 
-#### `listChaptersByComic(comicId: ComicId, limit: Integer = 1000) -> List<Chapter> | Error`
-**Contract**:
-- Returns all chapters for a comic
-- Ordered by `chapter_number` ascending
-- Returns empty list if no chapters
-- Throws: `NotFoundError` if comic ID not found
-
-#### `findChaptersByNumber(comicId: ComicId, chapterNumber: Float) -> List<Chapter> | Error`
-**Contract**:
-- Lookup helper for ordering/matching only (chapterNumber is not identity authority)
-- May return multiple chapters for the same `chapterNumber`
-- Returns empty list if no matches
-
-#### `getChapterCount(comicId: ComicId) -> Integer | Error`
-**Contract**:
-- Returns count of chapters in comic
-- Throws: `NotFoundError` if comic not found
+- Retrieves metadata for the given `ComicId`.
+- Returns `null` if no metadata record exists.
 
 ### Commands
 
-#### `createChapter(comicId: ComicId, chapterNumber: Float, title: String = null) -> Chapter | Error`
-**Contract**:
-- Creates new chapter
-- Generates UUID for ID
-- Throws: `NotFoundError` if comic not found
-- Throws: `ValidationError` if chapter_number <= 0
-- Returns created Chapter with ID assigned
+#### `create(input) -> ComicMetadata | Error`
 
-#### `updateChapter(id: ChapterId, chapterNumber: Float = null, title: String = null) -> Chapter | Error`
-**Contract**:
-- Updates chapter metadata
-- If `chapterNumber` provided and different, re-orders within comic
-- Throws: `NotFoundError` if ID not found
-- Returns updated Chapter
+- Creates a new metadata record from `CreateComicMetadataInput`.
+- Returns the created `ComicMetadata`.
 
-#### `deleteChapter(id: ChapterId) -> Boolean | Error`
-**Contract**:
-- Deletes chapter and all pages
-- Throws: `NotFoundError` if ID not found
-- Returns true on success
-- Atomic: all pages deleted with chapter
+#### `update(input) -> ComicMetadata | Error`
+
+- Replaces the metadata fields from `CreateComicMetadataInput`.
+- Returns the updated `ComicMetadata`.
 
 ---
 
-## PageRepository
+## ComicTitleRepositoryPort
 
-Persistence layer for Page entities.
+Persistence layer for `ComicTitle` entities (many-to-one with `Comic`).
 
 ### Queries
 
-#### `getPageById(id: PageId) -> Page | Error`
-**Contract**:
-- Retrieves page by ID
-- Returns Page with all metadata
-- Throws: `NotFoundError` if not found
+#### `listByComic(comicId) -> List<ComicTitle> | Error`
 
-#### `listPagesByChapter(chapterId: ChapterId) -> List<Page> | Error`
-**Contract**:
-- Returns all pages in chapter
-- Ordered by `page_index` ascending (0-based)
-- Ensures contiguous indices
-- Returns empty list if no pages
-- Throws: `NotFoundError` if chapter not found
-
-#### `getPageByIndex(chapterId: ChapterId, pageIndex: Integer) -> Page | Error`
-**Contract**:
-- Retrieves page at specific index within chapter
-- Throws: `NotFoundError` if chapter or page not found
-- Throws: `ValidationError` if index < 0
-
-#### `getPageCount(chapterId: ChapterId) -> Integer | Error`
-**Contract**:
-- Returns count of pages in chapter
-- Throws: `NotFoundError` if chapter not found
+- Returns all title records associated with the given `ComicId`.
+- Returns an empty list if none exist.
 
 ### Commands
 
-#### `createPage(chapterId: ChapterId, pageIndex: Integer, storageObjectId: StorageObjectId = null) -> Page | Error`
-**Contract**:
-- Creates new page at given index
-- Automatically reindexes pages if necessary (shifts higher indices)
-- Generates UUID for ID
-- Stores page identity plus optional storage object reference only
-- Must not expose raw filesystem/cache paths as canonical fields
-- Throws: `NotFoundError` if chapter not found
-- Throws: `ValidationError` if pageIndex < 0
-- Returns created Page with ID assigned
+#### `addTitle(input) -> ComicTitle | Error`
 
-#### `createPages(chapterId: ChapterId, pages: List<PageCreateRequest>) -> List<Page> | Error`
-**Contract**:
-- Batch create multiple pages
-- Pages inserted with auto-incrementing indices
-- Throws: `NotFoundError` if chapter not found
-- Returns list of created Pages
-- Atomic: all pages inserted or all fail
+- Adds a title entry from `AddComicTitleInput`.
+- Returns the created `ComicTitle`.
 
-#### `updatePage(id: PageId, storageObjectId: StorageObjectId = null) -> Page | Error`
-**Contract**:
-- Updates page metadata (storage object reference, etc.)
-- Must not expose raw filesystem/cache paths as canonical fields
-- Throws: `NotFoundError` if not found
-- Returns updated Page
+#### `removeTitle(id) -> void | Error`
 
-#### `deletePage(id: PageId) -> Boolean | Error`
-**Contract**:
-- Deletes page and reindexes remaining pages
-- Throws: `NotFoundError` if not found
-- Returns true on success
-
-#### `reindexPages(chapterId: ChapterId) -> List<Page> | Error`
-**Contract**:
-- Resets all page indices to be contiguous 0, 1, 2, ...
-- Throws: `NotFoundError` if chapter not found
-- Returns reindexed pages
-- Used after imports or manual edits
+- Removes the title entry identified by `ComicTitleId`.
+- No return value on success.
 
 ---
 
-## ReaderSessionRepository
+## ChapterRepositoryPort
 
-Persistence layer for ReaderSession entities.
+Persistence layer for `Chapter` entities.
+
+Note: `chapterNumber` is ordering metadata, not an identity field. There is no `getChapterByNumber` or `findChaptersByNumber` method — lookup by chapter number is not a supported repository operation.
 
 ### Queries
 
-#### `getReaderSession(comicId: ComicId) -> ReaderSession | Error`
-**Contract**:
-- Retrieves reader position for a comic
-- No write side effects in query path
-- Throws: `NotFoundError` if session not found
-- Returns ReaderSession
+#### `getById(id) -> Chapter | null | Error`
 
-#### `listReaderSessions(limit: Integer = 1000) -> List<ReaderSession> | Error`
-**Contract**:
-- Returns all reader sessions
-- Ordered by `updated_at` descending
-- Returns empty list if no sessions
+- Retrieves a chapter by its `ChapterId`.
+- Returns `null` if the ID does not exist.
 
-### Commands
+#### `listTreeByComic(comicId) -> List<ChapterTreeNode> | Error`
 
-#### `updateReaderPosition(comicId: ComicId, chapterId: ChapterId, pageIndex: Integer) -> ReaderSession | Error`
-**Contract**:
-- Updates reader position
-- Session creation/fallback policy is use-case-owned, not query-owned
-- Throws: `NotFoundError` if comic not found
-- Throws: `ValidationError` if chapter not in comic or page index invalid
-- Returns updated ReaderSession
-- Last-write-wins semantics (no locking)
-- Atomic within reader-session persistence scope only
+- Returns the hierarchical chapter tree for the given `ComicId`.
+- Each node is a `ChapterTreeNode` carrying its children.
+- Returns an empty list if no chapters exist.
 
-#### `clearReaderSession(comicId: ComicId) -> Boolean | Error`
-**Contract**:
-- Clears stored reader session state for the comic
-- Reset target policy (for example first chapter/page) is use-case-owned, not repository-owned
-- Throws: `NotFoundError` if comic not found
-- Returns true on success
+#### `listChildren(input) -> List<Chapter> | Error`
+
+- Returns the direct children of a parent chapter node, using `ListChapterChildrenInput`.
+- Returns an empty list if no children exist.
+
+#### `listByComic(comicId) -> List<Chapter> | Error`
+
+- Returns all chapters for the given `ComicId` as a flat list.
+- Returns an empty list if no chapters exist.
 
 ---
 
-## PageOrderRepository
+## PageRepositoryPort
 
-Persistence layer for PageOrder policy.
+Persistence layer for `Page` entities.
 
 ### Queries
 
-#### `getPageOrder(chapterId: ChapterId) -> PageOrder | Error`
-**Contract**:
-- Retrieves page order policy for chapter
-- No write side effects in query path
-- Throws: `NotFoundError` if chapter has no stored PageOrder
-- Returns PageOrder
+#### `getById(id) -> Page | null | Error`
 
-#### `getPageOrderType(chapterId: ChapterId) -> String | Error`
-**Contract**:
-- Returns order type: 'source', 'user_override', 'import_detected'
-- Throws: `NotFoundError` if chapter not found
+- Retrieves a page by its `PageId`.
+- Returns `null` if the ID does not exist.
 
-### Commands
+#### `listByChapter(chapterId) -> List<Page> | Error`
 
-#### `setUserPageOrder(chapterId: ChapterId, pageIds: List<PageId>) -> PageOrder | Error`
-**Contract**:
-- Sets user-defined page order
-- Validates all page IDs belong to chapter
-- Updates `order_type` to 'user_override'
-- Throws: `NotFoundError` if chapter not found
-- Throws: `ValidationError` if page IDs don't match chapter
-- Returns updated PageOrder
-
-#### `resetPageOrder(chapterId: ChapterId) -> PageOrder | Error`
-**Contract**:
-- Resets to source order
-- Updates `order_type` to 'source'
-- Throws: `NotFoundError` if chapter not found
-- Returns updated PageOrder
+- Returns all pages for the given `ChapterId`, ordered by `page_index` ascending (0-based).
+- Returns an empty list if no pages exist.
 
 ---
 
-## SourcePlatformRepository
+## PageOrderRepositoryPort
 
-Persistence layer for SourcePlatform entities.
+Persistence layer for per-chapter page ordering policy.
 
 ### Queries
 
-#### `getSourcePlatformById(id: SourcePlatformId) -> SourcePlatform | Error`
-**Contract**:
-- Retrieves platform by ID
-- Throws: `NotFoundError` if not found
+#### `getActiveOrder(chapterId) -> PageOrderWithItems | null | Error`
 
-#### `getSourcePlatformByKey(canonicalKey: String) -> SourcePlatform | Error`
-**Contract**:
-- Retrieves platform by canonical key (e.g., "copymanga")
-- Throws: `NotFoundError` if not found
-- Used for lookup during runtime
-
-#### `listAllSourcePlatforms(includeDisabled: Boolean = false) -> List<SourcePlatform> | Error`
-**Contract**:
-- Returns all platforms
-- If `includeDisabled` false, filters to `status = 'active'`
-- Ordered by `display_name` ascending
-
-#### `listEnabledSourcePlatforms() -> List<SourcePlatform> | Error`
-**Contract**:
-- Returns only active platforms (`status = 'active'`)
-- Ordered by `display_name` ascending
+- Returns the currently active page order for the given `ChapterId`, including the ordered page list.
+- Returns `null` if no order record exists (caller should treat source order as default).
 
 ### Commands
 
-#### `createSourcePlatform(canonicalKey: String, displayName: String, kind: String) -> SourcePlatform | Error`
-**Contract**:
-- Creates new platform
-- Generates UUID for ID
-- Throws: `DuplicateError` if canonical_key already exists
-- Throws: `ValidationError` if kind not in [local, remote, virtual]
-- Returns created SourcePlatform
+#### `setUserOrder(input) -> PageOrderWithItems | Error`
 
-#### `updateSourcePlatform(id: SourcePlatformId, displayName: String = null, status: String = null) -> SourcePlatform | Error`
-**Contract**:
-- Updates platform metadata
-- `status` must be one of `active | disabled | deprecated` when provided
-- Throws: `NotFoundError` if not found
-- Throws: `ValidationError` if status is invalid
-- Returns updated SourcePlatform
+- Persists a user-defined page order from `SetUserPageOrderInput`.
+- `SetUserPageOrderInput` carries the `ChapterId` and the desired sequence of `PageId` values.
+- Sets `order_type` to `user_override`.
+- Returns the resulting `PageOrderWithItems`.
 
-#### `deleteSourcePlatform(id: SourcePlatformId) -> Boolean | Error`
-**Contract**:
-- Deletes platform (source links become null)
-- Throws: `NotFoundError` if not found
-- Returns true on success
+#### `resetToSourceOrder(chapterId) -> PageOrderWithItems | Error`
+
+- Resets the chapter's order to the source-provided sequence.
+- Sets `order_type` to `source`.
+- Returns the resulting `PageOrderWithItems`.
 
 ---
 
-## Source Package Contract Repositories (Deferred)
+## ReaderSessionRepositoryPort
 
-Repository/package manifest persistence is deferred until PackageStore implementation boundaries are finalized.
-
-Current authority for this boundary is:
-
-- Source-contract validators
-- In-memory integrity verifier
-- Source package artifact lifecycle contract
-- Source package store contract
-
-No canonical runtime/core repository port is committed here yet for installed package artifact storage.
-
----
-
-## FavoriteRepository
-
-Persistence layer for Favorite entities.
+Persistence layer for `ReaderSession` entities (one-to-one with `Comic`).
 
 ### Queries
 
-#### `getFavorite(comicId: ComicId) -> Favorite | Error`
-**Contract**:
-- Retrieves favorite record
-- Throws: `NotFoundError` if not favorited
+#### `getByComic(comicId) -> ReaderSession | null | Error`
 
-#### `listFavorites(limit: Integer = 1000, offset: Integer = 0) -> List<Favorite> | Error`
-**Contract**:
-- Returns paginated list of favorites
-- Ordered by `marked_at` descending by default in current core
-- Returns empty list if none
-
-#### `getFavoritesCount() -> Integer`
-**Contract**:
-- Returns count of favorited comics
-- No error possible
-
-#### `isFavorited(comicId: ComicId) -> Boolean`
-**Contract**:
-- Returns true if comic is favorited, false otherwise
-- No error possible
+- Returns the reader session for the given `ComicId`.
+- Returns `null` if no session has been created yet.
+- No write side effects in the query path.
 
 ### Commands
 
-#### `markFavorite(comicId: ComicId) -> Favorite | Error`
-**Contract**:
-- Adds comic to favorites
-- Throws: `NotFoundError` if comic not found
-- If already favorited, returns existing favorite (idempotent)
-- Returns Favorite
+#### `upsertPosition(input) -> ReaderSessionPersistResult | Error`
 
-#### `unmarkFavorite(comicId: ComicId) -> Boolean | Error`
-**Contract**:
-- Removes comic from favorites
-- Throws: `NotFoundError` if comic not found
-- Returns true on success
+- Creates or updates the reader position from `UpdateReaderPositionInput`.
+- `UpdateReaderPositionInput` carries: `comicId`, `chapterId`, `pageIndex`, and optionally `pageId`.
+- Position authority is `chapterId` + `pageIndex`. The optional `pageId` field is advisory evidence/cache: if present and it does not match the page at `chapter_id` + `page_index`, the write still persists using `chapterId` + `pageIndex` as the canonical locator. Callers must not treat `pageId` as authoritative for position resolution.
+- Last-write-wins semantics; no locking.
+- Returns a `ReaderSessionPersistResult` describing what was created or updated.
 
-#### `updateLastAccessed(comicId: ComicId) -> Favorite | Error`
-**Contract**:
-- Updates `last_accessed_at` timestamp
-- Throws: `NotFoundError` if not favorited
-- Returns updated Favorite
+#### `clear(comicId) -> void | Error`
+
+- Removes the stored reader session for the given `ComicId`.
+- Reset-target policy (e.g. first chapter/first page) is use-case-owned, not repository-owned.
+- No return value on success.
 
 ---
 
-## ImportBatchRepository
+## SourcePlatformRepositoryPort
 
-**Status**: Deferred adapter/import boundary.
+Persistence layer for `SourcePlatform` entities.
 
-Import provenance handling is adapter-owned; this section is not current core canonical authority.
+Status lifecycle: `active` → `disabled` (reversible); `active` or `disabled` → `deprecated` (terminal). A platform in `deprecated` status cannot transition to `active` or `disabled`; any such attempt must return a `ValidationError`. Callers must enforce this at the use-case layer via `updateStatus`.
 
 ### Queries
 
-#### `getImportBatchById(id: ImportBatchId) -> ImportBatch | Error`
-**Contract**:
-- Retrieves import batch
-- Throws: `NotFoundError` if not found
+#### `getById(id) -> SourcePlatform | null | Error`
 
-#### `listActiveImportBatches() -> List<ImportBatch> | Error`
-**Contract**:
-- Returns batches where `completed_at` is null (in progress)
-- Ordered by `created_at` ascending
+- Retrieves a platform by its `SourcePlatformId`.
+- Returns `null` if the ID does not exist.
 
-#### `listCompletedImportBatches(limit: Integer = 100) -> List<ImportBatch> | Error`
-**Contract**:
-- Returns batches where `completed_at` is not null
-- Ordered by `completed_at` descending
-- Returns up to `limit` results
+#### `getByKey(canonicalKey) -> SourcePlatform | null | Error`
 
-#### `getImportBatchBySource(sourceType: String, sourceRef: String) -> ImportBatch | Error`
-**Contract**:
-- Retrieves batch by import provenance descriptor (for adapter-owned idempotency checks)
-- Throws: `NotFoundError` if not found
+- Retrieves a platform by its canonical key string (e.g. `"copymanga"`).
+- Returns `null` if the key does not exist.
+
+#### `listByStatus(status) -> List<SourcePlatform> | Error`
+
+- Returns all platforms whose current `SourcePlatformStatus` matches the given value.
+- Valid status values: `active`, `disabled`, `deprecated`.
+- Returns an empty list if no platforms match.
+- This is the sole listing method. There is no `listEnabledSourcePlatforms` or `listAllSourcePlatforms` shorthand — callers pass the desired status explicitly.
 
 ### Commands
 
-#### `createImportBatch(sourceType: String, sourceRef: String, files: List<ImportFile>, metadata: Object) -> ImportBatch | Error`
-**Contract**:
-- Creates new import batch
-- Generates UUID for ID
-- Throws: `ValidationError` if sourceType invalid or files empty
-- Throws: `DuplicateError` if same provenance descriptor already exists as active batch
-- Returns created ImportBatch with `completed_at = null`
+#### `updateStatus(input) -> SourcePlatform | Error`
 
-#### `completeImportBatch(id: ImportBatchId, comicId: ComicId = null) -> ImportBatch | Error`
-**Contract**:
-- Marks batch as completed
-- Sets `completed_at = CURRENT_TIMESTAMP`
-- Links to comic if `comicId` provided
-- Throws: `NotFoundError` if batch not found
-- Returns updated ImportBatch
+- Updates the status of the platform identified by `SourcePlatformId`.
+- `input` carries `id` and the new `status`.
+- **Status transition enforcement**: transitions out of `deprecated` are rejected. Attempting to set `deprecated → active` or `deprecated → disabled` returns a `ValidationError`. The `deprecated` status is terminal.
+- Returns the updated `SourcePlatform`.
 
-#### `deleteImportBatch(id: ImportBatchId) -> Boolean | Error`
-**Contract**:
-- Deletes batch (does not delete linked comic)
-- Throws: `NotFoundError` if not found
-- Returns true on success
+---
+
+## SourceLinkRepositoryPort
+
+Persistence layer for `SourceLink` entities (links a `Comic` to a provider work on a `SourcePlatform`).
+
+### Queries
+
+#### `getById(id) -> SourceLink | null | Error`
+
+- Retrieves a source link by its `SourceLinkId`.
+- Returns `null` if the ID does not exist.
+
+#### `listByComic(comicId) -> List<SourceLink> | Error`
+
+- Returns all source links associated with the given `ComicId`.
+- Returns an empty list if none exist.
+
+#### `findByProviderWork(input) -> SourceLink | null | Error`
+
+- Looks up a source link by `ProviderWorkRef` (a provider-scoped external work identifier).
+- Returns `null` if no matching link exists.
+- Used for deduplication during sync/import flows.
+
+---
+
+## ChapterSourceLinkRepositoryPort
+
+Persistence layer for `ChapterSourceLink` entities (associates a `Chapter` with a `SourceLink`).
+
+### Queries
+
+#### `listByChapter(chapterId) -> List<ChapterSourceLink> | Error`
+
+- Returns all source link associations for the given `ChapterId`.
+- Returns an empty list if none exist.
+
+#### `listBySourceLink(sourceLinkId) -> List<ChapterSourceLink> | Error`
+
+- Returns all chapter associations for the given `SourceLinkId`.
+- Returns an empty list if none exist.
+
+---
+
+## StorageObjectRepositoryPort
+
+Persistence layer for `StorageObject` entities (content-addressable storage records).
+
+### Queries
+
+#### `getObject(id) -> StorageObject | null | Error`
+
+- Retrieves a storage object by its `StorageObjectId`.
+- Returns `null` if the ID does not exist.
+
+---
+
+## StoragePlacementRepositoryPort
+
+Persistence layer for `StoragePlacement` entities (physical location records for a `StorageObject`).
+
+### Queries
+
+#### `listPlacements(storageObjectId) -> List<StoragePlacement> | Error`
+
+- Returns all placement records for the given `StorageObjectId`.
+- A storage object may have zero or more placements (e.g. cached in multiple locations).
+- Returns an empty list if no placements exist.
+
+---
+
+## DiagnosticsEventRepositoryPort
+
+Persistence layer for `DiagnosticsEvent` records (structured runtime telemetry).
+
+### Commands
+
+#### `record(input) -> DiagnosticsEvent | Error`
+
+- Persists a new diagnostics event from `RecordDiagnosticsEventInput`.
+- Returns the created `DiagnosticsEvent`.
+
+### Queries
+
+#### `query(input) -> List<DiagnosticsEvent> | Error`
+
+- Returns diagnostics events matching the `DiagnosticsQuery` filter.
+- Returns an empty list if no events match.
+
+---
+
+## OperationIdempotencyRepositoryPort
+
+Persistence layer for `OperationIdempotencyRecord` entries used to deduplicate and resume operations.
+
+### Queries
+
+#### `get(input) -> OperationIdempotencyRecord | null | Error`
+
+- Looks up an idempotency record by `GetOperationIdempotencyInput` (typically an operation key and input hash).
+- Returns `null` if no record exists for the given key.
+
+### Commands
+
+#### `createInProgress(input) -> OperationIdempotencyRecord | Error`
+
+- Creates a new idempotency record in the `in_progress` state from `CreateOperationIdempotencyInput`.
+- Returns an `IdempotencyConflictError` if a record with the same key already exists.
+- Returns the created `OperationIdempotencyRecord`.
+
+#### `markCompleted(input) -> OperationIdempotencyRecord | Error`
+
+- Transitions the record identified by `CompleteOperationIdempotencyInput` to the `completed` state, storing the result payload.
+- Returns the updated `OperationIdempotencyRecord`.
+
+---
+
+## ImportBatchRepository (Deferred)
+
+Import provenance handling is adapter-owned. No canonical `runtime/core` repository port for import batch persistence is committed in the current core slice. This section is retained as a placeholder only; implementation details are not authoritative here.
 
 ---
 
 ## Error Codes (Standard)
 
-Repository ports in runtime/core return `Result<T, CoreError>`-shaped failures.
+Repository ports in `runtime/core` return `Result<T, CoreError>`-shaped failures.
 
 Names below are conceptual error categories, not required thrown exception classes:
 
@@ -469,7 +388,7 @@ Names below are conceptual error categories, not required thrown exception class
 |-------|---------|-----------------|
 | `NotFoundError` | Entity or relation not found | 404 |
 | `DuplicateError` | Constraint violated (unique, etc.) | 409 |
-| `ValidationError` | Data invalid (type, range, etc.) | 422 |
+| `ValidationError` | Data invalid (type, range, status transition) | 422 |
 | `ForbiddenError` | Operation denied by policy/permissions | 403 |
 | `IdempotencyConflictError` | Same idempotency key with different input hash | 409 |
 | `ConstraintError` | Foreign key or check constraint | 422 |
@@ -483,23 +402,17 @@ Names below are conceptual error categories, not required thrown exception class
 **All repository operations guarantee**:
 - **Atomicity**: Operation fully succeeds or fully fails (no partial state)
 - **Consistency**: Database invariants maintained (FK, unique, check constraints)
-- **Isolation**: Concurrent operations don't see partial results
-- **Durability**: Successful operations persisted (committed)
+- **Isolation**: Concurrent operations do not see partial results
+- **Durability**: Successful operations are persisted (committed)
 
 **Deadlock handling**:
-- Repository layer should return deterministic `TransactionError` / `StorageError` outcomes for lock contention and busy-state failures.
-- Retry/backoff policy is orchestration/infrastructure policy and is not mandated by this contract slice.
+- Repository implementations must return deterministic `TransactionError` / `StorageError` outcomes for lock contention and busy-state failures.
+- Retry/backoff policy is orchestration/infrastructure policy and is not mandated by this contract.
 
 ---
 
 ## Batch Operations
 
 **Status**: Planned/Deferred unless explicitly implemented by the active core slice.
-
-Potential performance-oriented batch commands:
-
-- `createPages(chapterId, pages)` - insert multiple pages
-- `updateReaderPositions(sessions)` - bulk reader position updates
-- `deletePages(pageIds)` - bulk delete with reindexing
 
 When implemented, batch operations must be atomic: all succeed or all fail.

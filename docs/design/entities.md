@@ -13,6 +13,7 @@
 Entity: Comic
   id: ComicId (UUID v4)
   normalizedTitle: String (lowercase, normalized matching/search signal)
+  originHint: Enum (unknown | local | remote | mixed)
   createdAt: Timestamp
   updatedAt: Timestamp
 ```
@@ -23,79 +24,78 @@ Entity: Comic
 - `normalizedTitle` is a non-unique matching/search signal only
 - `normalizedTitle` must never decide canonical comic identity by itself
 - Multiple comics may share the same `normalizedTitle`
+- `originHint` indicates provenance category; defaults to `unknown` when indeterminate
 - `updatedAt` >= `createdAt`
 
 **Relationships**:
 - Owns: Chapter (1:N)
-- Owns: Metadata (1:1, optional)
-- Owns: Favorite (1:1, optional)
+- Owns: ComicMetadata (1:1, optional)
 - Owns: ComicTitle (1:N)
-- Owns: ReaderSession (1:1)
+- Owns: SourceLink (1:N)
+- Owns: ReaderSession (1:1, optional)
 
 ---
 
 ### 2. ComicMetadata
-**Purpose**: Mutable properties of a comic (separate from identity).
+**Purpose**: Mutable display properties of a comic (separate from identity).
 
 ```
 Entity: ComicMetadata
   comicId: ComicId (foreign key, immutable)
-  title: String (user-facing, may contain punctuation)
+  title: DisplayTitle (user-facing, denormalized cache of primary ComicTitle)
   description: String (optional, long text)
-  coverStorageObjectId: String (optional, storage object reference)
+  coverPageId: PageId (optional, reference to cover page)
+  coverStorageObjectId: StorageObjectId (optional, storage object reference)
   authorName: String (optional)
-  tags: List<TagReference> (optional, read-model projection only)
+  metadata: JsonObject (optional, freeform structured metadata)
+  createdAt: Timestamp
+  updatedAt: Timestamp
 ```
 
 **Invariants**:
 - `comicId` is immutable
 - Cannot exist without parent Comic
-- All fields mutable
-- `tags` is read/projection shape only, not canonical tag storage authority
-
-**Sub-Entity: TagReference**
-```
-  canonicalKey: String (canonical taxonomy key)
-  namespace: String
-  facet: String
-  valueType: String
-  localizedLabel: String (optional)
-  providerKey: String (optional, remote provenance)
-  providerRawValue: String (optional, remote provenance)
-```
+- `title` must equal the `title` of the comic's primary `ComicTitle` (denormalized cache invariant; must be kept in sync when the primary title changes)
+- All other fields are mutable
 
 ---
 
 ### 3. ComicTitle
-**Purpose**: Canonical title record surface separating primary and provenance title evidence.
+**Purpose**: Canonical title record separating primary title from source-provenance and alias evidence.
 
 ```
 Entity: ComicTitle
-  id: String (UUID v4 or deterministic key)
+  id: ComicTitleId (UUID v4)
   comicId: ComicId
-  title: String
+  title: DisplayTitle
   normalizedTitle: String (non-unique matching signal)
-  titleType: Enum (primary | source | alias)
-  sourcePlatformId: SourcePlatformId (optional provenance reference)
+  titleKind: Enum (primary | source | alias)
+  locale: String (optional, BCP-47 language tag)
+  sourcePlatformId: SourcePlatformId (optional, provenance reference)
+  sourceLinkId: SourceLinkId (optional, provenance reference)
   createdAt: Timestamp
 ```
 
 **Invariants**:
 - Title records are evidence/projection surfaces, not canonical comic identity by themselves
 - `normalizedTitle` remains non-unique
-- Primary title uniqueness is scoped to one active primary title per comic
+- At most one `titleKind = primary` should be active per comic
+- `sourceLinkId`, when present, must reference an existing SourceLink for this comic
 
 ---
 
 ### 4. Chapter
-**Purpose**: Ordered sequence of pages within a comic.
+**Purpose**: Structural unit of a comic containing an ordered set of pages.
 
 ```
 Entity: Chapter
   id: ChapterId (UUID v4)
   comicId: ComicId (foreign key, immutable)
-  chapterNumber: Float (optional ordering hint, e.g., 1.0, 1.5, 2.0)
+  parentChapterId: ChapterId (optional, for nested structures such as seasons/volumes)
+  chapterKind: Enum (season | volume | chapter | episode | oneshot | group)
+  chapterNumber: Float | null (optional ordering hint, e.g. 1.0, 1.5, 2.0)
   title: String (optional, chapter name)
+  displayLabel: String (optional, override label for UI)
   createdAt: Timestamp
   updatedAt: Timestamp
 ```
@@ -103,13 +103,16 @@ Entity: Chapter
 **Invariants**:
 - `id` is immutable
 - `comicId` is immutable
-- `chapterNumber`, when present, is positive
-- `chapterNumber` is an ordering hint, not chapter identity authority
-- Canonical ordering may combine `chapterNumber` with fallback policy (for example `createdAt`/`id` or explicit order policy)
+- `chapterNumber` is nullable; when present it is an ordering hint only, not chapter identity authority
+- `chapterNumber` is non-unique within a comic (two chapters may share the same number)
+- `chapterNumber` must never serve as identity — identity is `id` only
+- `parentChapterId`, when present, must reference an existing Chapter within the same comic
+- Canonical ordering may combine `chapterNumber` with fallback policy (e.g. `createdAt`/`id`)
 - Cannot exist without parent Comic
 
 **Relationships**:
 - Parent: Comic (N:1)
+- Parent (optional): Chapter (N:1, via `parentChapterId`)
 - Owns: Page (1:N)
 - Owns: PageOrder (1:N)
 - May have: ChapterSourceLink (1:N provenance edges)
@@ -117,14 +120,19 @@ Entity: Chapter
 ---
 
 ### 5. Page
-**Purpose**: Ordered image within a chapter.
+**Purpose**: A single image within a chapter.
 
 ```
 Entity: Page
   id: PageId (UUID v4)
   chapterId: ChapterId (foreign key, immutable)
-  pageIndex: Integer (0-based source/insertion index within chapter)
-  storageObjectId: String (optional, storage object reference)
+  pageIndex: Integer (0-based insertion/source index within chapter)
+  storageObjectId: StorageObjectId (optional, storage object reference)
+  chapterSourceLinkId: ChapterSourceLinkId (optional, source provenance back-reference)
+  mimeType: String (optional, e.g. "image/jpeg")
+  width: Integer (optional, pixels)
+  height: Integer (optional, pixels)
+  checksum: String (optional, content hash)
   createdAt: Timestamp
   updatedAt: Timestamp
 ```
@@ -132,161 +140,26 @@ Entity: Page
 **Invariants**:
 - `id` is immutable
 - `chapterId` is immutable
-- `pageIndex` is unique within chapter (no two pages have same index)
+- `pageIndex` is unique within a chapter (no two pages share the same index)
 - `pageIndex` is 0-based
-- `pageIndex` is contiguous (no gaps: if chapter has 5 pages, indices are 0,1,2,3,4)
-- Effective display order is governed by active `PageOrder`/`PageOrderItem` policy
+- `pageIndex` is NOT required to be contiguous (gaps are permitted)
+- Effective display order is governed by the active `PageOrder`/`PageOrderItem` policy, not `pageIndex` alone
 - Cannot exist without parent Chapter
 
 **Relationships**:
 - Parent: Chapter (N:1)
-- May have: PageSourceLink (1:N provenance edges)
+- May reference: StorageObject (N:1, optional)
+- May reference: ChapterSourceLink (N:1, optional)
 
 ---
 
-### 6. ComicSourceLink
-**Purpose**: Comic-level source provenance edge.
-
-```
-Entity: ComicSourceLink
-  id: String (UUID v4)
-  comicId: ComicId
-  sourcePlatformId: SourcePlatformId
-  sourceComicId: String
-  linkStatus: Enum (active | inactive | stale)
-  isPrimary: Boolean
-  sourceUrl: String (optional, sanitized source URL)
-  sourceTitle: String (optional)
-  metadata: Object (optional, sanitized source metadata)
-  linkedAt: Timestamp
-  updatedAt: Timestamp
-```
-
-**Invariants**:
-- Canonical comic identity remains owned by `Comic`, not this provenance edge
-- Source identifiers are provenance evidence, not canonical comic identity by themselves
-
----
-
-### 7. ChapterSourceLink
-**Purpose**: Chapter-level source provenance edge.
-
-```
-Entity: ChapterSourceLink
-  id: String (UUID v4)
-  chapterId: ChapterId
-  comicSourceLinkId: String
-  sourceChapterId: String
-  sourceGroupName: String (optional)
-  sourceTitle: String (optional)
-  sourceOrder: Integer (optional)
-  sourceUrl: String (optional, sanitized source URL)
-  metadata: Object (optional, sanitized source metadata)
-  linkedAt: Timestamp
-  updatedAt: Timestamp
-```
-
-**Invariants**:
-- Canonical chapter identity remains owned by `Chapter`
-- Grouped/flat source chapter structures are provenance and require explicit mapping to canonical chapter rows
-
----
-
-### 8. PageSourceLink
-**Purpose**: Page-level source provenance edge.
-
-```
-Entity: PageSourceLink
-  id: String (UUID v4)
-  pageId: PageId
-  comicSourceLinkId: String
-  chapterSourceLinkId: String (optional)
-  sourcePageId: String
-  sourceUrl: String (optional, sanitized source URL)
-  metadata: Object (optional, sanitized source metadata)
-  linkedAt: Timestamp
-  updatedAt: Timestamp
-```
-
-**Invariants**:
-- Canonical page identity remains owned by `Page`
-- Raw source page references must not become canonical DB identity
-
----
-
-### 9. PageOrder
-**Purpose**: Named page-order profile for a chapter.
-
-```
-Entity: PageOrder
-  id: String (UUID v4)
-  chapterId: ChapterId (foreign key, immutable)
-  orderName: String
-  normalizedOrderName: String
-  orderType: Enum (source | user_override | import_detected)
-  isActive: Boolean
-  createdAt: Timestamp
-  updatedAt: Timestamp
-```
-
-**Invariants**:
-- Multiple PageOrder profiles may exist per chapter
-- Item-level order/hide semantics are expressed by `PageOrderItem`, not delimited text blobs
-- At most one active PageOrder should exist per chapter
-
----
-
-### 10. PageOrderItem
-**Purpose**: Item-level ordering and visibility for a PageOrder.
-
-```
-Entity: PageOrderItem
-  pageOrderId: String
-  pageId: PageId
-  sortOrder: Integer
-  isHidden: Boolean
-  addedAt: Timestamp
-```
-
-**Invariants**:
-- `sortOrder` is unique within a given `pageOrderId`
-- Each `(pageOrderId, pageId)` pair is unique
-- Item rows are canonical authority for reorder/hide/audit behavior
-
----
-
-### 11. ReaderSession
-**Purpose**: Canonical normalized reader position state.
-
-```
-Entity: ReaderSession
-  id: ReaderSessionId (UUID v4)
-  comicId: ComicId (foreign key, immutable)
-  chapterId: ChapterId (foreign key, immutable)
-  pageIndex: Integer (0-based canonical position)
-  activeTabPosition: Integer (reserved, for future multi-tab, default 0)
-  createdAt: Timestamp
-  updatedAt: Timestamp
-```
-
-**Invariants**:
-- `id` is immutable
-- `comicId` is immutable
-- Position (chapter + page) is normalized in database (not JSON)
-- At most one active ReaderSession per Comic
-- ReaderSession is created or updated only by reader-position use cases
-- `updatedAt` reflects latest position change
-- All position state is explicit (no JSON blobs)
-
----
-
-### 12. SourcePlatform
-**Purpose**: Provider of comics (local, remote, virtual).
+### 6. SourcePlatform
+**Purpose**: Provider/platform of comics (local filesystem, remote scraper, virtual).
 
 ```
 Entity: SourcePlatform
   id: SourcePlatformId (UUID v4)
-  canonicalKey: String (stable identifier, e.g., "copymanga", "local")
+  canonicalKey: String (stable identifier, e.g. "copymanga", "local")
   displayName: String (user-facing name)
   kind: Enum (local | remote | virtual)
   status: Enum (active | disabled | deprecated)
@@ -298,11 +171,198 @@ Entity: SourcePlatform
 - `id` is immutable
 - `canonicalKey` is unique and immutable (stable across sessions)
 - `kind` is immutable
-- `status` is mutable but constrained to `active | disabled | deprecated`
+- Status transition rules:
+  - `active` ↔ `disabled` (reversible)
+  - `active` → `deprecated` (one-way)
+  - `disabled` → `deprecated` (one-way)
+  - `deprecated` → `deprecated` (no-op)
+  - `deprecated` → `active` and `deprecated` → `disabled` are rejected
 
 ---
 
-### 13. SourcePackageManifest
+### 7. SourceLink
+**Purpose**: Comic-level source provenance edge linking a canonical comic to a remote/platform work identifier.
+
+```
+Entity: SourceLink
+  id: SourceLinkId (UUID v4)
+  comicId: ComicId
+  sourcePlatformId: SourcePlatformId
+  remoteWorkId: String (stable identifier of the work on the source platform)
+  remoteUrl: String (optional, sanitized source URL)
+  displayTitle: String (optional, title as seen on the source platform)
+  linkStatus: Enum (active | candidate | rejected | stale)
+  confidence: Enum (manual | auto_high | auto_low)
+  createdAt: Timestamp
+  updatedAt: Timestamp
+```
+
+**Invariants**:
+- Canonical comic identity remains owned by `Comic`, not this provenance edge
+- `remoteWorkId` is provenance evidence, not canonical identity
+- `(sourcePlatformId, remoteWorkId)` should be unique among active/candidate links
+
+---
+
+### 8. ChapterSourceLink
+**Purpose**: Chapter-level source provenance edge linking a canonical chapter to a remote chapter identifier.
+
+```
+Entity: ChapterSourceLink
+  id: ChapterSourceLinkId (UUID v4)
+  chapterId: ChapterId
+  sourceLinkId: SourceLinkId
+  remoteChapterId: String (stable identifier of the chapter on the source platform)
+  remoteUrl: String (optional, sanitized source URL)
+  remoteLabel: String (optional, label as seen on the source platform)
+  linkStatus: Enum (active | inactive | stale)
+  createdAt: Timestamp
+  updatedAt: Timestamp
+```
+
+**Invariants**:
+- Canonical chapter identity remains owned by `Chapter`
+- `sourceLinkId` must reference an existing SourceLink
+- `remoteChapterId` is provenance evidence, not canonical identity
+
+---
+
+### 9. PageOrder
+**Purpose**: Named page-ordering profile for a chapter.
+
+```
+Entity: PageOrder
+  id: PageOrderId (UUID v4)
+  chapterId: ChapterId (foreign key, immutable)
+  orderKey: Enum (source | user | import_detected | custom)
+  orderType: Enum (source | user_override | import_detected | custom)
+  isActive: Boolean
+  pageCount: Integer (cached count of pages in this order)
+  createdAt: Timestamp
+  updatedAt: Timestamp
+```
+
+**Invariants**:
+- Multiple PageOrder profiles may exist per chapter
+- At most one PageOrder with `isActive = true` should exist per chapter
+- Item-level ordering is expressed by `PageOrderItem`, not delimited text blobs
+- `pageCount` is a derived/cached count and must remain consistent with the number of `PageOrderItem` rows
+
+---
+
+### 10. PageOrderItem
+**Purpose**: Item-level position record within a PageOrder.
+
+```
+Entity: PageOrderItem
+  id: PageOrderItemId (UUID v4)
+  pageOrderId: PageOrderId
+  pageId: PageId
+  sortIndex: Integer
+  createdAt: Timestamp
+```
+
+**Invariants**:
+- `sortIndex` is unique within a given `pageOrderId`
+- Each `(pageOrderId, pageId)` pair is unique
+- Item rows are canonical authority for display-order behavior
+
+---
+
+### 11. ReaderSession
+**Purpose**: Persisted reader position state for a comic.
+
+```
+Entity: ReaderSession
+  id: ReaderSessionId (UUID v4)
+  comicId: ComicId (foreign key, immutable)
+  chapterId: ChapterId
+  pageId: PageId (optional)
+  pageIndex: Integer (0-based canonical position)
+  createdAt: Timestamp
+  updatedAt: Timestamp
+```
+
+**Invariants**:
+- `id` is immutable
+- `comicId` is immutable
+- At most one active ReaderSession per Comic
+- Position (`chapterId` + `pageIndex`) is stored as normalized columns, not JSON blobs
+- `pageId`, when present, must reference a page that belongs to `chapterId` and whose `pageIndex` equals the session's `pageIndex`; a session with a `pageId` that violates this constraint is invalid
+- `pageId` is optional; its absence does not invalidate the session
+- `updatedAt` reflects the latest position change
+- ReaderSession is created or updated only by reader-position use cases
+
+---
+
+### 12. StorageBackend
+**Purpose**: Configured storage destination (local filesystem, WebDAV, etc.).
+
+```
+Entity: StorageBackend
+  id: StorageBackendId (UUID v4)
+  backendKey: String (stable unique identifier)
+  displayName: String (user-facing name)
+  backendKind: Enum (local_app_data | webdav | future)
+  configJson: String (serialized backend configuration)
+  secretRef: String (optional, reference to external credential store)
+  status: Enum (active | disabled | deprecated)
+  createdAt: Timestamp
+  updatedAt: Timestamp
+```
+
+**Invariants**:
+- `id` is immutable
+- `backendKey` is unique
+- `configJson` must not embed plaintext secrets; credentials are referenced via `secretRef`
+
+---
+
+### 13. StorageObject
+**Purpose**: Logical content object tracked by the storage subsystem.
+
+```
+Entity: StorageObject
+  id: StorageObjectId (UUID v4)
+  objectKind: Enum (page_image | cover | archive | backup | cache)
+  contentHash: String (optional, content-addressable hash)
+  sizeBytes: Integer (optional)
+  mimeType: String (optional)
+  createdAt: Timestamp
+  updatedAt: Timestamp
+```
+
+**Invariants**:
+- `id` is immutable
+- `contentHash`, when present, is used for deduplication and integrity verification
+- Object existence does not imply that bytes are available on any backend; availability is determined by `StoragePlacement`
+
+---
+
+### 14. StoragePlacement
+**Purpose**: Placement record tracking where a StorageObject is stored on a specific backend.
+
+```
+Entity: StoragePlacement
+  id: StoragePlacementId (UUID v4)
+  storageObjectId: StorageObjectId
+  storageBackendId: StorageBackendId
+  objectKey: String (backend-relative path or key)
+  role: Enum (authority | cache | mirror | staging)
+  syncStatus: Enum (pending | uploading | synced | failed | evicted)
+  lastVerifiedAt: Timestamp (optional)
+  createdAt: Timestamp
+  updatedAt: Timestamp
+```
+
+**Invariants**:
+- `(storageObjectId, storageBackendId, objectKey)` should be unique
+- `syncStatus` tracks the lifecycle of bytes on the backend
+- `role` governs eviction and replication policy
+
+---
+
+### 15. SourcePackageManifest
 **Purpose**: Validated package contract payload/result (not durable installed package authority).
 
 ```
@@ -326,7 +386,7 @@ Entity: SourcePackageManifest
 
 ---
 
-### 14. SourcePackageArtifact
+### 16. SourcePackageArtifact
 **Purpose**: Durable verified source package artifact metadata (PackageStore-aligned authority).
 
 ```
@@ -351,80 +411,42 @@ Entity: SourcePackageArtifact
 
 ---
 
-### 15. Favorite
-**Purpose**: User's marked work.
-
-```
-Entity: Favorite
-  id: FavoriteId (UUID v4)
-  comicId: ComicId (foreign key, immutable)
-  markedAt: Timestamp
-  lastAccessedAt: Timestamp (optional, future read-activity/favorite policy)
-```
-
-**Invariants**:
-- One Favorite per Comic
-- `comicId` is immutable
-- `markedAt` is immutable
-- `lastAccessedAt` is not updated by current reader-position core use case
-
----
-
-### 16. ImportBatch
-**Purpose**: Metadata for file imports (CBZ, PDF, directories).
-
-```
-Entity: ImportBatch
-  id: ImportBatchId (UUID v4)
-  sourceType: Enum (cbz | pdf | directory)
-  sourceRef: String (adapter/import provenance reference, not canonical core identity)
-  files: List<ImportFile> (ordered files in batch)
-  metadata: Object (import-specific metadata)
-  comicId: ComicId (optional, assigned after import completes)
-  createdAt: Timestamp
-  completedAt: Timestamp (optional)
-```
-
-**Sub-Entity: ImportFile**
-```
-  path: String (relative path within batch)
-  fileType: Enum (image | container | document)
-  index: Integer (canonical order in import)
-  checksum: String (SHA256 of file content)
-  sizeBytes: Integer
-```
-
-**Invariants**:
-- Files stored in canonical order (index is immutable)
-- Checksums prevent deduplication errors
-- One ImportBatch may import into one Comic
-
----
-
 ## ID System
 
 ### ID Types
-All IDs are **UUIDs v4** (Universally Unique Identifiers, version 4):
+All IDs are **UUID v4** (Universally Unique Identifiers, version 4):
 
 ```
-ComicId           = UUID v4
-ChapterId         = UUID v4
-PageId            = UUID v4
-ReaderSessionId   = UUID v4
-SourcePlatformId  = UUID v4
-ImportBatchId     = UUID v4
-FavoriteId        = UUID v4
-CorrelationId     = String (UUID v4 format, used for tracing)
+ComicId                = UUID v4
+ComicTitleId           = UUID v4
+ChapterId              = UUID v4
+PageId                 = UUID v4
+PageOrderId            = UUID v4
+PageOrderItemId        = UUID v4
+ReaderSessionId        = UUID v4
+SourcePlatformId       = UUID v4
+SourceLinkId           = UUID v4
+ChapterSourceLinkId    = UUID v4
+StorageBackendId       = UUID v4
+StorageObjectId        = UUID v4
+StoragePlacementId     = UUID v4
+CorrelationId          = String (UUID v4 format, used for tracing)
 ```
 
 ### ID Ownership
 - **ComicId**: Assigned by system at Comic creation
+- **ComicTitleId**: Assigned by system at ComicTitle creation
 - **ChapterId**: Assigned by system at Chapter creation
 - **PageId**: Assigned by system at Page creation
+- **PageOrderId**: Assigned by system at PageOrder creation
+- **PageOrderItemId**: Assigned by system at PageOrderItem creation
 - **ReaderSessionId**: Assigned by system at ReaderSession creation
 - **SourcePlatformId**: Assigned by system at SourcePlatform creation
-- **ImportBatchId**: Assigned by system at ImportBatch creation
-- **FavoriteId**: Assigned by system at Favorite creation
+- **SourceLinkId**: Assigned by system at SourceLink creation
+- **ChapterSourceLinkId**: Assigned by system at ChapterSourceLink creation
+- **StorageBackendId**: Assigned by system at StorageBackend creation
+- **StorageObjectId**: Assigned by system at StorageObject creation
+- **StoragePlacementId**: Assigned by system at StoragePlacement creation
 
 ### ID Serialization
 - All IDs serialized as UUID strings (RFC 4122 format)
@@ -439,26 +461,28 @@ CorrelationId     = String (UUID v4 format, used for tracing)
 Comic (1) ──→ (N) Chapter
   ├─→ ComicMetadata (1:1, optional)
   ├─→ ComicTitle (1:N)
-  ├─→ Favorite (1:1, optional)
-  └─→ ReaderSession (1:1)
+  ├─→ SourceLink (1:N)
+  └─→ ReaderSession (1:1, optional)
 
 Chapter (1) ──→ (N) Page
   ├─→ PageOrder (1:N)
   └─→ ChapterSourceLink (1:N)
 
-Page (N) ──→ (1) StorageObject (optional durable bytes reference)
-Page (1) ──→ (N) PageSourceLink
-PageOrder (1) ──→ (N) PageOrderItem
+Page (N) ──→ (0..1) StorageObject (optional durable bytes reference)
+Page (N) ──→ (0..1) ChapterSourceLink (optional source provenance back-reference)
 
-Comic (1) ──→ (N) ComicSourceLink
-ComicSourceLink (1) ──→ (N) ChapterSourceLink
-ComicSourceLink (1) ──→ (N) PageSourceLink
-SourcePlatform (1) ──→ (N) ComicSourceLink
+PageOrder (1) ──→ (N) PageOrderItem
+PageOrderItem (N) ──→ (1) Page
+
+SourcePlatform (1) ──→ (N) SourceLink
+SourceLink (1) ──→ (N) ChapterSourceLink
+SourceLink (N) ──→ (1) SourcePlatform
+
+StorageObject (1) ──→ (N) StoragePlacement
+StoragePlacement (N) ──→ (1) StorageBackend
 
 SourcePackageManifest = validation payload (not owned by SourcePlatform)
 SourcePackageArtifact (N) ──→ (0..1) SourcePlatform (optional, after activation)
-
-ImportBatch ──→ Comic (optional, after completion)
 ```
 
 ---
@@ -468,35 +492,96 @@ ImportBatch ──→ Comic (optional, after completion)
 ### Comic
 - `normalizedTitle` is normalized for matching/search only
 - `normalizedTitle` is non-unique and must not be treated as canonical identity
+- `originHint` must be one of: unknown, local, remote, mixed
 - `id` must be valid UUID v4
-- Both timestamps must be ISO8601
+- Both timestamps must be ISO 8601
+
+### ComicMetadata
+- `comicId` must reference an existing Comic
+- `title` must equal the `title` of the comic's active primary `ComicTitle` (denormalized cache invariant)
+- `coverPageId`, when present, must reference an existing Page
+- `coverStorageObjectId`, when present, must reference an existing StorageObject
+
+### ComicTitle
+- `comicId` must reference an existing Comic
+- `titleKind` must be one of: primary, source, alias
+- `normalizedTitle` is non-unique
+- At most one `titleKind = primary` per comic
+- `sourceLinkId`, when present, must reference an existing SourceLink belonging to this comic
 
 ### Chapter
-- `chapterNumber` is optional ordering hint only
-- Canonical ordering policy may use `chapterNumber`, source order, `createdAt`, and `id`
-- `comicId` must reference existing Comic
+- `comicId` must reference an existing Comic
+- `chapterNumber` is optional; when present it is an ordering hint only, not identity
+- `chapterNumber` is non-unique within a comic
+- `chapterKind` must be one of: season, volume, chapter, episode, oneshot, group
+- `parentChapterId`, when present, must reference an existing Chapter in the same comic
 - `id` must be valid UUID v4
 - Source provenance must be expressed via `ChapterSourceLink`, not direct source identity fields on `Chapter`
 
 ### Page
-- `pageIndex` must be unique and contiguous within chapter
+- `pageIndex` must be unique within the chapter
 - `pageIndex` >= 0
-- `chapterId` must reference existing Chapter
+- `pageIndex` is NOT required to be contiguous; gaps are permitted
+- `chapterId` must reference an existing Chapter
 - `id` must be valid UUID v4
-- Source provenance must be expressed via `PageSourceLink`, not direct source identity fields on `Page`
+- `chapterSourceLinkId`, when present, must reference an existing ChapterSourceLink
+- `storageObjectId`, when present, must reference an existing StorageObject
+
+### PageOrder
+- `chapterId` must reference an existing Chapter
+- `orderKey` must be one of: source, user, import_detected, custom
+- `orderType` must be one of: source, user_override, import_detected, custom
+- At most one PageOrder with `isActive = true` per chapter
+- `pageCount` must remain consistent with the number of associated `PageOrderItem` rows
+
+### PageOrderItem
+- `pageOrderId` must reference an existing PageOrder
+- `pageId` must reference an existing Page in the same chapter as the PageOrder
+- `sortIndex` is unique within a `pageOrderId`
+- Each `(pageOrderId, pageId)` pair is unique
+- `id` must be valid UUID v4
 
 ### ReaderSession
-- `comicId` must reference existing Comic
-- `chapterId` must reference existing Chapter
-- `pageIndex` must be < page count in chapter
+- `comicId` must reference an existing Comic
+- `chapterId` must reference an existing Chapter belonging to that Comic
+- `pageIndex` >= 0
+- `pageId`, when present, must reference a Page that belongs to `chapterId` and whose `pageIndex` equals the session's `pageIndex`; any other value renders the session invalid
 - At most one active ReaderSession per Comic
 - ReaderSession is created/updated only by reader-position use cases
 
 ### SourcePlatform
-- `canonicalKey` must be unique
+- `canonicalKey` must be unique and immutable
 - `kind` must be one of: local, remote, virtual
 - `status` must be one of: active, disabled, deprecated
+- Status transitions: active ↔ disabled; active → deprecated; disabled → deprecated; deprecated → deprecated (no-op). Transitions deprecated → active and deprecated → disabled are rejected.
 - `id` must be valid UUID v4
+
+### SourceLink
+- `comicId` must reference an existing Comic
+- `sourcePlatformId` must reference an existing SourcePlatform
+- `linkStatus` must be one of: active, candidate, rejected, stale
+- `confidence` must be one of: manual, auto_high, auto_low
+
+### ChapterSourceLink
+- `chapterId` must reference an existing Chapter
+- `sourceLinkId` must reference an existing SourceLink
+- `linkStatus` must be one of: active, inactive, stale
+
+### StorageBackend
+- `backendKey` must be unique
+- `backendKind` must be one of: local_app_data, webdav, future
+- `status` must be one of: active, disabled, deprecated
+- `configJson` must not embed plaintext secrets
+
+### StorageObject
+- `objectKind` must be one of: page_image, cover, archive, backup, cache
+- `id` must be valid UUID v4
+
+### StoragePlacement
+- `storageObjectId` must reference an existing StorageObject
+- `storageBackendId` must reference an existing StorageBackend
+- `role` must be one of: authority, cache, mirror, staging
+- `syncStatus` must be one of: pending, uploading, synced, failed, evicted
 
 ### SourcePackageManifest
 - Must validate against canonical repository/package manifest contract
@@ -508,18 +593,3 @@ ImportBatch ──→ Comic (optional, after completion)
 - `archiveSha256` must be normalized lowercase SHA-256
 - `state` must be one of: committed, active, orphaned, cleanup_pending, removed
 - Must not decide source identity compatibility with existing source platform on its own
-
-### Favorite
-- `comicId` must reference existing Comic
-- One Favorite per Comic
-- `id` must be valid UUID v4
-
-### ImportBatch
-- Files must be ordered by index
-- All checksums must be SHA256 format
-- One ImportBatch completes to one Comic
-- `sourceRef` is provenance only and must not be treated as canonical core identity
-
-### Tags Projection Note
-- `ComicMetadata.tags` is read-model projection only
-- Canonical tag storage authority should be normalized tables (canonical tags, labels, source tags, tag mappings, user tags, and relation tables)
