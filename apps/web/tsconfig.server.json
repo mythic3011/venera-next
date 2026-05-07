@@ -1,0 +1,25 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": false,
+    "declaration": true,
+    "outDir": "dist/server",
+    "rootDir": "src",
+    "ignoreDeprecations": "6.0"
+  },
+  "include": [
+    "src/main-server.ts",
+    "src/adapter/**/*.ts",
+    "src/provider/**/*.ts",
+    "src/routes/**/*.ts",
+    "src/server/**/*.ts"
+  ],
+  "exclude": [
+    "src/App.tsx",
+    "src/client/**/*",
+    "src/main.tsx",
+    "src/scripts/**/*",
+    "src/styles.css",
+    "src/ui/**/*"
+  ]
+}

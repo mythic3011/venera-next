@@ -1,0 +1,13 @@
+{
+  "name": "venera-workspace",
+  "private": true,
+  "workspaces": [
+    "runtime/core",
+    "packages/runtime-contracts",
+    "apps/web"
+  ],
+  "engines": {
+    "node": ">=20",
+    "npm": ">=9"
+  }
+}

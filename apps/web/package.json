@@ -1,0 +1,39 @@
+{
+  "name": "@venera/web",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "npm run build:client && npm run build:server",
+    "build:client": "VENERA_WEB_BUILD_TARGET=client vite build",
+    "build:server": "tsc -p tsconfig.server.json",
+    "boundary:scan": "tsx src/scripts/boundary-scan.ts",
+    "dev": "concurrently -k \"npm:dev:server\" \"npm:dev:client\"",
+    "dev:client": "vite --host 127.0.0.1 --port 5173",
+    "dev:server": "HOST=127.0.0.1 PORT=8787 tsx watch src/main-server.ts",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.server.json"
+  },
+  "dependencies": {
+    "@hono/node-server": "2.0.1",
+    "@hono/zod-openapi": "1.3.0",
+    "@scalar/hono-api-reference": "0.10.14",
+    "@venera/runtime-contracts": "workspace:*",
+    "@venera/runtime-core": "workspace:*",
+    "hono": "4.12.18",
+    "react": "19.2.6",
+    "react-dom": "19.2.6",
+    "zod": "4.4.3"
+  },
+  "devDependencies": {
+    "@types/node": "25.6.0",
+    "@types/react": "19.2.14",
+    "@types/react-dom": "19.2.3",
+    "@vitejs/plugin-react": "6.0.1",
+    "concurrently": "9.2.1",
+    "tsx": "4.21.0",
+    "typescript": "6.0.3",
+    "vite": "8.0.11",
+    "vitest": "4.1.5"
+  }
+}
