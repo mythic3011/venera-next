@@ -319,13 +319,13 @@ Entity: StorageBackend
 ---
 
 ### 13. StorageObject
-**Purpose**: Logical content object tracked by the storage subsystem.
+**Purpose**: Logical storage object metadata tracked by the storage subsystem.
 
 ```
 Entity: StorageObject
   id: StorageObjectId (UUID v4)
   objectKind: Enum (page_image | cover | archive | backup | cache)
-  contentHash: String (optional, content-addressable hash)
+  contentHash: String (optional, content-derived evidence)
   sizeBytes: Integer (optional)
   mimeType: String (optional)
   createdAt: Timestamp
@@ -334,8 +334,9 @@ Entity: StorageObject
 
 **Invariants**:
 - `id` is immutable
-- `contentHash`, when present, is used for deduplication and integrity verification
+- `contentHash`, when present, is evidence for deduplication and integrity verification; it is not the current primary identity authority
 - Object existence does not imply that bytes are available on any backend; availability is determined by `StoragePlacement`
+- Authoritative placements should backfill `sizeBytes` and `mimeType` once bytes are materialized and verified
 
 ---
 
@@ -357,6 +358,7 @@ Entity: StoragePlacement
 
 **Invariants**:
 - `(storageObjectId, storageBackendId, objectKey)` should be unique
+- At most one `role = authority` placement is logically valid per `storageObjectId`
 - `syncStatus` tracks the lifecycle of bytes on the backend
 - `role` governs eviction and replication policy
 

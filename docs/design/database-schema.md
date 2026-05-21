@@ -1,6 +1,6 @@
 # Database Schema Specification
 
-**Language-agnostic relational schema for Venera canonical runtime.**
+**Logical relational schema constraints with current SQLite reference mapping for Venera canonical runtime.**
 
 ---
 
@@ -8,7 +8,18 @@ This canonical runtime schema is in pre-stable schema-definition stage. Define c
 
 `normalized_title` is a matching/search signal only. It is non-unique and must never be treated as canonical comic identity authority.
 
-This schema document is dialect-portable authority. The current `runtime/core/src/db/database.ts` SQLite path is a Node/SQLite infrastructure adapter that remains valid for local, dev, embedded, test, and temporary demo modes, while production web persistence is a future PostgreSQL-backed deployment target and must not be described as `:memory:` or demo SQLite. The current `apps/web` shell remains `demo-memory` only and intentionally non-persistent. Canonical deployment-mode rules live in `docs/design/production-database-adapter-strategy.md`.
+This schema document is portable only at the logical domain and constraint layer, not as raw physical DDL tokens. Unless a section says otherwise, the `Type` column below records the current SQLite reference storage class used by the live runtime implementation.
+
+Current logical type expectations that any future backend must map explicitly:
+
+| Logical domain | Current SQLite reference | Notes |
+|---|---|---|
+| `Uuid` | `TEXT` | Immutable UUID string today; future backends may use native UUID storage |
+| `Timestamp` | `TEXT` | UTC ISO string today; future backends may use native timestamp-with-time-zone storage |
+| `BooleanFlag` | `INTEGER CHECK (0, 1)` | Logical boolean today; integer storage is not the canonical cross-backend requirement |
+| `JsonDocument` | `TEXT` | Canonical JSON payload today; future backends may use native JSON storage |
+
+The current `runtime/core/src/db/database.ts` SQLite path remains valid for local, dev, embedded, test, and temporary demo modes. This schema document does not commit Venera to a future server-backed backend, portability timeline, or adapter roadmap. The current `apps/web` shell remains `demo-memory` only and intentionally non-persistent. If deployment-direction guidance is maintained separately, see `docs/design/production-database-adapter-strategy.md`.
 
 ## Table: comics
 
@@ -92,21 +103,26 @@ Storage backend catalog. Declares available backends before storage objects and 
 
 ## Table: storage_objects
 
-Content-addressable storage object metadata. Represents a logical object (file) independent of where it is physically stored.
+Storage object metadata. Represents a logical object (file) independent of where it is physically stored.
 
 | Column | Type | Constraints | Notes |
 |--------|------|-------------|-------|
 | id | TEXT | PRIMARY KEY | Immutable UUID string |
 | object_kind | TEXT | NOT NULL, CHECK (object_kind IN ('page_image', 'cover', 'archive', 'backup', 'cache')) | What kind of object this is |
-| content_hash | TEXT | NULL | Content hash for deduplication/verification |
-| size_bytes | INTEGER | NULL | Object size in bytes |
-| mime_type | TEXT | NULL | MIME type of the content |
+| content_hash | TEXT | NULL | Optional content-derived evidence for deduplication/verification; not primary identity authority in the current schema |
+| size_bytes | INTEGER | NULL | Optional object size in bytes; may be absent before materialization/verification |
+| mime_type | TEXT | NULL | Optional MIME type; may be absent before materialization/verification |
 | created_at | TEXT | NOT NULL | UTC ISO string |
 | updated_at | TEXT | NOT NULL | UTC ISO string |
 
 **Indexes**:
 - PRIMARY KEY `id`
 - CHECK `object_kind IN ('page_image', 'cover', 'archive', 'backup', 'cache')`
+
+**Notes**:
+- Current object identity is the row `id`, not a hash-addressed key.
+- `content_hash` is optional evidence in the current schema. If a future slice requires content-addressable authority, that slice must either make the hash mandatory for relevant object kinds or define a stricter split contract.
+- Authoritative synced placements should backfill `size_bytes` and `mime_type`; NULL is not a claim that long-term server-backed storage can ignore those fields indefinitely.
 
 ---
 
@@ -137,6 +153,8 @@ Ordered chapter sequence inside a comic. Supports nesting via `parent_chapter_id
 **Notes**:
 - `chapter_number` is nullable, non-unique, and never treated as an identity field. Multiple chapters may share the same `chapter_number` (e.g. split releases or decimal chapters).
 - `parent_chapter_id` enables season/volume grouping without a separate grouping table.
+- The self-foreign-key does not prevent cycles by itself. Current mutation paths must reject parent/child cycles fail-closed.
+- The allowed parent/child `chapter_kind` matrix is not yet canonicalized in DB constraints. Server-backed multi-writer approval requires an explicit nesting rule set before portable hierarchy claims are made.
 
 ---
 
@@ -165,6 +183,10 @@ Comic-level source provenance links (multi-source capable). This table replaces 
 - Foreign key `(source_platform_id) REFERENCES source_platforms(id) ON DELETE RESTRICT`
 - CHECK `link_status IN ('active', 'candidate', 'rejected', 'stale')`
 - CHECK `confidence IN ('manual', 'auto_high', 'auto_low')`
+
+**Notes**:
+- Current lifecycle is update-in-place across `active`, `candidate`, `rejected`, and `stale`. A rejected or stale row does not automatically free `(source_platform_id, remote_work_id)` for a second row in the same schema.
+- If future product scope needs append-only provenance history or recreate-after-reject semantics, this uniqueness model must change before that behavior is approved.
 
 ---
 
@@ -250,6 +272,8 @@ Mutable comic properties. `title` is an intentionally denormalized cache and MUS
 
 **Invariant**: `comic_metadata.title` must always equal the `title` of the `comic_titles` row for this comic where `title_kind = 'primary'`. Any mutation that changes the primary title must update both records atomically.
 
+This duplicated title field is a current local-read optimization, not an approved multi-writer/server-backed truth model. Any future server-backed backend must either add DB-backed consistency enforcement or drop the duplicated cache in favor of deriving the user-facing title from `comic_titles`.
+
 ---
 
 ## Table: comic_titles
@@ -273,7 +297,7 @@ Canonical title records separating primary and provenance title evidence.
 - INDEX on `comic_id`
 - INDEX on `normalized_title`
 - INDEX on `(comic_id, title_kind)`
-- UNIQUE INDEX on `(comic_id, normalized_title, locale, source_platform_id)` — prevents duplicate title evidence per locale/platform combination
+- LOGICAL UNIQUE constraint on `(comic_id, normalized_title, locale, source_platform_id)` with NULL locale/source-platform buckets treated as not distinct — prevents duplicate title evidence per locale/platform combination
 - PARTIAL UNIQUE INDEX on `(comic_id)` WHERE `title_kind = 'primary'` — enforces exactly one primary title per comic
 - Foreign key `(comic_id) REFERENCES comics(id) ON DELETE CASCADE`
 - Foreign key `(source_platform_id) REFERENCES source_platforms(id) ON DELETE SET NULL`
@@ -283,6 +307,7 @@ Canonical title records separating primary and provenance title evidence.
 **Notes**:
 - `title_kind` values: `primary` (the user-facing canonical title), `source` (evidence from a source platform), `alias` (alternate known title).
 - Exactly one `primary` title per comic is enforced by the partial unique index `ux_comic_titles_one_primary`.
+- The logical uniqueness rule treats missing `locale` and missing `source_platform_id` as value-bearing buckets, not "duplicates allowed because NULL is special". Backend-specific enforcement must preserve that rule explicitly.
 
 ---
 
@@ -309,6 +334,11 @@ Named page-order profiles for a chapter. One active order per chapter is enforce
 - CHECK `order_key IN ('source', 'user', 'import_detected', 'custom')`
 - CHECK `order_type IN ('source', 'user_override', 'import_detected', 'custom')`
 - CHECK `is_active IN (0, 1)`
+
+**Notes**:
+- `order_key` names the profile slot or origin bucket. `order_type` names the semantic interpretation of that slot.
+- The current persisted user-authored path uses `order_key = 'user'` together with `order_type = 'user_override'`; the fields are related but not intended to be identical aliases.
+- Source order may exist as a synthetic/runtime-derived order even when no persisted `page_orders` row with `order_key = 'source'` exists.
 
 ---
 
@@ -351,10 +381,15 @@ Physical placement of a storage object on a specific backend. A single storage o
 
 **Indexes**:
 - PRIMARY KEY `id`
+- LOGICAL UNIQUE constraint on `(storage_object_id)` for rows where `role = 'authority'` — at most one authority placement per storage object
 - Foreign key `(storage_object_id) REFERENCES storage_objects(id) ON DELETE CASCADE`
 - Foreign key `(storage_backend_id) REFERENCES storage_backends(id) ON DELETE RESTRICT`
 - CHECK `role IN ('authority', 'cache', 'mirror', 'staging')`
 - CHECK `sync_status IN ('pending', 'uploading', 'synced', 'failed', 'evicted')`
+
+**Notes**:
+- Cache, mirror, and staging placements may coexist for the same storage object.
+- Authority placement is singular. Any implementation that allows multiple `role = 'authority'` rows for one object is out of contract with this schema authority.
 
 ---
 
@@ -385,6 +420,8 @@ The saved reader position authority is `chapter_id + page_index`. `page_id` is o
 - The authoritative saved position is `chapter_id + page_index`.
 - `page_id`, when present, is optional evidence that must be consistent: if `page_id` is set, it must point to a page in `chapter_id` whose `page_index` equals `reader_sessions.page_index`. If this invariant is violated, the saved session is invalid.
 - `page_id` may be NULL without invalidating the session.
+- Current reader session persistence is single-user, single-runtime convenience state. It is not an approved multi-device sync contract.
+- Position updates are last-write-wins and carry no version/conflict signal. Any future multi-device or server-backed mode must add an explicit conflict-resolution contract before approval.
 
 ---
 
@@ -409,6 +446,11 @@ Idempotency ledger for mutation workflows.
 - PRIMARY KEY `(operation_name, idempotency_key)` — composite; scopes idempotency keys per operation
 - INDEX on `(operation_name, created_at)`
 - CHECK `status IN ('in_progress', 'completed', 'failed')`
+
+**Current contract**:
+- Same `(operation_name, idempotency_key)` with the same `input_hash` and status `completed` is replayable.
+- Same `(operation_name, idempotency_key)` with a different `input_hash` returns `IDEMPOTENCY_CONFLICT`.
+- Same `(operation_name, idempotency_key)` with status `in_progress` or `failed` is not replayable. Current contract fails closed; it does not block, poll, or lease-steal the key.
 
 **Backlog**: Idempotency TTL cleanup is not implemented. TODO: implement periodic cleanup of stale `in_progress` and `failed` records.
 
@@ -444,6 +486,10 @@ Persisted diagnostics evidence with explicit schema version.
 - Foreign key `(source_platform_id) REFERENCES source_platforms(id) ON DELETE SET NULL`
 - CHECK `level IN ('trace', 'info', 'warn', 'error')`
 - CHECK `authority IN ('canonical_db', 'storage', 'source_runtime', 'unknown')` (nullable)
+
+**Notes**:
+- Current canonical use is bounded diagnostics evidence for local/dev and short-lived runtime troubleshooting, not an approval to keep unbounded application logging in the main runtime DB forever.
+- No server-backed retention, partitioning, or external-log-store policy is defined here. Any long-retention or high-volume production diagnostics scope requires a dedicated storage/retention authority first.
 
 ---
 
@@ -555,7 +601,7 @@ Do not reintroduce loose runtime identity fields as authority (for example `sour
 2. **Create Chapter with Pages**:
    - INSERT into `chapters`
    - INSERT into `pages`
-   - INSERT into `page_orders` and `page_order_items` (default source order)
+   - Ensure the initial resolved page order is the canonical source sequence (`page_index` ascending), either through synthetic fallback or explicit `page_orders` materialization
    - All writes succeed or all rollback
 
 3. **Update Reader Position**:
@@ -565,9 +611,10 @@ Do not reintroduce loose runtime identity fields as authority (for example `sour
 
 ### Concurrency
 
-- Reader position is last-write-wins.
-- Chapter/page creation is serialized per comic.
-- Source-link mutation is serialized per affected source link scope.
+- Reader position is last-write-wins within the current single-runtime local model.
+- "Serialized per comic" and "serialized per affected source link scope" are application requirements, not a specified backend-portable locking mechanism.
+- This schema does not currently define a backend-portable lock strategy such as app mutexes, `SELECT FOR UPDATE`, advisory locks, or SERIALIZABLE retry rules.
+- Any server-backed backend must add an explicit locking and isolation contract before portable concurrency claims are made.
 
 ---
 

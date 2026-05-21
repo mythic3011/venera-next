@@ -18,6 +18,7 @@ Adapter transport (UI/HTTP/CLI/IPC) is replaceable and non-authoritative compare
 - `docs/design/entities.md`
 - `docs/design/database-schema.md`
 - `docs/design/repository-interfaces.md`
+- `docs/design/database-adapter-implementation-boundary.md`
 - `docs/design/production-database-adapter-strategy.md`
 - `docs/design/use-cases.md`
 - `docs/design/diagnostics-events.md`
@@ -25,6 +26,7 @@ Adapter transport (UI/HTTP/CLI/IPC) is replaceable and non-authoritative compare
 - `docs/design/source-package-store-contract.md`
 
 Runtime implementation authority:
+
 - `runtime/core/src/**`
 
 ---
@@ -46,13 +48,3 @@ Diagnostics events are schema-versioned evidence.
 ```
 
 ---
-
-## Legacy/Deprecated Documents
-
-The following files are preserved for forensic reference and are not canonical V1 authority:
-
-- `docs/design/ipc-protocol-api.md`
-- `docs/design/class-definitions-casting.md`
-- `docs/design/security-boundaries-layering.md`
-
-If these legacy drafts conflict with canonical docs, canonical docs win.

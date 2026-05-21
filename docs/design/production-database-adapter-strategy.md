@@ -6,9 +6,11 @@
 
 ## Summary
 
-V1 runtime schema, repository ports, and use cases are dialect-portable authority. SQLite remains a valid adapter for local, embedded, test, and temporary demo workflows. PostgreSQL is the preferred production target for self-hosted web deployment, multi-device access, long-running server operation, and future multi-user hosting.
+This document is conditional deployment-direction guidance, not a commitment to ship PostgreSQL support or adapter abstraction work on a dated roadmap.
 
-This document defines which deployment modes may use SQLite, which deployment modes should target PostgreSQL, and which boundaries must stay stable before any production PostgreSQL implementation begins.
+V1 runtime schema, repository ports, and use cases remain the authority boundary. SQLite remains a valid adapter for local, embedded, test, and temporary demo workflows. If product scope later commits to self-hosted web deployment, multi-device access, long-running server operation, or future multi-user hosting, those modes require an explicit server-backed persistence decision. PostgreSQL is a current candidate direction for that decision, not an approved roadmap promise.
+
+This document defines which deployment modes may use SQLite, which deployment modes would require a server-backed persistence decision if they become committed scope, and which boundaries must stay stable before any production backend split begins.
 
 ---
 
@@ -24,19 +26,19 @@ Production web persistence must not be represented as `:memory:` or demo SQLite.
 
 ## Deployment-Mode Split
 
-| Mode                                | Preferred persistence target                  | Notes                                                           |
-| ----------------------------------- | --------------------------------------------- | --------------------------------------------------------------- |
-| Dev smoke                           | SQLite                                        | Ephemeral or local-only runtime is valid.                       |
-| Tests                               | SQLite                                        | Fast embedded test persistence is valid.                        |
-| Desktop-local mode                  | SQLite                                        | Single-user embedded runtime is valid.                          |
-| Single-user embedded mode           | SQLite                                        | Local shell-owned persistence is valid.                         |
-| Android local embedded mode         | SQLite                                        | Embedded mobile shell storage is valid.                         |
-| Native iOS/iPadOS shell experiments | SQLite only if a real local DB adapter exists | Future native-shell experiment only; not a browser/PWA promise. |
-| Temporary demo runtime              | SQLite or `:memory:`                          | Demo-only and intentionally non-persistent.                     |
-| Self-hosted web mode                | PostgreSQL                                    | Preferred production target.                                    |
-| Multi-device access                 | PostgreSQL                                    | Server-backed persistence is preferred.                         |
-| Long-running server deployment      | PostgreSQL                                    | Production persistence target.                                  |
-| Future multi-user deployment        | PostgreSQL                                    | Preferred production target.                                    |
+| Mode                                | Current persistence position                             | Notes                                                                    |
+| ----------------------------------- | -------------------------------------------------------- | ------------------------------------------------------------------------ |
+| Dev smoke                           | SQLite                                                   | Ephemeral or local-only runtime is valid.                                |
+| Tests                               | SQLite                                                   | Fast embedded test persistence is valid.                                 |
+| Desktop-local mode                  | SQLite                                                   | Single-user embedded runtime is valid.                                   |
+| Single-user embedded mode           | SQLite                                                   | Local shell-owned persistence is valid.                                  |
+| Android local embedded mode         | SQLite                                                   | Embedded mobile shell storage is valid.                                  |
+| Native iOS/iPadOS shell experiments | SQLite only if a real local DB adapter exists            | Future native-shell experiment only; not a browser/PWA promise.          |
+| Temporary demo runtime              | SQLite or `:memory:`                                     | Demo-only and intentionally non-persistent.                              |
+| Self-hosted web mode                | Server-backed adapter required if this mode is approved  | PostgreSQL is a current candidate, not a committed roadmap.              |
+| Multi-device access                 | Server-backed adapter required if this mode is approved  | PostgreSQL is a current candidate, not a committed roadmap.              |
+| Long-running server deployment      | Server-backed adapter required if this mode is approved  | PostgreSQL is a current candidate, not a committed roadmap.              |
+| Future multi-user deployment        | Server-backed adapter required if this mode is approved  | PostgreSQL is a current candidate, not a committed roadmap.              |
 
 iOS/iPadOS browser/PWA mode remains thin-client only. Embedded database support is only a future native-shell experiment.
 
@@ -58,25 +60,27 @@ These SQLite-valid modes do not authorize production web persistence, long-runni
 
 ---
 
-## PostgreSQL-Preferred Modes
+## Server-Backed Candidate Modes
 
-PostgreSQL is the preferred production target for:
+If these deployment modes become committed product scope, they require an explicit server-backed persistence decision. PostgreSQL is a current candidate direction for:
 
 - self-hosted web mode
 - multi-device access
 - long-running server deployment
 - future multi-user deployment
 
-Any future PostgreSQL adapter must implement the same repository/use-case contracts without changing domain or application code.
+Any future PostgreSQL adapter work is expected to preserve the same repository/use-case contracts without changing domain or application code. That expectation is still gated by the portability audit and no-touch diff budget in `docs/design/database-adapter-implementation-boundary.md`.
 
-PostgreSQL support must be added as an adapter/runtime infrastructure slice, not as a domain-model rewrite.
+If a PostgreSQL path is explicitly approved, it must land as an adapter/runtime infrastructure slice, not as a domain-model rewrite.
+
+This document does not by itself justify abstraction work. Driver, portability audit, migration authority, and verification gates are defined by `docs/design/database-adapter-implementation-boundary.md`.
 
 ---
 
 ## Boundary Rules
 
-- `runtime/core` use cases stay DB-dialect independent.
-- Repository ports stay above DB dialects.
+- `runtime/core` use cases are intended to stay DB-dialect independent.
+- Repository ports are intended to stay above DB dialects, pending the explicit portability audit.
 - DB adapters are infrastructure.
 - DB adapters are not portable shared logic.
 - Web client never talks to DB directly.
@@ -85,14 +89,14 @@ PostgreSQL support must be added as an adapter/runtime infrastructure slice, not
 
 `runtime/core/src/db/database.ts` is a Node/SQLite infrastructure adapter, not portable shared logic.
 
-Any future PostgreSQL adapter must satisfy the existing repository and use-case contracts without moving dialect-specific concerns into `src/domain`, `src/application`, or `src/ports`.
+Any future PostgreSQL adapter must satisfy the existing repository and use-case contracts without moving dialect-specific concerns into `src/domain`, `src/application`, or `src/ports`. If that stops being true during audit or implementation, the boundary decision must be reopened rather than widened silently.
 
 ---
 
 ## Contract Statements
 
 - `runtime/core/src/db/database.ts` is a Node/SQLite infrastructure adapter, not portable shared logic.
-- Any future PostgreSQL adapter must implement the same repository/use-case contracts without changing domain or application code.
+- Any future PostgreSQL adapter work, if that candidate is selected, is expected to preserve the same repository/use-case contracts without changing domain or application code, subject to the prerequisite audit gate.
 - Production web persistence must not be represented as `:memory:` or demo SQLite.
 - Current `apps/web` shell is `demo-memory` only and intentionally non-persistent.
 - iOS/iPadOS browser/PWA mode remains thin-client only.

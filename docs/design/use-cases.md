@@ -55,10 +55,11 @@ Auth/permission note:
 2. System treats normalized title as a search key only; duplicate normalized titles may still represent separate canonical works
 3. If `idempotencyKey` is present, the system computes a canonical input hash over the normalized input fields
 4. If the same `idempotencyKey` was previously completed with the same input hash → replay the stored result, no mutation
-5. If the same `idempotencyKey` is reused with a different canonical input hash → return `IDEMPOTENCY_CONFLICT`, no mutation
-6. System creates Comic, ComicMetadata, and primary ComicTitle record in a single transaction
-7. `comic_metadata.title` is set to the same value as `comic_titles.title` for the primary title row (denormalized cache; must be equal at creation time)
-8. Return Comic, ComicMetadata, and primary ComicTitle
+5. If the same `idempotencyKey` already exists in a non-completed state (`in_progress` or `failed`) → fail closed; current implementation returns a non-replayable error and performs no mutation
+6. If the same `idempotencyKey` is reused with a different canonical input hash → return `IDEMPOTENCY_CONFLICT`, no mutation
+7. System creates Comic, ComicMetadata, and primary ComicTitle record in a single transaction
+8. `comic_metadata.title` is set to the same value as `comic_titles.title` for the primary title row (denormalized cache; must be equal at creation time)
+9. Return Comic, ComicMetadata, and primary ComicTitle
 
 **Post-conditions**:
 - Comic record exists in database
@@ -69,6 +70,7 @@ Auth/permission note:
 - No reader_sessions record is created at comic creation time
 
 **Error Handling**:
+- If the same `idempotencyKey` already exists in state `in_progress` or `failed`: return a fail-closed non-replayable error, no changes
 - If the same `idempotencyKey` is reused with a different canonical input hash: return `IDEMPOTENCY_CONFLICT`, no changes
 - If database fails: return `StorageError`, transaction rolled back
 
@@ -145,7 +147,7 @@ Diagnostics note:
   comic: Comic (newly created or matched)
   importBatch: ImportBatch (with completed_at)
   pagesCreated: Integer (count)
-  event: DiagnosticsEvent (type: "comic.imported")
+  event: DiagnosticsEvent (eventName: "comic.imported")
 }
 ```
 
@@ -193,7 +195,7 @@ Diagnostics note:
 {
   comic: Comic (updated)
   changes: Object (fields that changed)
-  event: DiagnosticsEvent (type: "comic.updated")
+  event: DiagnosticsEvent (eventName: "comic.updated")
 }
 ```
 
@@ -243,7 +245,7 @@ Diagnostics note:
 {
   success: Boolean
   deletedComicId: ComicId
-  event: DiagnosticsEvent (type: "comic.deleted")
+  event: DiagnosticsEvent (eventName: "comic.deleted")
 }
 ```
 
@@ -394,7 +396,8 @@ Implemented use-case mapping in current core slice:
 **Post-conditions**:
 - `reader_sessions` record created or updated for the comic
 - No other tables are written; scope stays within the reader session persistence boundary
-- Last-write-wins: no locking; concurrent updates are safe
+- Current persistence is last-write-wins within the local single-runtime model
+- No multi-device conflict-resolution contract is defined in the current core slice
 
 **Error Handling**:
 - If comic not found: return `NOT_FOUND`
@@ -406,7 +409,7 @@ Implemented use-case mapping in current core slice:
 ```
 {
   session: ReaderSession (persisted position)
-  status: "upserted" | "skipped_unchanged"
+  status: "written" | "skipped_unchanged"
 }
 ```
 
@@ -484,7 +487,7 @@ Implemented use-case mapping in current core slice:
 ```
 {
   session: ReaderSession (reset to start)
-  event: DiagnosticsEvent (type: "reader.position_cleared")
+  event: DiagnosticsEvent (eventName: "reader.position_cleared")
 }
 ```
 
@@ -554,7 +557,7 @@ When OpenReader resolves the ordered list of pages for a chapter, it applies the
 ```
 {
   favorite: Favorite (newly created)
-  event: DiagnosticsEvent (type: "favorite.marked")
+  event: DiagnosticsEvent (eventName: "favorite.marked")
 }
 ```
 
@@ -596,7 +599,7 @@ When OpenReader resolves the ordered list of pages for a chapter, it applies the
 {
   success: Boolean
   comicId: ComicId
-  event: DiagnosticsEvent (type: "favorite.unmarked")
+  event: DiagnosticsEvent (eventName: "favorite.unmarked")
 }
 ```
 
@@ -679,14 +682,14 @@ When OpenReader resolves the ordered list of pages for a chapter, it applies the
    - `sequential`: 1.0, 2.0, 3.0, ...
    - `by_filename`: Extract number from filename (1.5, etc.)
 4. For each chapter: create all pages in order
-5. Create PageOrder (source order)
+5. Initialize chapter page ordering from the canonical source sequence
 6. System emits `chapters.created` event
 7. Return created Chapters
 
 **Post-conditions**:
 - Chapters created with sequential numbers
 - Pages created in order
-- PageOrder set to 'source'
+- Resolved page order defaults to the canonical source sequence (`pageIndex` ascending); implementation may satisfy this through synthetic fallback or explicit order-row materialization
 
 **Error Handling**:
 - If ImportBatch not found: throw `NotFoundError`
@@ -699,7 +702,7 @@ When OpenReader resolves the ordered list of pages for a chapter, it applies the
   chaptersCreated: Integer
   chapters: List<Chapter>
   pagesPerChapter: List<Integer>
-  event: DiagnosticsEvent (type: "chapters.created")
+  event: DiagnosticsEvent (eventName: "chapters.created")
 }
 ```
 
@@ -747,7 +750,7 @@ When OpenReader resolves the ordered list of pages for a chapter, it applies the
 {
   pageOrder: PageOrder
   newOrder: List<PageId>
-  event: DiagnosticsEvent (type: "chapter.pages_reordered")
+  event: DiagnosticsEvent (eventName: "chapter.pages_reordered")
 }
 ```
 
@@ -854,39 +857,43 @@ Diagnostics note:
 
 ## Diagnostics & Events
 
-All use cases emit `DiagnosticsEvent` for audit trail and monitoring:
+Use cases may emit `DiagnosticsEvent` through the diagnostics repository when configured. Current canonical persisted shape:
 
 ```
 Entity: DiagnosticsEvent
   id: String (UUID v4)
   schemaVersion: String ("1.0.0")
   timestamp: Timestamp (UTC)
-  eventType: String (e.g., "comic.created", "reader.position_changed")
-  userId: String (optional, adapter-provided attribution, not core-owned identity)
-  correlationId: String (trace ID)
-  resourceId: String (entity ID affected)
-  resourceType: String (entity type)
-  action: String (created, updated, deleted, etc.)
+  level: String ("trace" | "info" | "warn" | "error")
+  channel: String (e.g., "reader.route")
+  eventName: String (e.g., "comic.created", "reader.position_changed")
+  correlationId: String (optional trace ID)
+  boundary: String (optional)
+  authority: String (optional)
+  comicId: String (optional)
+  sourcePlatformId: String (optional)
+  action: String (optional)
   payload: Object (event-specific data)
-  severity: String ("info", "warning", "error")
-  duration: Integer (milliseconds)
-  queryHash: String (optional, salted per debug bundle/export scope; redaction policy applies)
 ```
 
 **DiagnosticsEvent Examples**:
 ```
 {
-  eventType: "comic.created",
-  resourceType: "Comic",
+  level: "info",
+  channel: "comic",
+  eventName: "comic.created",
   action: "created",
-  payload: { comicId, normalizedTitle }
+  comicId: "...",
+  payload: { normalizedTitle }
 }
 
 {
-  eventType: "reader.position_changed",
-  resourceType: "ReaderSession",
+  level: "info",
+  channel: "reader.position",
+  eventName: "reader.position_changed",
   action: "updated",
-  payload: { comicId, chapterId, pageIndex }
+  comicId: "...",
+  payload: { chapterId, pageIndex }
 }
 ```
 

@@ -14,7 +14,7 @@ Repositories provide abstraction over data storage. Each repository interface de
 
 All repositories are **transactional** (operations either fully succeed or fully fail). Boundary enforcement keeps `src/domain`, `src/application`, and `src/ports` free of Kysely, SQLite, DB schema, and repository adapter imports.
 
-Repository ports stay above DB dialects. SQLite and any future PostgreSQL adapters are infrastructure implementations of the same repository/use-case contracts; adapter-specific SQL, pooling, deployment, or transport concerns must not leak into `src/domain`, `src/application`, or `src/ports`. The current `runtime/core/src/db/database.ts` file is a Node/SQLite infrastructure adapter, not portable shared logic. Canonical deployment-mode strategy lives in `docs/design/production-database-adapter-strategy.md`.
+Repository ports are intended to stay above DB dialects and are not the adapter insertion seam. That boundary goal is not the same thing as a proven claim that the current SQLite implementation is backend-portable. The live runtime still contains SQLite-specific infrastructure, DDL, seed, and migration semantics that must be audited before any non-SQLite backend is approved. Any dialect branching must stay beneath these ports; if backend work requires changing `src/domain`, `src/application`, or `src/ports`, the boundary decision must be reopened. Canonical implementation-boundary authority lives in `docs/design/database-adapter-implementation-boundary.md`, while deployment-mode strategy lives in `docs/design/production-database-adapter-strategy.md`.
 
 All operations return a `Result`-shaped value: either a success value or a failure carrying a `CoreError`. Callers must not assume an exception-based protocol.
 
@@ -182,13 +182,13 @@ Persistence layer for per-chapter page ordering policy.
 
 - Persists a user-defined page order from `SetUserPageOrderInput`.
 - `SetUserPageOrderInput` carries the `ChapterId` and the desired sequence of `PageId` values.
-- Sets `order_type` to `user_override`.
+- Current implementation persists `order_key = 'user'` and `order_type = 'user_override'`.
 - Returns the resulting `PageOrderWithItems`.
 
 #### `resetToSourceOrder(chapterId) -> PageOrderWithItems | Error`
 
-- Resets the chapter's order to the source-provided sequence.
-- Sets `order_type` to `source`.
+- Rebuilds the active order from the chapter's current canonical page sequence (`page_index` ascending).
+- Current implementation reuses the same persisted path as `setUserOrder`, so the resulting active row is still a `user` / `user_override` profile rather than a separately persisted `source` row.
 - Returns the resulting `PageOrderWithItems`.
 
 ---
@@ -211,8 +211,9 @@ Persistence layer for `ReaderSession` entities (one-to-one with `Comic`).
 
 - Creates or updates the reader position from `UpdateReaderPositionInput`.
 - `UpdateReaderPositionInput` carries: `comicId`, `chapterId`, `pageIndex`, and optionally `pageId`.
-- Position authority is `chapterId` + `pageIndex`. The optional `pageId` field is advisory evidence/cache: if present and it does not match the page at `chapter_id` + `page_index`, the write still persists using `chapterId` + `pageIndex` as the canonical locator. Callers must not treat `pageId` as authoritative for position resolution.
-- Last-write-wins semantics; no locking.
+- Position authority is `chapterId` + `pageIndex`.
+- The optional `pageId` field is evidence/cache only, but current use-case validation is fail-closed: if `pageId` is provided and does not match the canonical page at `chapterId` + `pageIndex`, the write is rejected with `READER_INVALID_POSITION`.
+- Current persistence semantics are last-write-wins within the local single-runtime model; there is no multi-device conflict protocol.
 - Returns a `ReaderSessionPersistResult` describing what was created or updated.
 
 #### `clear(comicId) -> void | Error`
@@ -303,7 +304,7 @@ Persistence layer for `ChapterSourceLink` entities (associates a `Chapter` with 
 
 ## StorageObjectRepositoryPort
 
-Persistence layer for `StorageObject` entities (content-addressable storage records).
+Persistence layer for `StorageObject` entities (logical storage object records).
 
 ### Queries
 
