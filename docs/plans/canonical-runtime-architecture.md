@@ -1,6 +1,8 @@
-# Canonical Runtime Architecture
+# Historical Canonical Runtime Architecture Proposal
 
-**Status**: Architecture Baseline (Phase 1)  
+> **Superseded note:** This is a historical Rust-first planning artifact. Current canonical runtime authority is the TypeScript-first `runtime/core` contract surface plus `docs/design/**`. The root `schemas/` directory is not current canonical runtime authority.
+
+**Status**: Historical planning artifact (superseded)
 **Branch**: `architecture/canonical-skeleton`  
 **Date**: May 5, 2026
 
@@ -8,13 +10,13 @@
 
 ## Overview
 
-This document describes the **Canonical Runtime Architecture** for Venera - a complete rewrite of the legacy codebase using clear ownership boundaries, typed domain models, schema-first design, and security-aware isolation.
+This document records an earlier Rust-first architecture proposal for Venera: a complete rewrite direction with clear ownership boundaries, typed domain models, schema-first validation ideas, and security-aware isolation.
 
 ### Guiding Principles
 
 1. **String refs are projections, not authority** — Database columns and types own identity
 2. **One boundary, one responsibility** — Presentation, Application, Domain, Ports, Infrastructure
-3. **Schemas are first-class** — All data structures validated against JSON schemas
+3. **Schema-first validation was an early direction** — current runtime/core authority is TypeScript contracts and validators, not the root `schemas/` prototypes
 4. **Legacy code is quarantined** — Reference only, never authority
 5. **Security boundaries explicit** — Who owns what, what can't cross what line
 6. **Diagnostics answer decisions** — Not just "what happened" but "why this choice"
@@ -152,13 +154,13 @@ lib/
 
 ---
 
-## Schemas (First-Class Citizens)
+## Schemas
 
-All data structures are validated against JSON schemas in `schemas/`:
+The root `schemas/` directory contains early JSON-schema prototypes only. Those files are not the current canonical runtime/core validation authority.
 
 ### `diagnostics_event.schema.json`
 
-Structured diagnostics events with boundary, action, reason:
+Historical prototype. Current diagnostics authority lives in `runtime/core/src/domain/diagnostics.ts` and `docs/design/diagnostics-events.md`.
 
 ```json
 {
@@ -175,7 +177,7 @@ Structured diagnostics events with boundary, action, reason:
 
 ### `source_manifest.schema.json`
 
-Provider-specific manifests with endpoint rules, no code:
+Historical prototype. Current source package / repository contract authority lives in `runtime/core/src/source-contracts/validators.ts`.
 
 ```json
 {
@@ -191,7 +193,7 @@ Provider-specific manifests with endpoint rules, no code:
 
 ### `import_manifest.schema.json`
 
-Import batch metadata with canonical file ordering:
+Historical prototype only. No active canonical runtime/core JSON-schema authority currently exists for this manifest shape.
 
 ```json
 {
@@ -206,11 +208,11 @@ Import batch metadata with canonical file ordering:
 
 ### `reader_event.schema.json`
 
-Reader runtime events (session, page load, navigation).
+Historical prototype only. No active canonical runtime/core JSON-schema authority currently exists for this event shape.
 
 ### `app_settings.schema.json`
 
-User preferences (theme, language, reader settings).
+Historical prototype only. No active canonical runtime/core JSON-schema authority currently exists for this settings shape.
 
 ---
 
@@ -418,5 +420,5 @@ Before any canonical code is merged:
 
 - [Canonical Database Model](canonical-db-model.md)
 - [Development Branch Strategy](../README.md#development-branch-strategy)
-- `schemas/` — JSON schemas for all data structures
+- `schemas/` — historical prototype JSON schemas, not current canonical runtime authority
 - `lib/core/` — Shared types and utilities

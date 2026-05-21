@@ -1,15 +1,15 @@
 # Database Adapter Implementation Boundary Design
 
-**Status:** Approved design for the next runtime/core docs-only slice
+**Status:** Historical review artifact. Canonical authority now lives in `docs/design/database-adapter-implementation-boundary.md`.
 **Date:** May 8, 2026
 
 ---
 
 ## Goal
 
-Define the canonical implementation boundary for a future runtime persistence adapter so PostgreSQL support can be added later without changing `runtime/core` domain, use-case, or port contracts.
+Define the canonical implementation boundary constraints for any future non-SQLite or server-backed runtime persistence work without changing `runtime/core` domain, use-case, or port contracts.
 
-This design answers one question only: where the future database adapter seam belongs, and which layers are explicitly not allowed to move because of adapter concerns.
+This design answers one question only: where any future database adapter seam would belong if backend-split work is ever approved, and which layers are explicitly not allowed to move because of adapter concerns.
 
 ---
 
@@ -49,7 +49,7 @@ Those files expose `CoreRepositories` and `CoreTransactionPort`, not SQLite or K
 
 ## Decision
 
-Future PostgreSQL support must be introduced through one runtime persistence adapter contract.
+Any future non-SQLite or server-backed persistence work, if approved, must be introduced through one runtime persistence adapter contract.
 
 That adapter contract belongs to `runtime composition / persistence assembly`, not to:
 
@@ -107,11 +107,12 @@ The following contract surfaces must not change shape because of adapter work:
 The docs slice must state clearly that:
 
 - the adapter contract is a runtime composition concern
-- SQLite and future PostgreSQL are infrastructure implementations under one adapter authority
-- repository ports remain above DB dialects
+- SQLite and any later approved backend are infrastructure implementations under one adapter authority
+- repository ports are intended to remain above DB dialects, pending the explicit portability audit
 - use cases continue to depend only on `CoreRepositories` and `CoreTransactionPort`
 - the first contract home belongs under `runtime/core/src/runtime/**`, not under `src/ports/**`
 - migration and seed invocation ownership stays with runtime bootstrap until a later dedicated slice changes that authority explicitly
+- no backend split is justified without a concrete business/product driver, a SQLite-specific surface audit, a migration-authority sketch, and a minimal verification gate
 
 ---
 
@@ -122,13 +123,13 @@ This slice does not define or implement:
 - PostgreSQL dialect code
 - connection pooling
 - schema portability mechanics
-- migration runner policy
-- SQLite/PostgreSQL test matrix policy
+- full migration runner policy
+- full long-term backend test matrix policy beyond the minimal verification gate
 - Docker Compose deployment
 - auth/session changes
 - package store changes
 
-Those are follow-up implementation or deployment slices, not part of the authority decision here.
+Those are follow-up implementation or deployment slices, not part of the authority decision here. This plan is superseded anywhere it conflicts with the canonical boundary doc.
 
 ---
 
@@ -154,23 +155,20 @@ The resulting authority docs must make these answers explicit:
 - Which layers are forbidden from changing because of adapter concerns?
 - Why is the seam a runtime composition concern rather than a ports concern?
 - Who keeps migration and seed invocation ownership until a later dedicated slice says otherwise?
-- What is the exact next implementation slice after this docs-only authority pass?
+- What prerequisite business/audit/migration/verification gates must exist before any backend split is approved?
+- What is the exact no-touch diff budget for domain/application/ports modules when implementation eventually lands?
 
 ---
 
 ## Next Slice Handoff
 
-The next implementation slice after this design is:
+This design no longer authorizes an immediate code-bearing `feat(core): add database adapter abstraction contract` slice.
 
-`feat(core): add database adapter abstraction contract`
+The next required step is an audit-first follow-up that:
 
-That next slice should stay minimal:
+- lists known SQLite-specific query, DDL, seed, and migration surfaces
+- sketches migration ownership and authority evolution
+- defines a minimal verification gate for fixture lifecycle, isolation, and local/CI execution
+- preserves the no-touch diff budget for `runtime/core/src/{domain,application,ports}/**`
 
-- define the single adapter abstraction/contract
-- preserve SQLite as the only implementation
-- keep abstraction extraction confined to runtime composition / persistence assembly
-- place the first contract under `runtime/core/src/runtime/**`
-- leave migration and seed invocation ownership in `create-core-runtime.ts` until a later dedicated slice changes it
-- add tests around the new composition contract
-
-It must not add PostgreSQL implementation in the same cut.
+Only after that gate exists should a runtime-composition adapter contract slice be reconsidered.

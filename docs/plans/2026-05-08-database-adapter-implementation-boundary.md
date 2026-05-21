@@ -2,9 +2,11 @@
 
 > **For Claude:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task.
 
-**Goal:** Define the canonical runtime persistence adapter boundary for future PostgreSQL support without changing `runtime/core` domain, application, or port contracts.
+> **Superseded note:** Canonical authority now lives in `docs/design/database-adapter-implementation-boundary.md`. This plan is retained as a historical slice record and must not be read as a PostgreSQL roadmap commitment.
 
-**Architecture:** This is a docs-only slice. Create one new canonical design document for adapter implementation boundary, then make minimal authority-doc backlinks so the runtime design index and repository-boundary doc point to the same boundary decision. Use current SQLite runtime composition files as reference inputs only. This slice is self-contained and must not require `docs/design/production-database-adapter-strategy.md` to exist.
+**Goal:** Define the canonical runtime persistence adapter boundary constraints for any future non-SQLite or server-backed persistence work without changing `runtime/core` domain, application, or port contracts.
+
+**Architecture:** This is a docs-only slice. Create one new canonical design document for adapter implementation boundary, then make minimal authority-doc backlinks so the runtime design index and repository-boundary doc point to the same boundary decision. Use current SQLite runtime composition files as reference inputs only. This slice is self-contained and must not require `docs/design/production-database-adapter-strategy.md` to exist. Later review narrowed the next step from immediate implementation to audit-first verification.
 
 **Tech Stack:** Markdown docs, `rg`, `sed`, `git diff --check`
 
@@ -19,6 +21,7 @@
 - Do not create or modify `docs/design/production-database-adapter-strategy.md` in this slice.
 - Treat runtime source files as reference inputs only.
 - Keep existing canonical docs authoritative; do not route this boundary through legacy design drafts.
+- Do not treat hypothetical PostgreSQL support as sufficient justification for abstraction. A concrete business/product driver, SQLite surface audit, migration-authority sketch, and minimal verification gate are prerequisites before any backend split is approved.
 
 ## Required Boundary Decisions
 
@@ -65,21 +68,21 @@ These exact ideas must appear in the resulting docs:
 - `runtime/core/src/db/database.ts` is a Node/SQLite infrastructure adapter and current seam input, not portable shared logic.
 - `runtime/core/src/repositories/sqlite-repositories.ts` is a SQLite-specific repository assembly surface.
 - `runtime/core/src/runtime/create-core-runtime.ts` is the current runtime bootstrap seam where SQLite-specific persistence composition is wired.
-- A future PostgreSQL implementation must enter through one runtime persistence adapter contract.
+- Any future non-SQLite or server-backed implementation, if approved, must enter through one runtime persistence adapter contract.
 - That contract must preserve existing `CoreRepositories` and `CoreTransactionPort` dependency boundaries for use cases.
 - The first adapter abstraction contract belongs under `runtime/core/src/runtime/**`, not under `runtime/core/src/ports/**`.
 - `runtime/core/src/db/**` and `runtime/core/src/repositories/**` remain implementation-side beneath the runtime composition seam.
-- Repository ports stay above DB dialects.
+- Repository ports are intended to stay above DB dialects pending an explicit portability audit.
 - Migration and seed invocation ownership stays in `runtime/core/src/runtime/create-core-runtime.ts` until a later dedicated slice changes that authority explicitly.
-- This slice does not define pooling, migrations, deployment topology, or Docker Compose policy.
+- This slice does not define pooling, deployment topology, or Docker Compose policy, but it must record migration authority and minimal verification as prerequisites for later backend work.
 
 ## Non-Goals
 
 - no PostgreSQL implementation
 - no connection pool
-- no migration runner policy
+- no full migration runner policy
 - no schema portability implementation
-- no SQLite/PostgreSQL test matrix policy
+- no full long-term backend test matrix policy beyond the minimal prerequisite verification gate
 - no Docker Compose
 - no deployment config
 - no auth/session model changes
@@ -155,10 +158,10 @@ The document must explicitly state:
 **Step 3: Add the next-slice handoff**
 
 The document must explicitly state:
-- the next slice is `feat(core): add database adapter abstraction contract`
-- that slice should extract a composition-layer contract only
-- SQLite remains the only implementation in that next slice
-- PostgreSQL implementation remains out of scope for that next slice
+- the next step is an audit-first follow-up, not an immediate code-bearing adapter extraction
+- that follow-up must enumerate SQLite-specific query/DDL/seed/migration surfaces
+- that follow-up must sketch migration authority and a minimal verification gate
+- any later composition-layer contract slice must preserve SQLite as the only implementation until a backend choice is explicitly approved
 
 Expected:
 - The new doc becomes the canonical answer for where a future persistence adapter may be inserted.
@@ -221,3 +224,4 @@ Expected:
 - The new boundary wording is discoverable in canonical docs.
 - Verification does not rely on matches inside `docs/plans/**`.
 - This slice does not depend on `docs/design/production-database-adapter-strategy.md` existing.
+- The canonical doc, not this plan file, is the active authority if wording diverges.

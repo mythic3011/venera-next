@@ -1,15 +1,17 @@
 # Implementation Roadmap
 
-**Status**: Architecture finalized, Rust core initialized  
+> **Superseded note:** This is a historical Rust-first roadmap. Current canonical runtime authority is the TypeScript-first `runtime/core` surface plus `docs/design/**`. The root `schemas/` directory is not current canonical runtime authority.
+
+**Status**: Historical roadmap artifact (superseded)
 **Date**: May 5, 2026
 
 ---
 
-## Phase 1: Complete ✅
+## Original Proposed Phase 1
 
 **Architecture Design**
 - ✅ 5-layer canonical architecture defined
-- ✅ 5 JSON schemas created (data contracts)
+- ✅ 5 prototype JSON schemas created (historical reference only, not current canonical contracts)
 - ✅ Security boundaries documented
 - ✅ Testing strategy defined
 - ✅ Tech stack decided (Rust + Flutter)
@@ -17,11 +19,11 @@
 **Location**: 
 - Architecture: `/docs/plans/canonical-runtime-architecture.md`
 - Tech stack: `/docs/plans/tech-stack-decision.md`
-- Schemas: `/schemas/*.json`
+- Historical prototype schemas: `/schemas/*.schema.json`
 
 ---
 
-## Phase 2: In Progress 🚀
+## Original Proposed Phase 2
 
 **Rust Core Runtime (`venera-core/`)**
 - ✅ Project initialized with Cargo
@@ -65,7 +67,7 @@
 
 ---
 
-## Phase 3: Flutter Integration (Deferred)
+## Original Proposed Phase 3
 
 **Integration with Frontend**:
 - [ ] FFI bindings to venera-core library
@@ -76,7 +78,7 @@
 
 ---
 
-## Phase 4: Gradual Migration (Deferred)
+## Original Proposed Phase 4
 
 **Extract from Legacy**:
 - [ ] Identify migrationable code
@@ -99,7 +101,7 @@
 │   ├── docs/plans/
 │   │   ├── canonical-runtime-architecture.md
 │   │   └── tech-stack-decision.md
-│   └── schemas/                      # JSON schemas
+│   └── schemas/                      # Historical prototype JSON schemas
 │
 └── venera-core/                      # Rust core runtime
     ├── src/
@@ -123,7 +125,7 @@
 - [ ] Use cases orchestrate without business logic in Presentation
 - [ ] IPC enables Flutter ↔ Rust communication
 - [ ] No legacy imports in canonical code
-- [ ] All schemas validated at runtime
+- [ ] Active runtime contracts validated by the current implementation authority
 - [ ] Tests cover all layers (unit, integration)
 - [ ] Documentation up-to-date
 
@@ -142,7 +144,7 @@
 
 - **Separated Concerns**: 5-layer architecture minimizes coupling
 - **Type Safety**: Rust compile-time guarantees prevent many errors
-- **Validated Data**: Schemas ensure contract enforcement
+- **Validated Data**: Active contract validators enforce runtime expectations
 - **Comprehensive Tests**: Multiple test layers catch issues early
 - **Gradual Migration**: Legacy code remains available for reference
 
@@ -158,6 +160,6 @@ Success criteria for this slice also require that rollback never leaves a comple
 
 ## Next Immediate Step
 
-Begin Phase 2.1: Implement domain models in Rust matching schema definitions.
+Historical note only. Do not use this document to drive current runtime/core implementation sequencing.
 
-Location: `venera-core/src/domain/models/`
+Current authority lives in `runtime/core/src/**` and `docs/design/**`.

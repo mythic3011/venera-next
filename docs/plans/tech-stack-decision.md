@@ -1,35 +1,37 @@
-# Canonical Runtime Architecture — Rust Implementation
+# Historical Rust-First Tech Stack Proposal
 
-**Status**: Architecture Baseline + Tech Stack Decision  
+> **Superseded note:** This is a historical Rust-first planning artifact. Current canonical runtime authority is the TypeScript-first `runtime/core` surface plus `docs/design/**`. The root `schemas/` directory is not current canonical runtime authority.
+
+**Status**: Historical planning artifact (superseded)
 **Branch**: `architecture/canonical-skeleton`  
 **Date**: May 5, 2026  
 **Language Decision**: Rust (core runtime) + Flutter (frontend)
 
 ---
 
-## Tech Stack Decision
+## Original Tech Stack Proposal
 
-### Frontend (Unchanged)
+### Frontend In The Proposal
 - **Flutter** — UI layer, platform-specific (iOS/Android/macOS/Linux/Windows)
 - **Dart** — UI logic, navigation, state management
 - **Rationale**: Existing investment, proven mobile capability
 
-### Core Runtime (NEW)
+### Core Runtime In The Proposal
 - **Rust** — Core data layer, business logic, system integration
 - **Tokio** — Async runtime for concurrent operations
 - **Sqlx** — Type-safe database access with compile-time verification
 - **Serde** — JSON serialization/deserialization
 - **Rationale**: Performance, memory safety, excellent server runtime, WebAssembly-ready
 
-### IPC (Inter-Process Communication)
+### IPC In The Proposal
 - **Protocol Buffers** or **MessagePack** — Serialization between Flutter ↔ Rust
 - **Channels**: Named pipes (macOS/Linux), TCP localhost (all platforms)
 
 ---
 
-## Architecture Unchanged
+## Architecture Shape In The Proposal
 
-All 5 layers remain identical; implementation language differs:
+The proposal kept the same 5 layers while changing implementation language:
 
 ```
 ┌──────────────────────────────────┐
@@ -84,7 +86,7 @@ venera-core/                         # New Rust crate
 
 ### Shared Definitions
 ```
-schemas/                             # JSON schemas (unchanged)
+schemas/                             # Historical prototype JSON schemas
 proto/                               # Protocol buffer definitions
 ├── diagnostics.proto
 ├── source_manifest.proto
@@ -139,12 +141,15 @@ proto/                               # Protocol buffer definitions
 
 ---
 
-## Schemas Remain Valid
+## Schema Status
 
-All 5 JSON schemas from `schemas/` remain the canonical contracts:
-- Protocol buffer definitions compile from schemas
-- Database migrations from canonical model
-- IPC serialization validated against schemas
+The 5 JSON schemas under `schemas/` are historical prototypes only.
+
+They are not the current canonical contracts:
+- Protocol buffer definitions do not currently derive from these schemas
+- Current runtime/core validation authority lives in TypeScript contracts and validators
+- Diagnostics authority lives in `runtime/core/src/domain/diagnostics.ts` and `docs/design/diagnostics-events.md`
+- Source package / repository authority lives in `runtime/core/src/source-contracts/validators.ts`
 
 ---
 
