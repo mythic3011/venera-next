@@ -1,4 +1,4 @@
-# venera
+# venera-next
 
 > [!WARNING]
 > This fork is a breaking-change, personal-use-first fork.
@@ -21,18 +21,19 @@
 [![TypeScript Core](https://img.shields.io/badge/core-TypeScript-blue)](./runtime/core)
 [![Runtime Core Tests](https://img.shields.io/badge/runtime--core-tests-brightgreen)](./runtime/core)
 [![Source Contract](https://img.shields.io/badge/source--contract-schema--validated-purple)](./runtime/core)
-[![License](https://img.shields.io/github/license/mythic3011/venera)](https://github.com/mythic3011/venera/blob/master/LICENSE)
-[![stars](https://img.shields.io/github/stars/mythic3011/venera?style=flat)](https://github.com/mythic3011/venera/stargazers)
-[![Download](https://img.shields.io/github/v/release/mythic3011/venera)](https://github.com/mythic3011/venera/releases)
+[![License](https://img.shields.io/github/license/mythic3011/venera-next)](https://github.com/mythic3011/venera-next/blob/master/LICENSE)
+[![stars](https://img.shields.io/github/stars/mythic3011/venera-next?style=flat)](https://github.com/mythic3011/venera-next/stargazers)
+[![Download](https://img.shields.io/github/v/release/mythic3011/venera-next)](https://github.com/mythic3011/venera-next/releases)
 
 [![Breaking Changes](https://img.shields.io/badge/breaking--changes-allowed-orange)](#data-compatibility-policy)
 [![Legacy Status](https://img.shields.io/badge/legacy-quarantined-yellow)](#legacy-quarantine-policy)
+[![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/mythic3011/venera-next)
 
 A comic reader and canonical comic-library runtime for local and network comics.
 
 ## Index
 
-- [venera](#venera)
+- [venera-next](#venera-next)
   - [Index](#index)
   - [Fork Direction](#fork-direction)
   - [Legacy Quarantine Policy](#legacy-quarantine-policy)
