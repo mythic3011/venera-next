@@ -18,6 +18,7 @@ Error model note:
 
 Status model in this document:
 - `Implemented (Core+DB)` = current canonical authority for runtime/core contract surface
+- `Target` = corrected pre-stable design contract; runtime/core implementation must catch up before behavior is claimed complete
 - `Planned Canonical` = intended canonical direction, not current implementation authority
 - `Deferred/Legacy` = historical or future-facing flow kept for reference only
 
@@ -55,11 +56,12 @@ Auth/permission note:
 2. System treats normalized title as a search key only; duplicate normalized titles may still represent separate canonical works
 3. If `idempotencyKey` is present, the system computes a canonical input hash over the normalized input fields
 4. If the same `idempotencyKey` was previously completed with the same input hash → replay the stored result, no mutation
-5. If the same `idempotencyKey` already exists in a non-completed state (`in_progress` or `failed`) → fail closed; current implementation returns a non-replayable error and performs no mutation
+5. If the same `idempotencyKey` already exists as non-expired `in_progress` or a `failed` record still inside the retry TTL → fail closed; current implementation returns a non-replayable error and performs no mutation
 6. If the same `idempotencyKey` is reused with a different canonical input hash → return `IDEMPOTENCY_CONFLICT`, no mutation
-7. System creates Comic, ComicMetadata, and primary ComicTitle record in a single transaction
-8. `comic_metadata.title` is set to the same value as `comic_titles.title` for the primary title row (denormalized cache; must be equal at creation time)
-9. Return Comic, ComicMetadata, and primary ComicTitle
+7. If the same `idempotencyKey` has a stale `in_progress` record or retryable `failed` record with the same input hash, system atomically reclaims the key before mutation
+8. System creates Comic, ComicMetadata, and primary ComicTitle record in a single transaction
+9. `comic_metadata.title` is set to the same value as `comic_titles.title` for the primary title row (denormalized cache; must be equal at creation time)
+10. Return Comic, ComicMetadata, and primary ComicTitle
 
 **Post-conditions**:
 - Comic record exists in database
@@ -70,7 +72,7 @@ Auth/permission note:
 - No reader_sessions record is created at comic creation time
 
 **Error Handling**:
-- If the same `idempotencyKey` already exists in state `in_progress` or `failed`: return a fail-closed non-replayable error, no changes
+- If the same `idempotencyKey` already exists as non-expired `in_progress` or non-retryable `failed`: return a fail-closed non-replayable error, no changes
 - If the same `idempotencyKey` is reused with a different canonical input hash: return `IDEMPOTENCY_CONFLICT`, no changes
 - If database fails: return `StorageError`, transaction rolled back
 
@@ -117,7 +119,7 @@ Diagnostics note:
 ```
 
 **Main Flow**:
-1. System creates ImportBatch (status: in-progress)
+1. System creates ImportBatch (status: `in_progress`)
 2. System extracts/lists files from source
 3. System validates all files are images (JPEG, PNG, etc.)
 4. System sorts files by name/order
@@ -139,7 +141,7 @@ Diagnostics note:
 - If source file not readable: throw `NotFoundError`
 - If no valid images: throw `ValidationError`
 - If import already exists: throw `DuplicateError`
-- If creation fails: ImportBatch deleted, transaction rolled back
+- If creation fails: ImportBatch is marked `failed` or `cancelled` by the import adapter; canonical writes are rolled back
 
 **Output**:
 ```
@@ -168,6 +170,8 @@ Diagnostics note:
   comicId: ComicId
   title: String (optional)
   description: String (optional)
+  coverStatus: "none" | "pending" | "local_only" | "synced" (optional)
+  coverPageId: PageId (optional)
   coverStorageObjectId: StorageObjectId (optional)
   authorName: String (optional)
   tags: List<TagReference> (optional, projection shape)
@@ -177,9 +181,14 @@ Diagnostics note:
 **Main Flow**:
 1. System retrieves Comic by ID
 2. If new title provided: system normalizes title for matching only (no duplicate-title rejection)
-3. System updates ComicMetadata with provided fields
-4. System emits `comic.updated` event with changes
-5. Return updated Comic
+3. If cover references are provided, system validates the cover lifecycle rules:
+   - `coverStatus = "none"` requires both cover references to be absent
+   - `coverStatus = "local_only"` requires `coverPageId` or `coverStorageObjectId`
+   - `coverStatus = "synced"` requires `coverStorageObjectId` with readable authoritative placement
+   - if both cover references are present, `coverPageId.storageObjectId` must equal `coverStorageObjectId`
+4. System updates ComicMetadata with provided fields
+5. System emits `comic.updated` event with changes
+6. Return updated Comic
 
 **Post-conditions**:
 - ComicMetadata modified
@@ -189,6 +198,7 @@ Diagnostics note:
 **Error Handling**:
 - If comic not found: throw `NotFoundError`
 - If title is invalid/empty after normalization rules: throw `ValidationError`
+- If cover references conflict or required cover bytes are unavailable: throw `ValidationError`
 
 **Output**:
 ```
@@ -201,11 +211,11 @@ Diagnostics note:
 
 ---
 
-### UC-004: Delete Comic
+### UC-004: Remove Comic from Library
 
 **Status**: Planned Canonical
 
-**Purpose**: Remove comic and all related data.
+**Purpose**: Hide a comic from default library surfaces without destroying reader progress or child data.
 
 **Actors**: User, System
 
@@ -217,22 +227,72 @@ Diagnostics note:
 ```
 {
   comicId: ComicId
-  confirmDeletion: Boolean (must be true)
+  confirmRemoval: Boolean (must be true)
 }
 ```
 
 **Main Flow**:
 1. System retrieves Comic by ID
-2. If `confirmDeletion` is false → ValidationError
-3. System deletes Comic (cascades to chapters, pages, sessions, favorites)
-4. System emits `comic.deleted` event
+2. If `confirmRemoval` is false → ValidationError
+3. System updates `Comic.libraryStatus = "removed"` and sets `removedAt`
+4. System emits `comic.removed` event
 5. Return success
 
 **Post-conditions**:
-- Comic and all related records deleted
-- Reader session cleared
-- Favorite unmarked
-- Cache files may remain (not deleted automatically)
+- Comic row remains in database with `libraryStatus = "removed"`
+- Chapters, Pages, PageOrders, ReaderSession, SourceLinks, and collection membership remain intact
+- Default library/search/browse surfaces exclude removed comics unless explicitly requested
+- Storage/cache files are not deleted
+
+**Error Handling**:
+- If comic not found: throw `NotFoundError`
+- If confirmation not provided: throw `ValidationError`
+- If permission denied: throw `ForbiddenError`
+- If update fails: throw `StorageError`, transaction rolled back
+
+**Output**:
+```
+{
+  success: Boolean
+  removedComicId: ComicId
+  event: DiagnosticsEvent (eventName: "comic.removed")
+}
+```
+
+---
+
+### UC-004b: Permanently Delete Comic
+
+**Status**: Planned Canonical
+
+**Purpose**: Irreversibly purge a comic and all dependent records.
+
+**Actors**: User, System
+
+**Pre-conditions**:
+- Comic exists
+- User explicitly requests permanent deletion, not normal library removal
+- Adapter/auth layer may enforce delete permissions (outside current core authority)
+
+**Input**:
+```
+{
+  comicId: ComicId
+  confirmPermanentDeletion: Boolean (must be true)
+}
+```
+
+**Main Flow**:
+1. System retrieves Comic by ID
+2. If `confirmPermanentDeletion` is false -> ValidationError
+3. System explicitly deletes or cascades ReaderSession lifecycle rows for the Comic before Chapter/Page cascades can invalidate `reader_sessions.pageId`
+4. System deletes Comic, cascading to Chapters, Pages, PageOrders, SourceLinks, and UserCollectionItem rows
+5. System emits `comic.deleted` event
+6. Return success
+
+**Post-conditions**:
+- Comic and dependent database rows are deleted
+- Storage/cache byte cleanup is a separate storage lifecycle concern unless explicitly included by a future storage purge contract
 
 **Error Handling**:
 - If comic not found: throw `NotFoundError`
@@ -251,11 +311,123 @@ Diagnostics note:
 
 ---
 
+## Source Link Management Use Cases
+
+### Planned Canonical
+
+These use cases own the cross-platform identity/provenance write path. `SourceLink` merges source provenance into an existing canonical Comic; it does not create a user-defined collection and does not make provider IDs canonical comic identity.
+
+### UC-SRC-001: Add SourceLink to Comic
+
+**Purpose**: Attach a provider/platform work to an existing canonical Comic.
+
+**Actors**: User, System, SourceRuntime
+
+**Pre-conditions**:
+- Comic exists
+- SourcePlatform exists and is not `deprecated`
+- `(sourcePlatformId, remoteWorkId)` is not already linked in the current schema
+
+**Input**:
+```
+{
+  comicId: ComicId
+  sourcePlatformId: SourcePlatformId
+  remoteWorkId: String
+  remoteUrl: String (optional)
+  displayTitle: String (optional)
+  linkStatus: "active" | "candidate" (optional, default "candidate" for automated matches, "active" for explicit manual attach)
+  confidence: "manual" | "auto_high" | "auto_low"
+}
+```
+
+**Main Flow**:
+1. System validates Comic and SourcePlatform exist
+2. System rejects `SourcePlatform.status = "deprecated"`
+3. System validates `(sourcePlatformId, remoteWorkId)` uniqueness using the DB unique constraint
+4. System creates SourceLink
+5. System recomputes and updates `Comic.originHint` in the same transaction
+6. System emits `source_link.added` event
+7. Return SourceLink and updated Comic
+
+**Post-conditions**:
+- SourceLink exists for the Comic
+- `Comic.originHint` reflects active local/remote content-bearing SourceLink membership
+
+**Error Handling**:
+- If comic or platform not found: throw `NotFoundError`
+- If provider work is already linked: throw `DuplicateError`
+- If platform is deprecated or input is invalid: throw `ValidationError`
+
+### UC-SRC-002: Update SourceLink Status
+
+**Purpose**: Approve, reject, stale, or reactivate a comic-level source provenance edge.
+
+**Input**:
+```
+{
+  sourceLinkId: SourceLinkId
+  linkStatus: "active" | "candidate" | "rejected" | "stale"
+  confidence: "manual" | "auto_high" | "auto_low" (optional)
+}
+```
+
+**Main Flow**:
+1. System loads SourceLink and parent Comic
+2. System updates SourceLink lifecycle fields
+3. System recomputes and updates `Comic.originHint` in the same transaction
+4. System emits `source_link.updated` event
+5. Return SourceLink and updated Comic
+
+**Post-conditions**:
+- SourceLink lifecycle state is updated
+- `Comic.originHint` remains transactionally aligned with active source-link membership
+
+**Error Handling**:
+- If SourceLink not found: throw `NotFoundError`
+- If lifecycle value is invalid: throw `ValidationError`
+
+### UC-SRC-003: Upsert ChapterSourceLink
+
+**Purpose**: Attach source-specific chapter provenance and ordering evidence to a canonical Chapter.
+
+**Input**:
+```
+{
+  chapterId: ChapterId
+  sourceLinkId: SourceLinkId
+  remoteChapterId: String
+  remoteUrl: String (optional)
+  remoteLabel: String (optional)
+  sourceOrder: Integer (optional)
+  linkStatus: "active" | "inactive" | "stale"
+  confidence: "manual" | "auto_high" | "auto_low"
+}
+```
+
+**Main Flow**:
+1. System validates Chapter and SourceLink exist
+2. System validates the Chapter belongs to the same Comic as the SourceLink
+3. System upserts ChapterSourceLink by `(sourceLinkId, remoteChapterId)`
+4. System stores `sourceOrder` as ordering evidence when provided
+5. System emits `chapter_source_link.upserted` event
+6. Return ChapterSourceLink
+
+**Post-conditions**:
+- Chapter-level source provenance exists or is updated
+- First-canonical-chapter fallback can aggregate `sourceOrder` from active ChapterSourceLinks
+
+**Error Handling**:
+- If Chapter or SourceLink not found: throw `NotFoundError`
+- If Chapter/SourceLink belong to different Comics: throw `ValidationError`
+
+---
+
 ## Reader Management Use Cases
 
-### Implemented (Core+DB)
+### Core+DB Contract
 
-Implemented use-case mapping in current core slice:
+Corrected target use-case mapping for the current core slice. Runtime implementation may lag schema-repair fields such as `ReaderSession.pageId` authority until a dedicated implementation catch-up slice lands:
 - ResolveReaderTarget (internal resolution step within OpenReader)
 - OpenReader
 - UpdateReaderPosition
@@ -275,6 +447,7 @@ Implemented use-case mapping in current core slice:
   comicId: ComicId
   chapterId: ChapterId (optional)
   pageIndex: Integer (optional, 0-based)
+  pageId: PageId (optional)
   correlationId: String (optional, for diagnostics tracing)
 }
 ```
@@ -285,7 +458,7 @@ Implemented use-case mapping in current core slice:
 3. System loads all pages for the resolved chapter
 4. System loads the active PageOrder for the chapter (if any)
 5. System resolves the ordered page list using the page display/read order policy (see Page Display/Read Order below)
-6. System validates the resolved pageIndex maps to a page entry in the ordered list
+6. System validates the resolved page target maps to a page entry in the ordered list
 7. Return target, chapter, active page order, and ordered page entries
 
 **Post-conditions**:
@@ -298,7 +471,7 @@ Implemented use-case mapping in current core slice:
 - If resolved chapter disappears between resolution and load: return `READER_UNRESOLVED_LOCAL_TARGET`
 - If no pages exist for resolved chapter: return `NOT_FOUND`
 - If active PageOrder is incomplete: return `VALIDATION_ERROR`
-- If resolved pageIndex does not map to a page: return `READER_INVALID_POSITION`
+- If resolved page target does not map to a page: return `READER_INVALID_POSITION`
 
 **Output**:
 ```
@@ -306,10 +479,10 @@ Implemented use-case mapping in current core slice:
   target: ReaderOpenTarget {
     comicId: ComicId
     chapterId: ChapterId
-    pageIndex: Integer
-    pageId: PageId (optional)
+    pageId: PageId
+    pageIndex: Integer (derived from Page)
     sourceKind: "local" | "remote"
-    resolutionReason: "requested_chapter" | "saved_session" | "first_canonical_chapter"
+    resolutionReason: "requested_page" | "requested_chapter" | "saved_session" | "first_canonical_chapter"
   }
   chapter: Chapter
   activeOrder: PageOrderWithItems
@@ -325,38 +498,44 @@ Implemented use-case mapping in current core slice:
 
 **Fallback order**:
 
-1. **Requested chapter** (when `chapterId` is provided):
+1. **Requested page** (when `pageId` is provided):
+   - Load page by `pageId` and its parent chapter.
+   - If page or chapter is not found, or the parent chapter's `comicId` does not match the requested `comicId` → emit diagnostics warning and return `READER_UNRESOLVED_LOCAL_TARGET`.
+   - If `chapterId` is also provided and does not match the page's parent chapter → return `READER_INVALID_POSITION`; explicit inputs must not conflict.
+   - Otherwise: use this page and derive `chapterId` + `pageIndex` from the page row.
+   - Resolution reason: `"requested_page"`.
+
+2. **Requested chapter** (when `chapterId` is provided and `pageId` is absent):
    - Load chapter by `chapterId`.
    - If chapter not found, or chapter's `comicId` does not match the requested `comicId` → emit diagnostics warning and return `READER_UNRESOLVED_LOCAL_TARGET`.
    - Otherwise: use this chapter. `pageIndex` defaults to `0` if not provided.
    - Resolution reason: `"requested_chapter"`.
 
-2. **Saved session** (when no `chapterId` provided and a reader session exists for the comic):
-   - Load the saved session for the comic.
-   - Validate the saved chapter: if chapter not found or its `comicId` does not match → `READER_UNRESOLVED_LOCAL_TARGET` (no silent repair).
-   - Validate the saved page index: if no page in the chapter has `pageIndex` equal to the session's `pageIndex` → `READER_UNRESOLVED_LOCAL_TARGET` (no silent repair).
-   - If a `pageId` is present in the session: load the page and verify it belongs to the same chapter and matches the saved `pageIndex`. Mismatch → `READER_UNRESOLVED_LOCAL_TARGET` (no silent repair).
-   - Otherwise: use the saved chapter and page index.
+3. **Saved session** (when no explicit page/chapter target is provided and an active reader session exists for the comic):
+   - Load the active saved session for the comic.
+   - Load the page referenced by `session.pageId` and derive its parent chapter and `pageIndex`.
+   - Validate the saved page target: if page or chapter is not found, or the chapter's `comicId` does not match the requested `comicId` → `READER_UNRESOLVED_LOCAL_TARGET` (no silent repair).
+   - If `session.sourceLinkId` is present but the source link is stale/deprecated, treat it as read-context evidence only and prefer active alternative ChapterSourceLink/Page provenance when available; stale source context must not invalidate the canonical saved page by itself.
+   - Otherwise: use the derived chapter and page index.
    - Resolution reason: `"saved_session"`.
 
-3. **First canonical chapter** (when no `chapterId` provided and no valid saved session exists):
+4. **First canonical chapter** (when no explicit target is provided and no valid active saved session exists):
    - Load all chapters for the comic.
    - For each chapter, compute aggregated source order: the minimum `sourceOrder` value across active, non-null chapter source links (where `linkStatus`, `sourceLinkStatus`, and `sourcePlatformStatus` are all `"active"`). Chapters with no qualifying source links have no aggregated source order.
    - Sort candidates by the following tuple (all ascending):
-     1. Numbered chapters first: chapters with a finite `chapterNumber` sort before those without.
-     2. `chapterNumber` ASC (numbered chapters only).
+     1. Numbered chapters first: chapters with a valid decimal-string `chapterNumber` sort before those without.
+     2. `chapterNumber` ASC using decimal/numeric comparison (numbered chapters only).
      3. Aggregated source order ASC (present values sort before absent).
      4. `createdAt` ASC.
      5. `id` ASC (lexicographic, tie-break).
    - If no chapters exist → `READER_UNRESOLVED_LOCAL_TARGET`.
-   - Use the first chapter in the sorted list with `pageIndex = 0`.
+   - Use the first page in the first sorted chapter by `pageIndex` ascending; `pageId` is the persisted/open-target authority and `pageIndex` is derived from that Page.
    - Resolution reason: `"first_canonical_chapter"`.
 
 **READER_UNRESOLVED_LOCAL_TARGET conditions**:
 - Requested chapter not found or belongs to a different comic.
-- Saved session chapter not found or belongs to a different comic.
-- Saved session page index not found in the chapter.
-- Saved session `pageId` present but does not match chapter + page index.
+- Requested page not found or belongs to a different comic through its chapter.
+- Saved session page not found or belongs to a different comic through its chapter.
 - No chapters exist on the comic (first-canonical fallback exhausted).
 
 **Diagnostics**: Each `READER_UNRESOLVED_LOCAL_TARGET` outcome records a `reader.route.unresolved_target` diagnostics event at `warn` level with the specific `reason` field and `comicId`.
@@ -371,26 +550,25 @@ Implemented use-case mapping in current core slice:
 
 **Pre-conditions**:
 - Comic exists
-- Chapter exists and belongs to the comic
-- `pageIndex` maps to an existing page in the chapter
+- Page exists and its Chapter belongs to the comic
 
 **Input**:
 ```
 {
   comicId: ComicId
-  chapterId: ChapterId
-  pageIndex: Integer (0-based)
-  pageId: PageId (optional — evidence/cache for a concrete page row)
+  pageId: PageId
+  sourceLinkId: SourceLinkId (optional, last read-source context)
+  sessionState: "active" | "suspended" | "completed" | "abandoned" (optional, defaults to "active")
 }
 ```
 
 **Main Flow**:
 1. System validates comic exists
-2. System validates chapter exists and belongs to the comic
-3. System validates `pageIndex` maps to an existing page in the chapter
-4. If `pageId` is provided: system validates the page exists, belongs to the chapter, and its `pageIndex` matches the input `pageIndex`
-5. If an existing session already has the same `chapterId`, `pageIndex`, and `pageId` → return the existing session with `status = "skipped_unchanged"`, no write
-6. System upserts the reader session in `reader_sessions` with the new position
+2. System loads `pageId` and its parent Chapter
+3. System validates the parent Chapter belongs to the comic
+4. If `sourceLinkId` is provided, system validates it belongs to the same comic
+5. If an existing active session already has the same `pageId`, `sourceLinkId`, and requested `sessionState` → return the existing session with `status = "skipped_unchanged"`, no write
+6. System upserts the reader session in `reader_sessions` with the new `pageId` position authority, optional read-source context, and lifecycle state
 7. Return the persisted session
 
 **Post-conditions**:
@@ -401,9 +579,9 @@ Implemented use-case mapping in current core slice:
 
 **Error Handling**:
 - If comic not found: return `NOT_FOUND`
-- If chapter not found or does not belong to comic: return `READER_INVALID_POSITION`
-- If `pageIndex` does not map to a page: return `READER_INVALID_POSITION`
-- If `pageId` provided but does not match chapter/page index: return `READER_INVALID_POSITION`
+- If `pageId` is not found: return `READER_INVALID_POSITION`
+- If the referenced Page's Chapter does not belong to comic: return `READER_INVALID_POSITION`
+- If `sourceLinkId` is provided but does not belong to comic: return `READER_INVALID_POSITION`
 
 **Output**:
 ```
@@ -432,7 +610,7 @@ Implemented use-case mapping in current core slice:
 ```
 
 **Main Flow**:
-1. System retrieves ReaderSession for comic
+1. System retrieves the active ReaderSession for comic
 2. If not found: system returns NotFound and lets orchestration/reader target resolution choose creation behavior
 3. Return ReaderSession
 
@@ -471,13 +649,15 @@ Implemented use-case mapping in current core slice:
 ```
 
 **Main Flow**:
-1. System retrieves ReaderSession
-2. System clears stored session state or resets using canonical reader-target policy (for example first chapter by ordering policy, pageIndex = 0)
-3. System emits `reader.position_cleared` event
-4. Return updated ReaderSession
+1. System retrieves the active ReaderSession for the comic
+2. If no active session exists, system returns success with `status = "no_active_session"`
+3. System marks the active session `sessionState = "abandoned"` in place; it does not hard-delete the lifecycle row
+4. System emits `reader.position_cleared` event
+5. Return the abandoned ReaderSession or no-op status
 
 **Post-conditions**:
-- ReaderSession position reset
+- No active ReaderSession remains for the comic
+- Historical ReaderSession lifecycle evidence is retained
 - Favorite `last_accessed_at` NOT updated (reading didn't occur)
 
 **Error Handling**:
@@ -486,7 +666,8 @@ Implemented use-case mapping in current core slice:
 **Output**:
 ```
 {
-  session: ReaderSession (reset to start)
+  session: ReaderSession (abandoned, optional when no active session existed)
+  status: "abandoned" | "no_active_session"
   event: DiagnosticsEvent (eventName: "reader.position_cleared")
 }
 ```
@@ -498,9 +679,8 @@ Implemented use-case mapping in current core slice:
 When OpenReader resolves the ordered list of pages for a chapter, it applies the following policy:
 
 **Primary path — active PageOrder exists**:
-- Use the active `PageOrderWithItems` for the chapter.
+- Use the `PageOrderWithItems` whose `PageOrder.status = "active"` for the chapter.
 - A PageOrder is considered **complete** when all of the following hold:
-  - `pageOrder.pageCount` equals the total number of pages in the chapter.
   - `pageOrderItems.length` equals the total number of pages in the chapter.
   - Every item references a page that exists in the resolved chapter (no dangling page references).
   - Every page in the chapter appears in exactly one item (full coverage, no duplicates).
@@ -510,6 +690,171 @@ When OpenReader resolves the ordered list of pages for a chapter, it applies the
 **Fallback path — no active PageOrder**:
 - Use a synthetic source order: pages sorted by `pageIndex` ASC.
 - This fallback is only applied when there is no active PageOrder at all (null result from the repository).
+
+---
+
+## Page Asset Availability
+
+OpenReader returns canonical page rows and read order; byte availability is resolved by the storage/image-loading path.
+
+Rules:
+- `Page.storageObjectId = null` means no local storage object has been assigned yet.
+- `Page.storageObjectId != null` does not guarantee readable bytes. The loader must resolve StoragePlacements and require at least one placement whose role/status is readable for the current backend policy.
+- If no readable placement exists, the loader returns `STORAGE_OBJECT_UNAVAILABLE` or an explicit placeholder/retry state. It must not treat a StorageObject row by itself as success.
+- Remote fallback from stale/missing local bytes must be a deliberate source-runtime decision using SourceLink/ChapterSourceLink provenance, not an implicit storage lookup side effect.
+
+---
+
+## User Collection Management Use Cases
+
+> **Planned Canonical — not current core implementation**
+>
+> UserCollection and UserCollectionItem define user-owned cross-platform grouping. They are separate from SourceLink identity merge/provenance and from source account favorite state.
+
+### UC-COL-001: Create User Collection
+
+**Purpose**: Create a user-defined grouping of comics.
+
+**Actors**: User, System
+
+**Pre-conditions**:
+- Display name is not empty
+
+**Input**:
+```
+{
+  displayName: String
+  description: String (optional)
+  coverStorageObjectId: StorageObjectId (optional)
+  sortOrder: "manual" | "title" | "updated_at" | "last_read" (optional, default "manual")
+}
+```
+
+**Main Flow**:
+1. System normalizes and validates `displayName`
+2. If `coverStorageObjectId` is provided, system validates the StorageObject exists; readable placement is required before UI claims bytes are available
+3. System creates UserCollection
+4. System emits `collection.created` event
+5. Return UserCollection
+
+**Post-conditions**:
+- Collection exists with no items
+
+**Error Handling**:
+- If display name is empty: throw `ValidationError`
+- If cover storage object does not exist: throw `NotFoundError`
+
+### UC-COL-002: Add Comic to Collection
+
+**Purpose**: Add a comic from any platform/source to a user collection.
+
+**Input**:
+```
+{
+  collectionId: UserCollectionId
+  comicId: ComicId
+  sortIndex: Integer (optional; required for exact manual insertion)
+  pinnedAt: Timestamp (optional)
+  allowRemoved: Boolean (optional, default false)
+}
+```
+
+**Main Flow**:
+1. System validates collection and comic exist
+2. If the Comic has `libraryStatus = "removed"` and `allowRemoved` is not true, system rejects the add
+3. System rejects duplicate `(collectionId, comicId)` membership
+4. System assigns or shifts `sortIndex` atomically for manual order
+5. System creates UserCollectionItem
+6. System emits `collection.item_added` event
+7. Return UserCollectionItem
+
+**Post-conditions**:
+- Comic is a member of the collection
+- Removed comics may be added only when the caller explicitly allows removed-library items
+
+**Error Handling**:
+- If collection or comic not found: throw `NotFoundError`
+- If comic is removed and `allowRemoved` is not true: throw `ValidationError`
+- If membership already exists: throw `DuplicateError`
+- If sort index conflicts and cannot be repaired atomically: throw `ValidationError`
+
+### UC-COL-003: Reorder Collection Items
+
+**Purpose**: Persist manual order for collection membership.
+
+**Input**:
+```
+{
+  collectionId: UserCollectionId
+  orderedComicIds: List<ComicId>
+}
+```
+
+**Main Flow**:
+1. System validates collection exists
+2. System validates the supplied comic IDs exactly match current membership with no duplicates or omissions
+3. System updates all affected UserCollectionItem `sortIndex` values in one transaction
+4. System sets or preserves `UserCollection.sortOrder = "manual"`
+5. System emits `collection.reordered` event
+6. Return ordered items
+
+**Error Handling**:
+- If collection not found: throw `NotFoundError`
+- If membership list is incomplete or contains unknown comics: throw `ValidationError`
+
+### UC-COL-003b: Move Collection Item
+
+**Purpose**: Move one comic within a manual collection order without sending the full membership list.
+
+**Input**:
+```
+{
+  collectionId: UserCollectionId
+  comicId: ComicId
+  afterComicId: ComicId (optional; null/absent means move to start)
+}
+```
+
+**Main Flow**:
+1. System validates collection exists
+2. System validates `comicId` is a current member of the collection
+3. If `afterComicId` is provided, system validates it is a different current member of the same collection
+4. System moves the item to the requested position and reassigns affected `sortIndex` values atomically
+5. System sets or preserves `UserCollection.sortOrder = "manual"`
+6. System emits `collection.item_moved` event
+7. Return ordered items or the moved item plus its new neighbors
+
+**Error Handling**:
+- If collection or item not found: throw `NotFoundError`
+- If `afterComicId` is unknown, belongs to another collection, or equals `comicId`: throw `ValidationError`
+
+### UC-COL-004: List Collection Comics
+
+**Purpose**: Read comics inside a collection using the collection's sort policy.
+
+**Input**:
+```
+{
+  collectionId: UserCollectionId
+  includeRemoved: Boolean (optional, default false)
+  limit: Integer (optional, default 100)
+  offset: Integer (optional, default 0)
+}
+```
+
+**Main Flow**:
+1. System validates collection exists
+2. System loads UserCollectionItems and joined Comics
+3. Unless `includeRemoved = true`, filter comics whose `libraryStatus = "removed"`
+4. Apply collection sort policy:
+   - `manual`: `UserCollectionItem.sortIndex` ASC
+   - `title`: current primary title ASC
+   - `updated_at`: Comic/metadata update timestamp DESC
+   - `last_read`: ReaderSession `updatedAt` DESC, unread last
+5. Return paginated items and comics
+
+**Error Handling**:
+- If collection not found: throw `NotFoundError`
 
 ---
 
@@ -669,22 +1014,25 @@ When OpenReader resolves the ordered list of pages for a chapter, it applies the
   importBatchId: ImportBatchId
   groupingStrategy: String ("single_chapter" | "by_folder" | "by_file")
   chapterNumbering: String ("sequential" | "by_filename")
+  chapterKind: String ("chapter" | "episode" | "oneshot" | "volume" | "season" | "group", optional, default "chapter")
 }
 ```
 
 **Main Flow**:
 1. System retrieves ImportBatch and files
-2. Based on `groupingStrategy`:
+2. System validates `chapterKind`; page-bearing imports normally use `chapter`, `episode`, or `oneshot`
+3. Based on `groupingStrategy`:
    - `single_chapter`: Create one chapter with all pages
    - `by_folder`: Create chapter per folder
    - `by_file`: Create chapter per file (archive or container)
-3. Based on `chapterNumbering`:
-   - `sequential`: 1.0, 2.0, 3.0, ...
-   - `by_filename`: Extract number from filename (1.5, etc.)
-4. For each chapter: create all pages in order
-5. Initialize chapter page ordering from the canonical source sequence
-6. System emits `chapters.created` event
-7. Return created Chapters
+4. Based on `chapterNumbering`:
+   - `sequential`: normalized decimal strings such as `"1"`, `"2"`, `"3"`
+   - `by_filename`: extract and normalize decimal strings such as `"1.5"`
+5. For each page-bearing imported unit: create a Chapter with the requested `chapterKind` and create all pages in order
+6. If import grouping creates container nodes (`volume`, `season`, or `group`), those nodes may own children but should not own readable Pages directly
+7. Initialize chapter page ordering from the canonical source sequence
+8. System emits `chapters.created` event
+9. Return created Chapters
 
 **Post-conditions**:
 - Chapters created with sequential numbers
@@ -694,6 +1042,7 @@ When OpenReader resolves the ordered list of pages for a chapter, it applies the
 **Error Handling**:
 - If ImportBatch not found: throw `NotFoundError`
 - If invalid strategy: throw `ValidationError`
+- If invalid or structurally incompatible `chapterKind`: throw `ValidationError`
 - If parsing fails: throw `ValidationError`
 
 **Output**:
@@ -773,6 +1122,7 @@ When OpenReader resolves the ordered list of pages for a chapter, it applies the
 ```
 {
   query: String (search terms)
+  includeRemoved: Boolean (optional, default false)
   limit: Integer (optional, default 50)
   offset: Integer (optional, default 0)
 }
@@ -780,10 +1130,11 @@ When OpenReader resolves the ordered list of pages for a chapter, it applies the
 
 **Main Flow**:
 1. System performs full-text search on `title`, `description`, `author`
-2. System orders results by relevance
-3. System paginates results
-4. For each comic: retrieve metadata and reader session
-5. Return search results
+2. Unless `includeRemoved = true`, system filters out comics with `libraryStatus = "removed"`
+3. System orders results by relevance
+4. System paginates results
+5. For each comic: retrieve metadata and reader session
+6. Return search results
 
 **Post-conditions**:
 - No modification
@@ -823,13 +1174,14 @@ Diagnostics note:
 {
   sortBy: String ("title" | "created" | "updated" | "last_read")
   sortOrder: String ("asc" | "desc")
+  includeRemoved: Boolean (optional, default false)
   limit: Integer (optional, default 50)
   offset: Integer (optional, default 0)
 }
 ```
 
 **Main Flow**:
-1. System retrieves all Comics
+1. System retrieves Comics, excluding `libraryStatus = "removed"` unless `includeRemoved = true`
 2. System sorts by specified field
 3. System paginates
 4. For each comic: retrieve metadata, reader session, favorite status
@@ -857,7 +1209,7 @@ Diagnostics note:
 
 ## Diagnostics & Events
 
-Use cases may emit `DiagnosticsEvent` through the diagnostics repository when configured. Current canonical persisted shape:
+Use cases may emit `DiagnosticsEvent` through the diagnostics repository when configured. Diagnostics writes are best-effort evidence writes: failure to persist diagnostics must not fail or roll back the primary business use case. Current canonical persisted shape:
 
 ```
 Entity: DiagnosticsEvent
@@ -893,7 +1245,7 @@ Entity: DiagnosticsEvent
   eventName: "reader.position_changed",
   action: "updated",
   comicId: "...",
-  payload: { chapterId, pageIndex }
+  payload: { pageId, chapterId, pageIndex }
 }
 ```
 
@@ -906,11 +1258,20 @@ Entity: DiagnosticsEvent
 | Create Comic | Implemented | - | - | X | X | - | - | - | X |
 | Import Comic | Deferred/Legacy | X | X | - | X | - | - | - | X |
 | Update Metadata | Implemented | X | - | - | X | - | - | - | X |
-| Delete Comic | Planned Canonical | X | - | - | X | - | - | X | X |
-| Open Reader | Implemented | X | - | - | X | X | X | - | X |
-| Update Position | Implemented | X | - | - | - | - | X | - | X |
-| Get Position | Implemented | X | - | - | - | - | - | - | - |
+| Remove Comic | Planned Canonical | X | - | - | X | - | - | X | X |
+| Permanently Delete Comic | Planned Canonical | X | - | - | X | - | - | X | X |
+| Add SourceLink | Planned Canonical | X | X | - | X | - | - | - | X |
+| Update SourceLink Status | Planned Canonical | X | - | - | X | - | - | - | X |
+| Upsert ChapterSourceLink | Planned Canonical | X | - | - | X | - | - | - | X |
+| Open Reader | Target | X | - | - | X | X | X | - | X |
+| Update Position | Target | X | - | - | - | - | X | - | X |
+| Get Position | Target | X | - | - | - | - | - | - | - |
 | Clear Position | Planned Canonical | X | - | - | - | - | - | - | X |
+| Create Collection | Planned Canonical | X | - | - | X | - | - | - | X |
+| Add Collection Item | Planned Canonical | X | X | - | X | - | - | - | X |
+| Reorder Collection | Planned Canonical | X | - | - | X | - | - | - | X |
+| Move Collection Item | Planned Canonical | X | - | - | X | - | - | - | X |
+| List Collection | Planned Canonical | X | - | - | - | - | - | - | X |
 | Mark Favorite | Deferred/Legacy | X | - | - | - | - | - | - | X |
 | Unmark Favorite | Deferred/Legacy | X | - | - | - | - | - | - | X |
 | List Favorites | Deferred/Legacy | - | - | - | - | - | - | - | - |

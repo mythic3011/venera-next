@@ -1,50 +1,18 @@
-# Runtime Design Summary (Canonical V1 Index)
+# Venera Design Index
 
-**Status**: Active Canonical Index for V1 TypeScript-first runtime contracts.
+**Status**: Router only. The active canonical design is `docs/design/v2/`.
 
----
+Start here:
 
-## Scope
+- [v2/SUMMARY.md](v2/SUMMARY.md) — active canonical design index
 
-This file is an index and navigation aid only.
-It does not define transport-specific implementation assumptions.
+Historical references:
 
-Adapter transport (UI/HTTP/CLI/IPC) is replaceable and non-authoritative compared to runtime/core contracts.
+- [archive/v1/](archive/v1/) — superseded v1 runtime-contract docs
+- [archive/claude-version/](archive/claude-version/) — superseded Claude draft used during v2 review
 
----
+Rules:
 
-## Canonical Authority Documents
-
-- `docs/design/entities.md`
-- `docs/design/database-schema.md`
-- `docs/design/repository-interfaces.md`
-- `docs/design/database-adapter-implementation-boundary.md`
-- `docs/design/production-database-adapter-strategy.md`
-- `docs/design/use-cases.md`
-- `docs/design/diagnostics-events.md`
-- `docs/design/source-package-artifact-lifecycle.md`
-- `docs/design/source-package-store-contract.md`
-
-Runtime implementation authority:
-
-- `runtime/core/src/**`
-
----
-
-## Current V1 Rules
-
-```text
-normalizedTitle is non-unique matching/search signal.
-ComicTitle is the canonical title-record authority surface (primary/source/alias).
-CreateCanonicalComic does not create ReaderSession.
-ReaderSession is at most one active session per comic.
-chapterNumber is an optional ordering hint, not chapter identity authority.
-Adapters send intent; application use cases own workflow.
-Domain identity does not depend on protobuf/UI/file-path models.
-Raw filesystem paths are not canonical storage authority.
-Remote source identity/provenance goes through source links.
-Tags are taxonomy/mapping-based, not loose genre string lists.
-Diagnostics events are schema-versioned evidence.
-```
-
----
+- v2 wins over all archived material.
+- Archived files are retained for provenance and comparison only.
+- New implementation work should read `v2/SUMMARY.md` first, then follow its file order.

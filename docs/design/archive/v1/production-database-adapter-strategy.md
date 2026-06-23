@@ -69,11 +69,11 @@ If these deployment modes become committed product scope, they require an explic
 - long-running server deployment
 - future multi-user deployment
 
-Any future PostgreSQL adapter work is expected to preserve the same repository/use-case contracts without changing domain or application code. That expectation is still gated by the portability audit and no-touch diff budget in `docs/design/database-adapter-implementation-boundary.md`.
+Any future PostgreSQL adapter work is expected to preserve the same repository/use-case contracts without changing domain or application code. That expectation is still gated by the portability audit and no-touch diff budget in `docs/design/archive/v1/database-adapter-implementation-boundary.md`.
 
 If a PostgreSQL path is explicitly approved, it must land as an adapter/runtime infrastructure slice, not as a domain-model rewrite.
 
-This document does not by itself justify abstraction work. Driver, portability audit, migration authority, and verification gates are defined by `docs/design/database-adapter-implementation-boundary.md`.
+This document does not by itself justify abstraction work. Driver, portability audit, migration authority, and verification gates are defined by `docs/design/archive/v1/database-adapter-implementation-boundary.md`.
 
 ---
 

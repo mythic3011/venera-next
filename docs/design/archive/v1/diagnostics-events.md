@@ -61,12 +61,52 @@ The names below are naming guidance and current/future examples, not proof that 
 **When**: Comic metadata modified
 **Level**: info
 
+#### comic.removed
+**When**: Comic hidden from default library surfaces via `libraryStatus = "removed"`
+**Level**: info
+
 #### comic.deleted
-**When**: Comic removed from library
+**When**: Comic permanently purged from database records
 **Level**: warn
 
 #### comic.imported
 **When**: Import flow completed
+**Level**: info
+
+---
+
+### Collection Domain Events
+
+#### collection.created
+**When**: User collection created
+**Level**: info
+
+#### collection.item_added
+**When**: Comic added to user collection
+**Level**: info
+
+#### collection.item_moved
+**When**: One comic is moved within a manual collection order
+**Level**: info
+
+#### collection.reordered
+**When**: User collection manual order changed
+**Level**: info
+
+---
+
+### Source Link Domain Events
+
+#### source_link.added
+**When**: Comic-level source provenance is attached to a canonical Comic
+**Level**: info
+
+#### source_link.updated
+**When**: Comic-level source provenance lifecycle or confidence changes
+**Level**: info
+
+#### chapter_source_link.upserted
+**When**: Chapter-level source provenance is created or updated
 **Level**: info
 
 ---
@@ -197,13 +237,24 @@ Stable-stage migration events are deferred until a dedicated stable migration co
 The following names align with `source-package-artifact-lifecycle.md` and are **future lifecycle event names, not implementation proof**:
 
 - `source.repository.metadata.validated`
+- `source.repository.metadata.validation_failed`
 - `source.package.download.completed`
+- `source.package.download.failed`
 - `source.package.staging.prepared`
+- `source.package.staging.failed`
 - `source.package.integrity.verified`
+- `source.package.integrity.failed`
+- `source.package.signature.verified`
+- `source.package.signature.failed`
 - `source.package.store.committed`
+- `source.package.store.commit_failed`
+- `source.package.store.stuck_committed`
 - `source.platform.mutated`
+- `source.platform.mutation_failed`
 - `source.package.rollback.completed`
+- `source.package.rollback.failed`
 - `source.package.cleanup.completed`
+- `source.package.cleanup.failed`
 
 Example payload shape:
 
@@ -213,9 +264,15 @@ Example payload shape:
   "packageKey": "string",
   "providerKey": "string",
   "version": "1.0.0",
-  "archiveSha256": "lowercase-hex"
+  "archiveSha256": "lowercase-hex",
+  "trustTier": "official | community | custom",
+  "verificationTier": "official | community | custom | unverified",
+  "failureStep": "string (failed events only)",
+  "reasonCode": "string (failed events only)"
 }
 ```
+
+Source lifecycle events must not persist raw archive bytes, private keys, repository access tokens, or stack traces.
 
 ---
 

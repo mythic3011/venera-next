@@ -67,3 +67,6 @@ runtime/core/node_modules/
 .claude/
 node_modules/
 docs/plans/
+
+# Local AI-agent handoff notes; keep these out of repository history.
+docs/design/**/*HANDOFF*.md

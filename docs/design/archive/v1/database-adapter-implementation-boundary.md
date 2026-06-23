@@ -44,7 +44,7 @@ Current code already contains SQLite-specific or backend-sensitive behavior that
 
 - `runtime/core/src/db/database.ts`: `better-sqlite3`, Kysely `SqliteDialect`, and `PRAGMA foreign_keys = ON`
 - `runtime/core/src/db/migrations.ts`: `PRAGMA foreign_key_check`
-- `runtime/core/src/db/migrations.ts`: partial unique indexes with `WHERE title_kind = 'primary'` and `WHERE is_active = 1`
+- `runtime/core/src/db/migrations.ts`: partial unique indexes with `WHERE title_kind = 'primary'`; the active page-order index is a known implementation catch-up item because the repaired canonical design uses `status = 'active'` while older implementation slices used `is_active = 1`
 - `runtime/core/src/db/seed.ts`: `ON CONFLICT(canonical_key) DO UPDATE`
 
 This means "repository ports stay above DB dialects" is a boundary goal, not a proven claim that current SQLite queries, DDL, seed behavior, or migration semantics already transfer unchanged to another backend.
