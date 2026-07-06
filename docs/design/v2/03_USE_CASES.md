@@ -182,6 +182,8 @@ Diagnostics note:
   coverUnitId: ContentUnitId (optional)
   coverStorageObjectId: StorageObjectId (optional)
   authorName: String (optional)
+  contentRating: ContentRating (optional)
+  userRating: Integer (optional, 1..5)
   tags: List<TagReference> (optional, projection shape)
 }
 ```
@@ -198,9 +200,11 @@ Diagnostics note:
    - `coverStatus = "local_only"` requires `coverUnitId` or `coverStorageObjectId`
    - `coverStatus = "synced"` requires `coverStorageObjectId` with readable authoritative placement
    - if both cover references are present, `coverUnitId.storageObjectId` must equal `coverStorageObjectId`
-4. System updates non-title ContentMetadata fields with provided values
-5. System emits `content.updated` event with changes
-6. Return updated Content, ContentMetadata, and primary ContentTitle when title changed
+4. If `contentRating` is provided, system validates it against the ordered ContentRating scale from `07_FEATURES.md`
+5. If `userRating` is provided, system validates integer range 1..5
+6. System updates non-title ContentMetadata fields with provided values
+7. System emits `content.updated` event with changes
+8. Return updated Content, ContentMetadata, and primary ContentTitle when title changed
 
 **Post-conditions**:
 - ContentMetadata modified
@@ -212,6 +216,7 @@ Diagnostics note:
 - If content not found: throw `NotFoundError`
 - If title is invalid/empty after normalization rules: throw `ValidationError`
 - If cover references conflict or required cover bytes are unavailable: throw `ValidationError`
+- If rating values are outside their declared enums/ranges: throw `ValidationError`
 
 **Output**:
 ```
@@ -714,6 +719,8 @@ OpenReader returns canonical unit rows and read order; byte availability is reso
 
 Rules:
 - `ContentUnit.storageObjectId = null` means no local storage object has been assigned yet.
+- For remote sections, OpenReader must call `UC-REMOTE-001` from `07_FEATURES.md` before resolving read order if canonical ContentUnit rows have not been materialized yet.
+- A materialized remote unit with `storageObjectId = null` may be served by source-runtime remote fetch through PluginProxy when active SourceLink/SectionSourceLink provenance exists.
 - `ContentUnit.storageObjectId != null` does not guarantee readable bytes. The loader must resolve StoragePlacements and require at least one placement whose role/status is readable for the current backend policy.
 - If no readable placement exists, the loader returns `STORAGE_OBJECT_UNAVAILABLE` or an explicit placeholder/retry state. It must not treat a StorageObject row by itself as success.
 - Remote fallback from stale/missing local bytes must be a deliberate source-runtime decision using SourceLink/SectionSourceLink provenance, not an implicit storage lookup side effect.
@@ -1132,6 +1139,7 @@ These operations are intentionally deferred. Their absence from the current buil
 ### Deferred: SourceLink Deletion
 - Detach or remove Content-level provenance links
 - Must recompute `Content.originHint` in the same transaction
+- Must cancel queued/active download tasks for the deleted source link in the same transaction; terminal download history may retain `sourceLinkId = null` evidence
 - Must define whether historical rejected/stale evidence is retained or hard-deleted
 
 ### Deferred: SectionSourceLink Deletion

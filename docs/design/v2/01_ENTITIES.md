@@ -71,6 +71,8 @@ Entity: ContentMetadata
   coverUnitId: ContentUnitId (optional, reference to cover unit)
   coverStorageObjectId: StorageObjectId (optional, storage object reference)
   authorName: String (optional)
+  contentRating: Enum (safe | moderate | adult_only | explicit) (optional; feature-domain Target — content filtering in 07_FEATURES.md)
+  userRating: Integer (optional, 1..5; user/library rating used by search and backup)
   metadata: JsonObject (optional, freeform structured metadata)
   createdAt: Timestamp
   updatedAt: Timestamp
@@ -86,6 +88,8 @@ Entity: ContentMetadata
 - `coverStatus = pending` means cover resolution/materialization is in progress and does not by itself prove a local unit or storage object exists
 - `coverStatus = local_only` requires at least one local cover reference (`coverUnitId` or `coverStorageObjectId`)
 - `coverStatus = synced` requires `coverStorageObjectId` and a synced authoritative storage placement
+- `contentRating`, when present, must be one of `safe`, `moderate`, `adult_only`, `explicit`; enabled content filters treat absent ratings as most restricted
+- `userRating`, when present, must be an integer from 1 through 5 and is user preference evidence, not content-safety classification
 - If `coverUnitId` and `coverStorageObjectId` are both present, the referenced ContentUnit must have the same `storageObjectId`; mismatched cover references are invalid and must be rejected
 - Effective cover resolution uses `coverStorageObjectId` directly when present, otherwise derives a storage object from `coverUnitId.storageObjectId` when that unit has one
 - Deleting a ContentUnit referenced by `coverUnitId` is valid only if cover lifecycle remains internally consistent in the same transaction: either `coverStorageObjectId` remains a valid cover reference, or the deletion flow clears cover references and sets `coverStatus = none`. Deleting the last local-only cover reference while leaving `coverStatus = local_only` is invalid.
@@ -413,6 +417,7 @@ Entity: StorageBackend
   backendKey: String (stable unique identifier)
   displayName: String (user-facing name)
   backendKind: Enum (local_app_data | webdav | plugin | future)
+  pluginKey: String (optional; required when backendKind = plugin)
   configJson: String (serialized backend configuration)
   configSchemaVersion: Integer
   secretRef: String (optional, reference to external credential store)
@@ -424,6 +429,7 @@ Entity: StorageBackend
 **Invariants**:
 - `id` is immutable
 - `backendKey` is unique
+- `pluginKey` is present iff `backendKind = plugin`; it identifies the storage plugin that owns the backend instance
 - `configSchemaVersion` identifies the parser/validator contract for `configJson`; readers must reject unsupported versions fail-closed
 - `configJson` must not embed plaintext secrets; credentials are referenced via `secretRef`
 - `secretRef` must point to an OS/platform credential store entry (for example Keychain, Keystore, or a deployment secret manager), not to raw secret material
@@ -841,6 +847,7 @@ SourcePackageArtifact (N) ──→ (0..1) SourcePlatform (optional, after activ
 - `coverStorageObjectId`, when present, must reference an existing StorageObject
 - If both cover references are present, `coverUnitId.storageObjectId` must equal `coverStorageObjectId`
 - Unit deletion must not leave `coverStatus = local_only` with no remaining local cover reference
+- `contentRating`, when present, must be one of: safe, moderate, adult_only, explicit (ordered scale); an ENABLED content filter treats absent rating as most restricted — fail closed (see 07_FEATURES.md)
 
 ### ContentTitle
 - `contentId` must reference an existing Content
@@ -978,6 +985,7 @@ SourcePackageArtifact (N) ──→ (0..1) SourcePlatform (optional, after activ
 ### StorageBackend
 - `backendKey` must be unique
 - `backendKind` must be one of: local_app_data, webdav, plugin, future
+- `pluginKey` must be present when `backendKind = plugin` and absent for non-plugin backends
 - `status` must be one of: active, disabled, deprecated
 - `configSchemaVersion` must be a positive integer supported by the backend parser
 - `configJson` must not embed plaintext secrets

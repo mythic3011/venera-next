@@ -31,6 +31,8 @@ interface PluginManifest {
   // ── Identity ───────────────────────────────────────────────────────
   id:          string    // reverse domain: "app.venera.copymanga"
   key:         string    // short stable key: "copymanga" (used in DB, logs, URLs)
+  providerKey: string    // identity metadata only (see 01 SourcePackageManifest);
+                         // never inferred from display/provider name text
   name:        string    // display name
   version:     string    // semver
   description: string
@@ -41,6 +43,7 @@ interface PluginManifest {
   // ── Compatibility ──────────────────────────────────────────────────
   runtimeRequires: string    // semver range e.g. ">=0.5.0"
   apiLevel:        number    // breaking changes increment this
+  pluginLayer:     "declarative" | "sdk" | "full"   // sandbox/validation policy tier (06)
 
   // ── Types ─────────────────────────────────────────────────────────
   pluginTypes: PluginType[]
@@ -94,7 +97,7 @@ interface PluginManifest {
 
   // ── Storage Config (if pluginTypes includes "storage") ─────────────
   storageConfig?: {
-    backendKindKey: string     // used as backendKind in StorageBackend
+    storageTypeKey: string     // plugin-local storage type metadata; StorageBackend.backendKind is always "plugin"
     displayName:    string
     configSchema:   object     // JSON Schema for config form
     supportsStreaming: boolean
@@ -128,6 +131,9 @@ interface PluginManifest {
   publisherKeyFingerprint?: string    // Ed25519 fingerprint; REQUIRED for official/community,
                                       // optional for custom (then artifact verifies as unverified
                                       // and needs advanced-user confirmation)
+  // NOTE: archiveSha256 is deliberately NOT a manifest field. Archive hashes
+  // live only in the SIGNED repository index/package entry (08) — a hash
+  // inside the archive cannot protect the archive that contains it.
 
   // ── Network (importer/exporter only) ──────────────────────────────
   allowedDomains?: string[]    // additional domains beyond providerConfig
@@ -483,6 +489,10 @@ interface ImporterUtils {
   readComicInfoXml(dirPath: string): Promise<ComicInfo | null>
   parseEpub(filePath: string): Promise<EpubDocument>
 
+  // Sandboxed read-only SQLite over import-source files (same realpath
+  // sandbox rules as handleFileRead; read-only, no ATTACH, no writes)
+  querySqlite(path: string, sql: string): Promise<Array<Record<string, unknown>>>
+
   // Sort
   naturalCompare(a: string, b: string): number
 }
@@ -734,13 +744,23 @@ All official plugins bundled with the app. `isolation: "shared"`, `trustTier: "o
 
 ## Plugin Lifecycle
 
+The state list below is a user-facing lifecycle view. Durable authority is split:
+
+- Package acquisition/artifact state is owned by `source_package_artifacts.state`
+  and `08_SOURCE_PACKAGE_LIFECYCLE.md`.
+- Runtime plugin state is owned by `installed_plugins.state`.
+- Absence of an `installed_plugins` row means "not installed"; `not_installed`
+  is not a stored row value.
+- Installer transients (`downloading`, `verifying`) are orchestration status
+  surfaced over progress/events, not durable installed-plugin state.
+
 ```
 States:
-  not_installed
-  downloading       ← fetching archive from repository
-  verifying         ← integrity + signature check
-  committed         ← PackageStore has durable artifact
-  installing        ← source_platform mutation in progress
+  not_installed     ← no installed_plugins row
+  downloading       ← installer orchestration status
+  verifying         ← installer orchestration status
+  committed         ← source_package_artifacts.state
+  installing        ← source_platform mutation in progress (installer orchestration)
   installed         ← SourcePlatform created, ready to activate
   activating        ← worker starting, init message sent
   active            ← worker ready, responding to messages
@@ -748,8 +768,8 @@ States:
   update_available  ← newer version in repository
   load_error        ← worker failed to start or crashed
   uninstalling      ← being removed
-  orphaned          ← committed but source_platform mutation failed
-  cleanup_pending   ← scheduled for removal
+  orphaned          ← source_package_artifacts.state
+  cleanup_pending   ← source_package_artifacts.state
 
 Valid Transitions:
   not_installed → downloading (user installs)
@@ -778,6 +798,9 @@ Rules:
   - Worker crash → load_error + restart attempt (max 3, exponential backoff)
   - Orphaned artifacts → cleanup job runs async, max 24h TTL
   - "committed" with no state transition after 5min → stuck detection job → orphaned
+  - Storage-plugin uninstall disables any StorageBackend rows where
+    backend_kind = "plugin" and plugin_key matches the removed plugin; bytes are
+    not deleted unless the storage-backend delete use case explicitly chooses it.
   - HARD COMMIT ORDER (authoritative contract in 08_SOURCE_PACKAGE_LIFECYCLE.md):
       authentic + verified artifact -> PackageStore commit -> source_platform mutation
     source_platform mutation NEVER before commit; commit NEVER before
@@ -909,9 +932,10 @@ async function* handleBundle(root, file, ctx): AsyncGenerator<ImportProgress> {
 
 export default defineImporter({
   canHandle(file) {
-    // EhViewer SQLite DB — check magic bytes for SQLite format
-    // SQLite magic: 53 51 4C 69 74 65 20 66 6F 72 6D 61 74
-    return file.name.endsWith(".db") || file.name.endsWith(".ehv")
+    // file.mimeType is magic-number-detected by the runtime (invariant 31:
+    // never trust extension alone). SQLite magic: "SQLite format 3\0".
+    return file.mimeType === "application/vnd.sqlite3"
+      && (file.name.endsWith(".db") || file.name.endsWith(".ehv"))
   },
 
   async *import(file, ctx) {
@@ -949,7 +973,7 @@ export default defineImporter({
         continue
       }
 
-      await ctx.storage.registerContent({
+      const registered = await ctx.storage.registerContent({
         existingContentId: preflight.existingContentId,
         contentType:       "comic",
         title,
@@ -959,7 +983,7 @@ export default defineImporter({
       })
 
       done++
-      yield { type: "result", contentId: preflight.existingContentId ?? "new", status: "created" }
+      yield { type: "result", contentId: registered.content.id, status: preflight.existingContentId ? "repaired" : "created" }
     }
   },
 })
@@ -998,8 +1022,8 @@ Entity: ImportJob
 - `id` is immutable
 - `pluginKey` is optional only while the runtime is selecting an importer; once `status = running`, it must identify the importer plugin or built-in official importer
 - `sourceType` is adapter-owned evidence and must not make local filesystem paths canonical storage identity
-- Valid status flow is `pending -> running -> completed | failed | cancelled`; terminal statuses must not transition back to running in place
-- `startedAt` is present for `running`, `completed`, `failed`, and `cancelled`
+- Valid status flows are `pending -> running -> completed | failed | cancelled` and `pending -> cancelled` (a queued job may be cancelled before it starts); terminal statuses must not transition back to running in place
+- `startedAt` is present iff the job has entered `running`; a job cancelled from `pending` has `startedAt` absent and `completedAt` set
 - `completedAt` is present only for terminal statuses
 - Item counters are non-negative; `doneItems + failedItems + skippedItems <= totalItems` when `totalItems` is known
 - `copyToStorage = true` means imported durable units must be registered through StorageObject/StoragePlacement, not raw file path columns
@@ -1020,9 +1044,8 @@ CREATE TABLE installed_plugins (
   artifact_id        TEXT NOT NULL,
   source_platform_id TEXT REFERENCES source_platforms(id) ON DELETE RESTRICT,
   state              TEXT NOT NULL CHECK (state IN (
-    'not_installed','downloading','verifying','committed',
-    'installing','installed','activating','active','disabled',
-    'update_available','load_error','uninstalling','orphaned','cleanup_pending'
+    'installed','activating','active','disabled',
+    'update_available','load_error','uninstalling'
   )),
   isolation_level    TEXT NOT NULL DEFAULT 'full'
     CHECK (isolation_level IN ('full','shared','native')),
@@ -1036,14 +1059,15 @@ CREATE TABLE installed_plugins (
 );
 
 CREATE TABLE plugin_reader_modes (
-  mode_id                TEXT PRIMARY KEY,
   plugin_key             TEXT NOT NULL REFERENCES installed_plugins(plugin_key) ON DELETE CASCADE,
+  mode_id                TEXT NOT NULL,
   display_names_json     TEXT NOT NULL,
   content_types_json     TEXT NOT NULL,
   component_url          TEXT NOT NULL,
   settings_schema_json   TEXT NOT NULL,
   settings_defaults_json TEXT NOT NULL,
-  created_at             TEXT NOT NULL
+  created_at             TEXT NOT NULL,
+  PRIMARY KEY (plugin_key, mode_id)
 );
 
 CREATE TABLE import_jobs (

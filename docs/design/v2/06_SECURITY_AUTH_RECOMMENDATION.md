@@ -44,7 +44,7 @@ TIER 2 — Safe to log as-is:
   contentId (internal UUID, no content meaning)
   errorCode, pluginKey, httpStatus, durationMs
   runtimeVersion, platform, deploymentMode
-  sessionId (anonymous, rotates daily)
+  anonymous_session_id (anonymous daily token, rotates daily — NOT a ReadingSession id)
 ```
 
 ### Security Headers (hosted mode)
@@ -60,10 +60,13 @@ X-Venera-Request-Id: {correlationId}
 
 ### Auth Token Scheme
 
-Hosted auth sessions and API keys are opaque random bearer credentials, not JWTs. Persist only `selector` + `HMAC-SHA256(verifier)` and compare the verifier in constant time after lookup by selector.
+Hosted auth sessions and API keys are opaque random bearer credentials, not JWTs. Persist only `selector` + `HMAC-SHA256(verifier)` + `key_id` and compare the verifier in constant time after lookup by selector.
 
 - Use argon2id for low-entropy secrets such as passwords and PINs, not high-entropy random tokens.
 - Token values are returned only at creation time and never logged, re-derived, or stored plaintext.
+- HMAC server-key material lives in OS/deployment secret storage via secretRef discipline, never in DB or config files.
+- New credentials use the newest active `key_id`; older keys remain verify-only until the credentials they signed expire or are revoked.
+- A compromised `key_id` can be hard-revoked to invalidate only credentials signed under that key, not every active session/API key.
 
 ### Tamper-Evident Audit Log
 
@@ -136,25 +139,11 @@ Layer 2 — Full (arbitrary TypeScript):
   Declared permissions validated at install time
 ```
 
-### Plugin Manifest Required Fields
+### Plugin Manifest
 
-```typescript
-interface PluginManifest {
-  key:             string    // unique, stable
-  providerKey:     string    // identity metadata only
-  version:         string    // semver
-  archiveSha256:   string    // lowercase hex
-  runtimeRequires: string    // semver range e.g. ">=0.5.0"
-  apiLevel:        number
-  pluginLayer:     "declarative" | "sdk" | "full"
-  contentTypes:    ContentType[]
-  permissions:     Permission[]  // declared subset of Roles.PLUGIN allowed perms
-  trustTier:       "official" | "community" | "custom"
-  publisherKeyFingerprint?: string
-  reportEndpoint?: string
-  i18n?: { defaultLocale: Locale; messages: Record<Locale, Record<string, string>> }
-}
-```
+The canonical manifest shape is defined **once** in `05_PLUGIN_SYSTEM.md` (§ Plugin Manifest) — identity (`id`/`key`/`providerKey`), compatibility (`runtimeRequires`/`apiLevel`/`pluginLayer`), per-type configs, declared `permissions` (validated subset of Roles.PLUGIN), and `trustTier` + `publisherKeyFingerprint`. Do not redefine it here.
+
+Security-relevant rule: `archiveSha256` is **not** a manifest field. Archive hashes live only in the **signed repository index/package entry** (see `08_SOURCE_PACKAGE_LIFECYCLE.md`) — a hash carried inside the archive cannot protect the archive that contains it.
 
 ### Plugin Lifecycle
 
@@ -216,6 +205,13 @@ Edges:
   CollectionMembership (recency + pinned signals)
   ReadingEdge          (completionRate, sessionCount, lastReadAt)
 ```
+
+Proposal writer rule:
+- Automated scorers that create `ContentRelationshipProposal` rows must use
+  insert-or-skip behavior against the pending-proposal unique index in
+  `02_DATABASE_SCHEMA.md`; duplicate pending proposals are not errors and must
+  not flood the review queue.
+- New evidence after rejection/expiry may create a new proposal row.
 
 ### Algorithms (in implementation order)
 

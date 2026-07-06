@@ -87,6 +87,18 @@ The names below are naming guidance and current/future examples, not proof that 
 
 ---
 
+### Section Domain Events
+
+#### sections.created
+**When**: ContentSections (with units) created from an import plan
+**Level**: info
+
+#### section.units_reordered
+**When**: A section's unit display order is replaced by a user-override ContentUnitOrder
+**Level**: info
+
+---
+
 ### Collection Domain Events
 
 #### collection.created
@@ -186,6 +198,38 @@ Payload guidance:
 #### query.performed
 **When**: Repository query executed (debug-only)
 **Level**: trace
+
+---
+
+### Download / Notification / Sync Events
+
+#### download.queued
+**When**: Download task enters the queue
+**Level**: info
+
+#### download.completed
+**When**: Download task finishes all requested units successfully
+**Level**: info
+
+#### download.failed
+**When**: Download task exhausts retry policy or hits a non-retryable error
+**Level**: warn
+
+#### download.cancelled
+**When**: User or source-link deletion cancels a queued/active download task
+**Level**: info
+
+#### notification.created
+**When**: Notification row is created for a user-visible event
+**Level**: info
+
+#### notification.read
+**When**: Notification is marked read
+**Level**: info
+
+#### sync.conflict
+**When**: Backup/sync merge detects conflicting local and incoming state
+**Level**: warn
 
 ---
 

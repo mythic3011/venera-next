@@ -12,7 +12,7 @@ Entity: DownloadTask
   contentId:       ContentId
   sectionIds:      ContentSectionId[]   -- empty = all sections
   pluginKey:       String               -- which provider plugin fetches
-  sourceLinkId:    SourceLinkId
+  sourceLinkId:    SourceLinkId?       -- required while queued/active; nullable for terminal history after SourceLink deletion
   status:          Enum (queued | preflight | fetching | copying | completed | failed | cancelled | paused)
   priority:        Integer              -- lower = higher priority
   totalUnits:      Integer
@@ -47,7 +47,7 @@ CREATE TABLE download_tasks (
   content_id        TEXT NOT NULL REFERENCES contents(id) ON DELETE CASCADE,
   section_ids_json  TEXT NOT NULL DEFAULT '[]',
   plugin_key        TEXT NOT NULL,
-  source_link_id    TEXT NOT NULL REFERENCES source_links(id) ON DELETE CASCADE,
+  source_link_id    TEXT REFERENCES source_links(id) ON DELETE SET NULL,
   status            TEXT NOT NULL DEFAULT 'queued' CHECK (status IN (
     'queued','preflight','fetching','copying','completed','failed','cancelled','paused'
   )),
@@ -75,6 +75,22 @@ CREATE INDEX idx_download_tasks_content  ON download_tasks(content_id);
 ### Use Cases
 
 ```
+UC-REMOTE-001: Materialize Remote Section Units
+Input:  { sectionId, sectionSourceLinkId, pluginKey }
+Trigger:
+        - Lazy on first OpenReader access to a remote section
+        - Eager during UC-DL-002 preflight before bytes are fetched
+Flow:   1. Validate sectionSourceLink + parent SourceLink + SourcePlatform are active
+        2. Fetch provider.getUnits(remoteSectionId) through PluginProxy
+        3. For each provider unit, derive provenance evidence from
+           (sectionSourceLinkId, provider order, sanitized url/hash evidence)
+        4. Match existing ContentUnits by provenance evidence
+        5. Append newly discovered units with fresh ContentUnitIds and unitIndex
+        6. Never renumber or hard-delete existing units referenced by ReadingSession;
+           stale provider evidence marks the unit stale/orphaned for later cleanup
+        7. Materialized remote units start with storageObjectId = null
+Output: { units: ContentUnit[], matchedCount: Integer, insertedCount: Integer, staleCount: Integer }
+
 UC-DL-001: Enqueue Download
 Input:  { contentId, sectionIds?, sourceLinkId, priority?, wifiOnly?, targetBackendKey? }
 Flow:   1. Validate content + sourceLink exist
@@ -86,8 +102,8 @@ Flow:   1. Validate content + sourceLink exist
 
 UC-DL-002: Process Download Task (internal)
 Flow:   1. status → preflight
-        2. For each section → provider.getUnits(remoteSectionId)
-        3. For each unit URL:
+        2. For each section → UC-REMOTE-001 materializes/reconciles ContentUnits
+        3. For each materialized unit with remote URL evidence:
            a. provider.resolveUnitUrl(url) if needed
            b. fetch(url) with plugin proxy
            c. allocateStorageObject
@@ -139,9 +155,46 @@ const DownloadPolicy = {
 }
 ```
 
+### Planned / Deferred Repository Entity Stubs
+
+The aggregate above is an implementation checklist. Ports without full DDL still
+need a declared contract so implementors do not invent schemas ad hoc.
+
+```
+SmartCollection (Deferred)
+  Purpose: saved dynamic collection definition over search/filter criteria.
+  Authority: query/filter JSON only; membership is derived at read time.
+
+Creator (Planned Canonical)
+  Purpose: canonical creator identity independent of source/provider spelling.
+  Invariants: displayName is mutable; normalizedName is matching evidence only,
+  not identity.
+
+SourceCreator (Planned Canonical)
+  Purpose: source-platform creator provenance edge.
+  Invariants: (sourcePlatformId, remoteCreatorId) is unique; provider IDs are
+  evidence, not canonical Creator identity.
+
+ContentCreator (Planned Canonical)
+  Purpose: Content ↔ Creator role edge.
+  Invariants: role is value-bearing (author, artist, translator, publisher,
+  editor, other); source evidence is optional and never replaces the canonical edge.
+
+ReaderSettings (Deferred)
+  Purpose: user/device reader preferences.
+  Invariants: reader-mode references to plugin readers use (pluginKey, modeId),
+  never bare modeId.
+
+ContentColorPalette (Deferred)
+  Purpose: derived display palette for covers/library theming.
+  Invariants: derived cache only; missing palette must not block content display.
+```
+
 Concurrency / consistency rules:
 
 - All fetched bytes go through PluginProxy (allowlist + rate limit + redirect re-validation — `05_PLUGIN_SYSTEM.md`); the download manager gets no raw network privilege.
+- Download and online reading share the same materialized ContentUnit rows. Provider URLs are provenance evidence, not identity; `unitId` remains the reader-position authority.
+- A remote ContentUnit with `storageObjectId = null` is eligible for online fetch via PluginProxy when active remote provenance exists; it is not a local storage failure.
 - Each unit write is one transaction: create StorageObject → create StoragePlacement (`role = authority`, respecting the at-most-one-authority partial unique index) → set `ContentUnit.storageObjectId`. A crash between units leaves resumable, not corrupt, state.
 - Worker must re-read task status between units (and between chunks) so pause/cancel takes effect without killing the worker; status transitions are compare-and-swap style updates (`UPDATE ... WHERE status = 'fetching'`) to avoid racing a concurrent cancel.
 - `doneUnits`/`bytesDone` counters are progress telemetry, not authority; on resume they are recomputed from actual placements, never trusted blindly.
@@ -329,7 +382,9 @@ Entity: ReadingStatEntry
   sessionDate:     Date (YYYY-MM-DD, local timezone)
   durationSec:     Integer    -- time spent reading (seconds)
   unitsRead:       Integer    -- pages/units viewed
-  sessionId:       String     -- anonymous, rotates daily (privacy)
+  anonymousSessionId: String  -- anonymous daily token (rotates daily, privacy);
+                              -- NOT a ReadingSession reference — same concept as
+                              -- 02 reading_events.anonymous_session_id
   contentType:     ContentType
   createdAt:       Timestamp
 
@@ -350,6 +405,7 @@ CREATE TABLE reading_stat_entries (
   session_date  TEXT NOT NULL,     -- YYYY-MM-DD
   duration_sec  INTEGER NOT NULL DEFAULT 0,
   units_read    INTEGER NOT NULL DEFAULT 0,
+  anonymous_session_id TEXT NOT NULL,  -- anonymous daily token; NOT a ReadingSession id
   content_type  TEXT NOT NULL,
   created_at    TEXT NOT NULL
 );
@@ -365,6 +421,10 @@ CREATE TABLE reading_streak (
   updated_at      TEXT NOT NULL
 );
 ```
+
+Source-link deletion rule:
+- SourceLink deletion must cancel queued/active download tasks for that source in the deleting transaction.
+- Terminal download tasks retain history with `source_link_id = NULL` and `plugin_key` attribution.
 
 ### Stat Aggregations
 
@@ -422,7 +482,7 @@ interface ReadingStatSummary {
 // tag:action → tag filter
 // type:comic → content type filter
 // status:completed → status filter
-// rating:>=4 → rating filter
+// rating:>=4 → userRating filter (ContentMetadata.userRating, 1..5)
 // author:"fujimoto" → author search
 // lang:ja → language filter
 // added:>7d → added within 7 days
@@ -430,15 +490,10 @@ interface ReadingStatSummary {
 ```
 
 ```sql
--- Full-text search index (text content types only)
-CREATE VIRTUAL TABLE content_fts USING fts5(
-  content_id  UNINDEXED,
-  unit_id     UNINDEXED,
-  text_content,
-  tokenize = "unicode61"
-);
+-- content_fts (full-text over text units) is defined CANONICALLY in
+-- 02_DATABASE_SCHEMA.md (§ Misc tables). Do NOT redefine it here.
 
--- Title search index (all content)
+-- Title search index (all content) — target fragment, pending consolidation into 02
 CREATE VIRTUAL TABLE content_title_fts USING fts5(
   content_id  UNINDEXED,
   title,
@@ -459,7 +514,7 @@ Flow:
      a. FTS5 keyword search on title + normalized_title
      b. Vector semantic search (if embedding available)
      c. Tag filter (canonical tags)
-     d. Metadata filters (type, status, rating, date)
+    d. Metadata filters (type, status, userRating, date)
   4. Merge + deduplicate results
   5. Rank: FTS rank * 0.5 + semantic similarity * 0.3 + recency * 0.2
   6. Apply library_status filter (exclude removed unless requested)
@@ -468,7 +523,7 @@ Flow:
 interface SearchFilter {
   contentTypes?:  ContentType[]
   tags?:          CanonicalTagKey[]
-  rating?:        { gte?: number; lte?: number }
+  rating?:        { gte?: number; lte?: number }  // userRating 1..5
   status?:        string[]
   language?:      string[]
   addedAfter?:    Timestamp
@@ -527,7 +582,9 @@ Output: ZIP file containing:
   venera-backup.json:
     version: String
     exportedAt: String
-    contents: ContentMetadata[]      -- titles, tags, ratings, NO bytes
+    contents: ContentMetadata[]      -- titles, tags, contentRating/userRating, NO bytes
+    sourceLinks: SourceLink[]
+    contentFingerprints: ContentFingerprint[]
     collections: UserCollection[]
     collectionItems: UserCollectionItem[]
     readingSessions: ReadingSession[] -- ACTIVE position rows only; unitId authority
@@ -544,7 +601,11 @@ UC-BACKUP-002: Restore from Backup
 Input:  { backupFile, mode: "merge" | "replace" }
 Flow:   merge  → add/update, don't delete existing content
         replace → full replace (DANGEROUS, requires confirmation)
-        Content matched by normalizedTitle + contentType
+        Content matched by identity ladder:
+          1. SourceLink (sourcePlatformId, remoteWorkId)
+          2. ContentFingerprint externalIds/hash evidence
+          3. normalizedTitle + contentType as candidate only, requiring merge/keep_both/skip decision
+        Default for ambiguous merge-mode matches: keep_both
         Reading sessions merged per content using ACTIVE-row semantics; newer
         active row wins, historical non-active rows never override resume state
 
@@ -585,7 +646,8 @@ ALTER TABLE reading_sessions ADD COLUMN device_id TEXT;  -- which device last wr
 Entity: ContentFilterProfile
   id:              "singleton"
   enabled:         Boolean
-  maxContentRating: Enum (all | safe | moderate | adult_only)
+  maxContentRating: Enum (safe | moderate | adult_only | explicit | all)
+                    -- ordered ceiling on the ContentRating scale; 'all' = no ceiling
   blockedTags:     CanonicalTagKey[]   -- hide content with these tags
   blockedSourcePlatforms: String[]     -- hide content from these platforms
   requirePinToDisable: Boolean
@@ -596,13 +658,20 @@ ContentRating enum:
   moderate      -- PG-13 / teen
   adult_only    -- M/R18 content
   explicit      -- explicit adult content
+
+Rating scale is ORDERED: safe < moderate < adult_only < explicit.
+maxContentRating is a ceiling on that scale ('all' = no ceiling).
+Filtering rule (FAIL CLOSED): when the filter is enabled, content with NO
+content_rating is treated as most restricted (hidden). Unrated content must
+never leak past an enabled filter.
 ```
 
 ```sql
 CREATE TABLE content_filter_profile (
   id                      TEXT PRIMARY KEY DEFAULT 'singleton',
   enabled                 INTEGER NOT NULL DEFAULT 0,
-  max_content_rating      TEXT NOT NULL DEFAULT 'all',
+  max_content_rating      TEXT NOT NULL DEFAULT 'all'
+    CHECK (max_content_rating IN ('safe','moderate','adult_only','explicit','all')),
   blocked_tags_json       TEXT NOT NULL DEFAULT '[]',
   blocked_platforms_json  TEXT NOT NULL DEFAULT '[]',
   require_pin_to_disable  INTEGER NOT NULL DEFAULT 0,
@@ -611,8 +680,8 @@ CREATE TABLE content_filter_profile (
 );
 
 -- Content rating stored on content_metadata
-ALTER TABLE content_metadata ADD COLUMN content_rating TEXT
-  CHECK (content_rating IN ('safe','moderate','adult_only','explicit'));
+-- content_metadata.content_rating and content_metadata.user_rating are defined
+-- canonically in 02_DATABASE_SCHEMA.md because content_metadata is a 02-owned table.
 ```
 
 ---

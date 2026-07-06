@@ -99,9 +99,10 @@ Storage
 16. StorageObject row existence ≠ byte availability; a readable StoragePlacement is
     required, else STORAGE_OBJECT_UNAVAILABLE / explicit placeholder state.
 17. At most one authority placement per object (DB partial unique index).
-18. StorageBackend kinds are local_app_data/webdav/plugin/future; config is
-    schema-versioned, fail-closed on unsupported versions; secrets only via
-    secretRef to an OS/deployment credential store.
+18. StorageBackend kinds are local_app_data/webdav/plugin/future; plugin
+    backends require `pluginKey`; config is schema-versioned, fail-closed on
+    unsupported versions; secrets only via secretRef to an OS/deployment
+    credential store.
 19. Raw filesystem paths are never canonical storage identity.
 
 Idempotency
@@ -118,36 +119,44 @@ Source packages & plugins
 23. Verification evidence (verificationTier, publisherKeyFingerprint,
     signatureDigest) is persisted; signatureValid is never a stored mutable boolean.
 24. Plugin permissions: declared subset of Roles.PLUGIN, validated at install.
-25. Plugin DB access only via controlled ports; plugin outbound fetch only via
+25. PackageStore owns artifact lifecycle state; `installed_plugins.state` owns
+    runtime state only. Reader-mode IDs are `(pluginKey, modeId)`, never bare
+    plugin-declared mode strings.
+26. Plugin DB access only via controlled ports; plugin outbound fetch only via
     PluginProxy (scheme + domain allowlist + public-address check + manual-redirect
     re-validation + rate limits); importer file access via realpath sandbox.
-26. Trust is cryptographic (signed index + signed entry + archive SHA-256);
+27. Trust is cryptographic (signed index + signed entry + archive SHA-256);
     mirrors are untrusted byte relays.
 
 Security & privacy
-27. Actor resolution is server-side; never trust client-supplied actor fields.
-28. Audit events are append-only, hash-chained, externally checkpointed; the
+28. Actor resolution is server-side; never trust client-supplied actor fields.
+29. Audit events are append-only, hash-chained, externally checkpointed; the
     repository port exposes no update/delete.
-29. Auth secrets: random tokens/API keys stored as selector + HMAC-SHA256(verifier);
-    argon2id only for low-entropy secrets (passwords, PINs); nothing secret is ever
-    logged or returned after creation.
-30. Privacy is schema-level: TIER 0 fields cannot exist in log schemas; TIER 1
+30. Auth secrets: random tokens/API keys stored as selector + HMAC-SHA256(verifier)
+    + key_id; argon2id only for low-entropy secrets (passwords, PINs). HMAC keys
+    rotate by key_id and live only in OS/deployment secret storage.
+31. Privacy is schema-level: TIER 0 fields cannot exist in log schemas; TIER 1
     one-way hashed; logs use the OTel model with pre-approved attribute keys only.
-31. File type detection by magic number, never extension alone.
+32. File type detection by magic number, never extension alone.
 
 Observability
-32. Diagnostics events are schema-versioned, best-effort evidence writes — they must
+33. Diagnostics events are schema-versioned, best-effort evidence writes — they must
     never fail or roll back the primary business use case, and never mutate state.
     Additive payload fields may stay on the same major schema; breaking payload
     changes require a major version bump and reader compatibility path.
 
 Tags & import
-33. Tags are taxonomy/mapping-based (canonical_tags + source_tags + user layers),
+34. Tags are taxonomy/mapping-based (canonical_tags + source_tags + user layers),
     never loose genre strings. Tag keys are slugified (lowercase, spaces →
     underscores) with display labels stored separately per locale. zh-HK/zh-TW
     labels may be auto-generated via OpenCC and marked as "auto_opencc".
-34. Import repair path preserves the existing contentId (keeps sessions + tags).
+35. Import repair path preserves the existing contentId (keeps sessions + tags).
     Adapters send intent; application use cases own workflow.
+36. Remote provider units materialize into canonical ContentUnit rows before
+    online reading or download. Provider URLs/order are provenance evidence, not
+    identity; existing units referenced by sessions are never renumbered/deleted.
+37. `userRating` is the 1..5 personal/library rating used by search and backup;
+    `contentRating` is the separate ordered safety/filter scale.
 ```
 
 ---

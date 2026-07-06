@@ -56,7 +56,7 @@ Single source of truth for all event names. **Never use raw strings.**
 // src/streams/content.ts
 export const ContentEvents = {
   CREATED:              "content.created",
-  METADATA_UPDATED:     "content.metadata_updated",
+  UPDATED:              "content.updated",
   REMOVED:              "content.removed",
   DELETED:              "content.deleted",
   RELATIONSHIP_DETECTED:"content.relationship.detected",
@@ -71,9 +71,63 @@ export const ContentEventPayloads = {
   }),
 } satisfies Record<ContentEventName, z.ZodSchema>
 
+export const SectionEvents = {
+  CREATED:         "sections.created",
+  UNITS_REORDERED:"section.units_reordered",
+} as const
+
+export const SourceLinkEvents = {
+  ADDED:                 "source_link.added",
+  UPDATED:               "source_link.updated",
+  REMOVED:               "source_link.removed",
+  SECTION_UPSERTED:      "section_source_link.upserted",
+  SECTION_REMOVED:       "section_source_link.removed",
+} as const
+
+export const DownloadEvents = {
+  QUEUED:     "download.queued",
+  COMPLETED:  "download.completed",
+  FAILED:     "download.failed",
+  CANCELLED:  "download.cancelled",
+} as const
+
+export const NotificationEvents = {
+  CREATED: "notification.created",
+  READ:    "notification.read",
+} as const
+
+export const SearchEvents = {
+  EXECUTED: "search.executed",
+} as const
+
+export const SyncEvents = {
+  CONFLICT: "sync.conflict",
+} as const
+
+export const SystemEvents = {
+  STARTUP:          "system.startup",
+  SHUTDOWN:         "system.shutdown",
+  SCHEMA_DEFINED:   "system.schema_defined",
+  SCHEMA_CHANGED:   "system.schema_changed",
+  ERROR_UNHANDLED:  "system.error_unhandled",
+} as const
+
+export const SecurityEvents = {
+  PERMISSION_DENIED: "security.permission_denied",
+  VALIDATION_FAILED: "security.validation_failed",
+  SANDBOX_VIOLATION: "security.sandbox_violation",
+} as const
+
+// Payload schemas follow the ContentEventPayloads pattern per stream. They are
+// the privacy enforcement point: Tier 0 fields are absent from the schema.
+
 // Same pattern for all streams:
-// AuthEvents, ReaderEvents, CollectionEvents,
+// AuthEvents, ReaderEvents, CollectionEvents, SectionEvents,
+// SourceLinkEvents, DownloadEvents, NotificationEvents, SearchEvents,
+// SyncEvents, SystemEvents, SecurityEvents,
 // PluginEvents, AdminEvents, SetupEvents, TelemetryEvents
+// (event name families and levels: 09_OBSERVABILITY.md — this catalog and 09
+//  must stay in sync; CI checks both directions)
 
 // Master index
 export const AllEventNames = {
@@ -81,6 +135,14 @@ export const AllEventNames = {
   ...AuthEvents,
   ...ReaderEvents,
   ...CollectionEvents,
+  ...SectionEvents,
+  ...SourceLinkEvents,
+  ...DownloadEvents,
+  ...NotificationEvents,
+  ...SearchEvents,
+  ...SyncEvents,
+  ...SystemEvents,
+  ...SecurityEvents,
   ...PluginEvents,
   ...AdminEvents,
   ...SetupEvents,

@@ -45,6 +45,8 @@ CREATE TABLE content_metadata (
   cover_unit_id           TEXT REFERENCES content_units(id) ON DELETE SET NULL,
   cover_storage_object_id TEXT REFERENCES storage_objects(id) ON DELETE SET NULL,
   author_name             TEXT,
+  content_rating          TEXT CHECK (content_rating IN ('safe','moderate','adult_only','explicit')),
+  user_rating             INTEGER CHECK (user_rating BETWEEN 1 AND 5),
   metadata_json           TEXT,
   created_at              TEXT NOT NULL,
   updated_at              TEXT NOT NULL
@@ -305,12 +307,15 @@ CREATE TABLE storage_backends (
   backend_key           TEXT NOT NULL UNIQUE,
   display_name          TEXT NOT NULL,
   backend_kind          TEXT NOT NULL CHECK (backend_kind IN ('local_app_data','webdav','plugin','future')),
+  plugin_key            TEXT,            -- required when backend_kind = 'plugin'; plugin table consolidation pending
   config_json           TEXT NOT NULL,   -- NO plaintext secrets
   config_schema_version INTEGER NOT NULL,
   secret_ref            TEXT,            -- OS keychain ref only
   status                TEXT NOT NULL CHECK (status IN ('active','disabled','deprecated')),
   created_at            TEXT NOT NULL,
-  updated_at            TEXT NOT NULL
+  updated_at            TEXT NOT NULL,
+  CHECK ((backend_kind = 'plugin' AND plugin_key IS NOT NULL)
+      OR (backend_kind != 'plugin' AND plugin_key IS NULL))
 );
 ```
 
@@ -382,13 +387,17 @@ CREATE TABLE content_relationship_proposals (
   source_content_id  TEXT NOT NULL REFERENCES contents(id) ON DELETE CASCADE,
   target_content_id  TEXT NOT NULL REFERENCES contents(id) ON DELETE CASCADE,
   suggested_type     TEXT NOT NULL,
-  confidence         TEXT NOT NULL DEFAULT 'auto_low',
+  confidence         TEXT NOT NULL DEFAULT 'auto_low' CHECK (confidence IN ('manual','auto_high','auto_low')),
   signal_summary_json TEXT NOT NULL,
   status             TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','accepted','rejected','expired')),
   reviewed_at        TEXT,
   expires_at         TEXT NOT NULL,
-  created_at         TEXT NOT NULL
+  created_at         TEXT NOT NULL,
+  CHECK (source_content_id != target_content_id)
 );
+CREATE UNIQUE INDEX ux_relationship_proposals_pending
+  ON content_relationship_proposals(source_content_id, target_content_id, suggested_type)
+  WHERE status = 'pending';
 ```
 
 ## content_fingerprints
@@ -440,6 +449,7 @@ CREATE TABLE auth_sessions (
   user_id      TEXT NOT NULL REFERENCES auth_users(id) ON DELETE CASCADE,
   method       TEXT NOT NULL CHECK (method IN ('passkey','oauth','api_key','local_password','magic_link')),
   token_hash   TEXT NOT NULL,          -- HMAC-SHA256(verifier, serverKey); write-once
+  key_id       TEXT NOT NULL,          -- HMAC server key id used for token_hash
   expires_at   TEXT NOT NULL,
   last_used_at TEXT,
   ip_hash      TEXT,                   -- one-way, anomaly detection only
@@ -451,12 +461,17 @@ CREATE INDEX idx_sessions_expires_at ON auth_sessions(expires_at);
 -- TOKEN SCHEME (selector.verifier):
 --   issued token = "<selector>.<verifier>", both high-entropy random (>=128-bit verifier).
 --   Lookup: SELECT by id = selector, then constant-time compare
---   HMAC-SHA256(verifier) against token_hash.
+--   HMAC-SHA256(verifier) with key_id-selected server key against token_hash.
 -- WHY NOT argon2 here: argon2 output is salted/non-deterministic, so a UNIQUE
 -- "look up row by hash of presented token" design cannot work, and slow hashing
 -- of a high-entropy random token adds latency without security benefit.
 -- argon2id is REQUIRED only for low-entropy user secrets (local_password, filter PIN).
 -- Tokens are never stored plaintext, never logged, never returned after creation.
+-- HMAC key management:
+--   key material lives in OS/deployment secret storage, never in DB/config.
+--   New credentials use the newest active key_id. Old key_ids remain verify-only
+--   until their credentials expire or are explicitly revoked. A compromised key_id
+--   can be hard-revoked, invalidating only credentials signed under that key.
 
 CREATE TABLE passkeys (
   id            TEXT PRIMARY KEY,
@@ -474,6 +489,7 @@ CREATE TABLE api_keys (
   id           TEXT PRIMARY KEY,       -- = key selector embedded in "vk_<selector>_<verifier>"
   user_id      TEXT NOT NULL REFERENCES auth_users(id) ON DELETE CASCADE,
   key_hash     TEXT NOT NULL,          -- HMAC-SHA256(verifier); shown once at creation, never retrievable
+  key_id       TEXT NOT NULL,          -- HMAC server key id used for key_hash
   display_name TEXT NOT NULL,
   scopes_json  TEXT NOT NULL,          -- immutable after creation
   expires_at   TEXT,
@@ -584,6 +600,8 @@ CREATE TABLE recommendation_feedback (
   rank             INTEGER,
   recorded_at      TEXT NOT NULL
 );
+-- Intentionally NO FK to contents: feedback rows are behavioral training
+-- evidence and must survive content deletion (same policy as training_signals).
 
 CREATE TABLE training_signals (
   id           TEXT PRIMARY KEY,
@@ -738,12 +756,14 @@ CREATE TABLE content_annotations (
   content_id      TEXT NOT NULL REFERENCES contents(id) ON DELETE CASCADE,
   unit_id         TEXT NOT NULL REFERENCES content_units(id) ON DELETE CASCADE,
   annotation_type TEXT NOT NULL CHECK (annotation_type IN ('highlight','comment','bookmark')),
-  start_offset    INTEGER NOT NULL,
-  end_offset      INTEGER NOT NULL,
+  start_offset    INTEGER,   -- required for highlight/comment; NULL allowed for bookmark (e.g. bookmark on an image unit)
+  end_offset      INTEGER,
   color           TEXT,
   comment         TEXT,
   created_at      TEXT NOT NULL,
-  updated_at      TEXT NOT NULL
+  updated_at      TEXT NOT NULL,
+  CHECK (annotation_type = 'bookmark' OR (start_offset IS NOT NULL AND end_offset IS NOT NULL)),
+  CHECK (start_offset IS NULL OR end_offset IS NULL OR end_offset >= start_offset)
 );
 
 -- Full-text search (text content types only)
