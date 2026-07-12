@@ -1,6 +1,9 @@
 {
   "name": "venera-workspace",
   "private": true,
+  "scripts": {
+    "verify:design:v2": "node scripts/verify-design-v2.mjs"
+  },
   "workspaces": [
     "runtime/core",
     "packages/runtime-contracts",

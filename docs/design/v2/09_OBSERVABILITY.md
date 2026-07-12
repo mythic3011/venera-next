@@ -85,6 +85,10 @@ The names below are naming guidance and current/future examples, not proof that 
 **When**: Import flow completed
 **Level**: info
 
+#### content.relationship.detected
+**When**: Recommendation/fingerprint logic proposes or records related-content evidence
+**Level**: info
+
 ---
 
 ### Section Domain Events

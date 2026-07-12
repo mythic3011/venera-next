@@ -1,0 +1,40 @@
+name: design-v2
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/design-v2.yml"
+      - "docs/design/v2/**"
+      - "docs/development.md"
+      - "package.json"
+      - "package-lock.json"
+      - "scripts/verify-design-v2.mjs"
+  push:
+    branches:
+      - main
+      - master
+    paths:
+      - ".github/workflows/design-v2.yml"
+      - "docs/design/v2/**"
+      - "docs/development.md"
+      - "package.json"
+      - "package-lock.json"
+      - "scripts/verify-design-v2.mjs"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: design-v2-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  schema-authority:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+      - run: npm run verify:design:v2

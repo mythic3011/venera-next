@@ -26,6 +26,18 @@ npm --prefix runtime/core run build
 The runtime core also provides `lint` and `smoke` scripts. Use the command that
 matches the slice being changed.
 
+For design-schema changes under `docs/design/v2/`, run:
+
+```bash
+npm run verify:design:v2
+```
+
+This checks that `02_DATABASE_SCHEMA.md` remains the canonical table authority
+and that target fragments in feature/plugin docs do not redefine canonical or
+duplicate target tables. It also checks that event constants declared in
+`04_PACKAGES_AND_PIECES.md` have matching event-family entries in
+`09_OBSERVABILITY.md`.
+
 ## Release channels
 
 Official releases are published through this repository's GitHub Releases unless
