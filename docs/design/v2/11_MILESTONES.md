@@ -31,13 +31,25 @@ M7 items may be pulled earlier opportunistically; they are batched last only bec
 
 ---
 
-### Separate legacy-data import milestones (no runtime code reuse)
+### Separate one-time legacy-data import milestones (not a runtime migration)
 
-- **L0 schema/fixture work**: implement independent read-only snapshot readers and parsers for the five explicitly supported distributed legacy file formats. Fixed filename allowlist, no Unified Store detection or fallback, no executable legacy code, dry-run report.
-- **L1 local reading data**: import eligible local works and media paths from \`local.db\`, reconcile \`history.db\` chapter/page positions against verified new canonical ContentUnit identities (after new Reader and unit-order invariants exist). Missing/ambiguous rows remain unresolved.
-- **L2 collections/settings**: bring in \`local_favorite.db\` folder membership/order once M2 UserCollection exists; map only reviewed, non-secret \`appdata.json\` and \`implicitData.json\` preferences. No credential or direct JS source import.
-- **L3 optional remote favorite/history resolution**: once M3 provider identity/account boundaries exist, allow explicit reconciliation of unresolved records; no automatic provider sign-in/source execution. User-facing "import all selected files" must report any pending categories.
-- **Completion rule**: one user-initiated wizard with consistent snapshots, preview, approval, canonical writes, validation and idempotent receipt. Does **not** alter the new v2 fresh-schema design, and never mutates source files.
+> Proposed contract: [17_LEGACY_DISTRIBUTED_IMPORT.md](17_LEGACY_DISTRIBUTED_IMPORT.md). Input files **only**: `local.db`, `history.db`, `local_favorite.db`, `appdata.json` and `implicitData.json`. Old Unified Store `venera.db` is excluded. Journal sidecars (`-wal` / `-shm`) are SQLite snapshot mechanics, never extra import types. The importer does not depend on the old runtime.
+
+| Phase | Earliest dependency | Exit gate |
+|---|---|---|
+| **L0 — Safe snapshot / dry run** | After **M0** | Five-file allowlist; read-only WAL-consistent SQLite snapshot, strict schema/JSON parsing; stable dataset-scoped LegacyRecordKey; typed preview, quotas and malicious-input tests |
+| **L1 — Local content + resume** | After **M1** | `local.db` mapped to canonical Content/Section/Unit; verified media and complete active unit orders; `history.db` matched to Unit only when old chapter/page/index semantics are proven; durable filesystem+DB recovery |
+| **L2 — Collections, tags, settings** | After **M2** | `local_favorite.db` folder order/memberships; allowlisted `appdata.json` and `implicitData.json`; import tag mapping only after M2 taxonomy contracts. Image favorites remain a **distinct deferred category**, not UserCollectionItem |
+| **L3 — Optional source-only review** | After **M3** | User-reviewed remote history/favorite provenance under SourceInstance/AccountProfile; no automatic plugin execution, login, credential reuse or network fetch |
+
+**Cross-phase correctness and acceptance:**
+
+- Separate **batch snapshot fingerprint** from **dataset identity** and **per-record stable mapping**. A retry or changed settings JSON cannot duplicate mapped comics, collections or history; different installations with identical old IDs cannot collide.
+- SQLite and filesystem are not one atomic resource. Use staged bytes, hash verification, durable intent, same-volume atomic promotion or validated copy/rename, canonical DB visibility commit, receipt recovery and orphan garbage collection. Simulated crashes at each boundary cannot expose half-imported active unit orders or broken StoragePlacements.
+- Old `ep` / `page` / `readEpisode` / `chapter_group` do not identify a v2 Unit. Verify matching identity and index-base semantics; if ambiguous, preserve typed staging evidence and do not create/update ReadingSession. Existing v2 progress never rewinds silently.
+- Import only from explicit trusted UI gesture. Source files and selected media roots remain unchanged. Credentials, source executable JS and the Unified Store are excluded.
+- A user-facing **"import all five"** promise is complete only if all requested categories were verified. Otherwise return **partial/deferred** with a durable, auditable (redacted) receipt and separate review lifecycle.
+- Tests must cover malicious SQL folder names, active WAL, symlink/media escape, missing folders, wrong-source `venera.db`, changed-only JSON, duplicate attempts and account/source unresolved evidence.
 
 ## M0 — Foundations & Doc-Fix Batch
 
