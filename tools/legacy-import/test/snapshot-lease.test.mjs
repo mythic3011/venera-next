@@ -20,7 +20,10 @@ function issue(registry, overrides={}) {
  const local=inputs.find(x=>x.role==="local.db" &&
    (Buffer.isBuffer(x.bytes) || x.bytes instanceof Uint8Array));
  const recordProofs=overrides.recordProofs ??
-   (local ? [proofFor(local.bytes)] : []);
+   inputs.map(({role,bytes})=>role==="local.db"?
+     proofFor(bytes):{version:1,role,
+       snapshotSha256:createHash("sha256").update(bytes).digest("hex"),
+       records:[]});
  return registry.issue({ownerScopeId:OWNER,datasetId:DATASET,
    ...overrides,inputs,recordProofs});
 }
