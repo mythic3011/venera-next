@@ -5,7 +5,7 @@ import { backup, DatabaseSync } from "node:sqlite";
 import { lstat, readFile, writeFile, chmod, stat } from "node:fs/promises";
 import { join } from "node:path";
 import { previewLegacyDirectory, INPUT_ROLES } from "./l0.mjs";
-import { attestLocalComicsSnapshot } from "./record-provenance.mjs";
+import { attestLocalComicsSnapshot, attestHistorySnapshot, attestFavoriteFoldersSnapshot, attestJsonSnapshot } from "./record-provenance.mjs";
 
 const MAX_DB=48*1024*1024,MAX_JSON=4*1024*1024;
 function fail(){throw new Error("LEGACY_SNAPSHOT_EXPORT_FAILED");}
@@ -46,13 +46,26 @@ try {
   // host later pins in the lease; do not inspect one version and reopen originals.
   const result=await previewLegacyDirectory("/out");
   if(result.status==="needs_attention")fail(); // fail closed; host deletes staging
-  // Private evidence artifact, NOT stdout or additional metadata input.
-  // Only local.db record attestation is implemented in this phase.
-  const local=result.files.find(f=>f.role==="local.db");
+  // Private attestations for each inspected input role, always derived from
+  // exactly the same consistent snapshot as the L0 statistics-only preview.
+  // implicitData.json intentionally has ZERO attested selectable records.
   const proofs=[];
-  if(local.status==="inspected") {
-    const proof=await attestLocalComicsSnapshot("/out/local.db");
-    if(proof.records.length!==local.eligible || local.invalid!==0)fail();
+  for(const file of result.files){
+    if(file.status!=="inspected")continue;
+    let proof;
+    if(file.role==="local.db")
+      proof=await attestLocalComicsSnapshot("/out/local.db");
+    else if(file.role==="history.db")
+      proof=await attestHistorySnapshot("/out/history.db");
+    else if(file.role==="local_favorite.db")
+      proof=await attestFavoriteFoldersSnapshot("/out/local_favorite.db");
+    else
+      proof=await attestJsonSnapshot("/out/"+file.role,file.role);
+    const expected=file.role==="local.db"?file.eligible:
+      file.role==="history.db"?file.records:
+      file.role==="local_favorite.db"?file.records:
+      file.role==="appdata.json"?file.eligible:0;
+    if(proof.records.length!==expected || (file.invalid||0)!==0)fail();
     proofs.push(proof);
   }
   const evidence=JSON.stringify({version:1,proofs});
