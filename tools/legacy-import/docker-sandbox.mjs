@@ -2,9 +2,11 @@
 // Docker daemon/image are TRUSTED inputs; legacy DB/JSON remain UNTRUSTED.
 import { randomBytes } from "node:crypto";
 import { spawn } from "node:child_process";
-import { lstat, realpath } from "node:fs/promises";
-import { dirname, resolve } from "node:path";
+import { lstat, realpath, readFile, mkdtemp, chmod, rm } from "node:fs/promises";
+import { dirname, resolve, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { tmpdir } from "node:os";
+import { INPUT_ROLES } from "./l0.mjs";
 import { sanitizeSandboxResult } from "./sanitize-result.mjs";
 
 export class SandboxError extends Error {
@@ -22,15 +24,16 @@ function validatedMountPath(path) {
   return path;
 }
 export function buildDockerArgs({ selectedDir, appDir, containerName,
-  image = DEFAULT_IMAGE, uid, gid }) {
+  image = DEFAULT_IMAGE, uid, gid, outputDir=null }) {
   validatedMountPath(selectedDir);
   validatedMountPath(appDir);
+  if(outputDir!==null)validatedMountPath(outputDir);
   if (!/^venera-legacy-[a-f0-9]{20}$/.test(containerName)) deny("SANDBOX_INVALID_CONTAINER_NAME");
   if (!Number.isSafeInteger(uid) || !Number.isSafeInteger(gid) || uid <= 0 || gid <= 0)
     deny("SANDBOX_UNPRIVILEGED_USER_REQUIRED");
   if (typeof image !== "string" || !/^node:22\.16\.0-bookworm-slim$/.test(image))
     deny("SANDBOX_IMAGE_NOT_APPROVED");
-  return [
+  const args=[
     "run", "--rm", "--pull=never", "--name", containerName, "--network=none",
     "--read-only", "--cap-drop=ALL", "--security-opt=no-new-privileges",
     "--pids-limit=64", "--memory=512m", "--memory-swap=512m", "--cpus=1",
@@ -38,9 +41,13 @@ export function buildDockerArgs({ selectedDir, appDir, containerName,
     "--tmpfs", "/tmp:rw,noexec,nosuid,nodev,size=96m,mode=1777",
     "--mount", "type=bind,src=" + appDir + ",dst=/app,readonly",
     "--mount", "type=bind,src=" + selectedDir + ",dst=/legacy,readonly",
-    "--workdir", "/app", "--env", "NODE_ENV=production", image,
-    "node", "/app/preview.mjs", "--dir", "/legacy",
   ];
+  if(outputDir!==null)
+    args.push("--mount","type=bind,src="+outputDir+",dst=/out");
+  args.push("--workdir","/app","--env","NODE_ENV=production",image,"node");
+  if(outputDir===null)args.push("/app/preview.mjs","--dir","/legacy");
+  else args.push("/app/export-snapshots.mjs","--dir","/legacy","--out","/out");
+  return args;
 }
 async function validateDirectory(dir) {
   if (typeof dir !== "string" || !dir.length) deny("SANDBOX_NO_DIRECTORY");
@@ -111,5 +118,55 @@ export async function previewInDocker(selectedDirectory) {
   } catch (error) {
     cleanupContainer(containerName);
     throw error;
+  }
+}
+
+
+// Host-private bridge from OS-isolated consistent snapshots to an in-memory
+// lease. This is not an end-user Import Wizard or record-level authorization.
+// Never return its leaseRef from a renderer/plugin RPC.
+export async function previewAndIssueSnapshotLease({
+  selectedDirectory,ownerScopeId,datasetId,snapshotLeaseRegistry
+}) {
+  if(!snapshotLeaseRegistry || typeof snapshotLeaseRegistry.issue!=="function")
+    deny("SANDBOX_LEASE_REGISTRY_REQUIRED");
+  if(!["linux","darwin"].includes(process.platform))
+    deny("SANDBOX_PLATFORM_UNSUPPORTED");
+  const uid=process.getuid?.(),gid=process.getgid?.();
+  if(!uid||!gid)deny("SANDBOX_UNPRIVILEGED_USER_REQUIRED");
+  const selectedDir=await validateDirectory(selectedDirectory);
+  const appDir=await validateDirectory(APP_DIR);
+  const outputDir=await mkdtemp(join(tmpdir(),"venera-lease-stage-"));
+  await chmod(outputDir,0o700);
+  const name="venera-legacy-"+randomBytes(10).toString("hex");
+  const buffers=[];
+  try {
+    const args=buildDockerArgs({
+      selectedDir,appDir,containerName:name,uid,gid,outputDir
+    });
+    const preview=await runDocker(args);
+    if(preview.status!=="preview_only")deny("SANDBOX_LEASE_PREVIEW_INVALID");
+    for(const record of preview.files) {
+      if(record.status!=="inspected")continue;
+      if(!INPUT_ROLES.includes(record.role))deny("SANDBOX_RESULT_INVALID");
+      const path=join(outputDir,record.role);
+      const st=await lstat(path);
+      if(!st.isFile()||st.isSymbolicLink())deny("SANDBOX_LEASE_FILE_INVALID");
+      const bytes=await readFile(path);
+      buffers.push({role:record.role,bytes});
+    }
+    if(buffers.length!==preview.totals.inspected)
+      deny("SANDBOX_LEASE_FILE_INVALID");
+    const {leaseRef,expiresAt}=snapshotLeaseRegistry.issue({
+      ownerScopeId,datasetId,inputs:buffers
+    });
+    return Object.freeze({preview,leaseRef,expiresAt});
+  }catch(e){
+    cleanupContainer(name);
+    if(e instanceof SandboxError)throw e;
+    deny("SANDBOX_SNAPSHOT_LEASE_FAILED");
+  }finally{
+    for(const record of buffers)record.bytes.fill(0);
+    await rm(outputDir,{recursive:true,force:true});
   }
 }
