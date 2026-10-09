@@ -26,7 +26,7 @@ const DEFAULT_LIMITS = Object.freeze({
   maxJsonDepth: 24,
   maxJsonNodes: 100000,
 });
-const READER_SETTINGS = Object.freeze({
+export const READER_SETTINGS = Object.freeze({
   theme_mode: x => ["system", "light", "dark"].includes(x),
   language: x => ["system", "zh-CN", "zh-TW", "en-US"].includes(x),
   enableTapToTurnPages: x => typeof x === "boolean",
