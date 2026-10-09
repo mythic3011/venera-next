@@ -799,6 +799,8 @@ CREATE TABLE legacy_import_batches (
   input_manifest_json  TEXT NOT NULL,          -- approved five-role snapshot digests and options, no raw credentials
   policy_revision      TEXT NOT NULL,
   plan_digest          TEXT NOT NULL,          -- approved plan; batch fingerprint ≠ record identity
+  approval_scope       TEXT NOT NULL DEFAULT 'evidence_only'
+                       CHECK (approval_scope IN ('evidence_only')), -- no Content/Storage write permission
   snapshot_lease_ref   TEXT,                   -- host-private ephemeral ref; mandatory to execute approved work
   state                TEXT NOT NULL DEFAULT 'selected'
                        CHECK (state IN
