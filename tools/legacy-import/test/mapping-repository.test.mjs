@@ -23,6 +23,15 @@ function setup(t) {
   db.exec(authoritativeSql);
   return new LegacyMappingRepository(db);
 }
+// TEST FIXTURE ONLY: a previously approved Dataset, not a product creation API.
+function fixtureExistingDataset(repo,{ownerScopeId,displayLabel}) {
+  const id="00000000-0000-4000-8000-"+String(++fixtureSerial).padStart(12,"0");
+  const now=new Date().toISOString();
+  repo.db.prepare("INSERT INTO legacy_import_datasets(id,owner_scope_id,display_label,state,created_at,updated_at) VALUES (?,?,?,'active',?,?)")
+    .run(id,ownerScopeId,displayLabel,now,now);
+  return id;
+}
+let fixtureSerial=0;
 const DIGEST="1".repeat(64);
 const SHA2="2".repeat(64);
 const SHA3="3".repeat(64);
@@ -64,7 +73,7 @@ test("fresh-v2 six-table DDL executes with FK enforcement", t=>{
 });
 test("dataset is scoped to owner; generating a preview plan is read-only",t=>{
   const repo=setup(t);
-  const id=repo.createDatasetForApprovedImport({ownerScopeId:"user-A",displayLabel:"old phone"});
+  const id=fixtureExistingDataset(repo,{ownerScopeId:"user-A",displayLabel:"old phone"});
   const original=count(repo,"legacy_import_batches");
   const proposed=plan("user-A",id);
   assert.match(proposed.planDigest,/^[a-f0-9]{64}$/);
@@ -74,14 +83,14 @@ test("dataset is scoped to owner; generating a preview plan is read-only",t=>{
 });
 test("missing approval denies mapping reservation BEFORE insert", t=>{
   const repo=setup(t);
-  const ds=repo.createDatasetForApprovedImport({ownerScopeId:"user-A",displayLabel:"phone"});
+  const ds=fixtureExistingDataset(repo,{ownerScopeId:"user-A",displayLabel:"phone"});
   assert.throws(()=>reserve(repo,"user-A",ds,{}),
     e=>e instanceof MappingStoreError && e.code==="LEGACY_APPROVAL_REQUIRED");
   assert.equal(count(repo,"legacy_record_mappings"),0);
 });
 test("approved batch binds exact digest and owner; reimport is idempotent",async t=>{
   const repo=setup(t);
-  const ds=repo.createDatasetForApprovedImport({ownerScopeId:"user-A",displayLabel:"old phone"});
+  const ds=fixtureExistingDataset(repo,{ownerScopeId:"user-A",displayLabel:"old phone"});
   const a=await approve(repo,"user-A",ds);
   const first=reserve(repo,"user-A",ds,a);
   assert.equal(first.state,"reserved_unresolved");
@@ -97,7 +106,7 @@ test("approved batch binds exact digest and owner; reimport is idempotent",async
 });
 test("forged batch, altered digest, cross-owner and revoked state deny",async t=>{
   const repo=setup(t);
-  const ds=repo.createDatasetForApprovedImport({ownerScopeId:"user-A",displayLabel:"phone"});
+  const ds=fixtureExistingDataset(repo,{ownerScopeId:"user-A",displayLabel:"phone"});
   const batch=await approve(repo,"user-A",ds);
   for(const changes of [
     {batchId:"00000000-0000-4000-8000-000000000000"},
@@ -114,7 +123,7 @@ test("forged batch, altered digest, cross-owner and revoked state deny",async t=
 });
 test("approved manifest cannot be used for a different file role",async t=>{
   const repo=setup(t);
-  const ds=repo.createDatasetForApprovedImport({ownerScopeId:"user-A",displayLabel:"phone"});
+  const ds=fixtureExistingDataset(repo,{ownerScopeId:"user-A",displayLabel:"phone"});
   const batch=await approve(repo,"user-A",ds);
   assert.throws(()=>reserve(repo,"user-A",ds,batch,{
     key:key(ds,"42",{fileRole:"history.db",tableKind:"history"})
@@ -123,7 +132,7 @@ test("approved manifest cannot be used for a different file role",async t=>{
 });
 test("gesture denial and changed snapshot cannot persist approval",async t=>{
   const repo=setup(t);
-  const ds=repo.createDatasetForApprovedImport({ownerScopeId:"user-A",displayLabel:"phone"});
+  const ds=fixtureExistingDataset(repo,{ownerScopeId:"user-A",displayLabel:"phone"});
   await assert.rejects(approve(repo,"user-A",ds,{gestureCheck:async()=>false}),
     e=>e instanceof LegacyApprovalError&&e.code==="LEGACY_APPROVAL_GESTURE_REJECTED");
   await assert.rejects(approve(repo,"user-A",ds,{snapshotCheck:async()=>false}),
@@ -132,7 +141,7 @@ test("gesture denial and changed snapshot cannot persist approval",async t=>{
 });
 test("user-approved digest must match full trusted preview plan",async t=>{
   const repo=setup(t);
-  const ds=repo.createDatasetForApprovedImport({ownerScopeId:"user-A",displayLabel:"phone"});
+  const ds=fixtureExistingDataset(repo,{ownerScopeId:"user-A",displayLabel:"phone"});
   const p=plan("user-A",ds);
   const gate=new TrustedLegacyApprovalService({
     canonicalDb:repo.db,verifyTrustedUserGesture:async()=>true,
@@ -144,7 +153,7 @@ test("user-approved digest must match full trusted preview plan",async t=>{
 });
 test("malformed/duplicate/unknown input roles are rejected before DB", t=>{
   const repo=setup(t);
-  const ds=repo.createDatasetForApprovedImport({ownerScopeId:"user-A",displayLabel:"phone"});
+  const ds=fixtureExistingDataset(repo,{ownerScopeId:"user-A",displayLabel:"phone"});
   for(const manifest of [
     [{role:"venera.db",sha256:DIGEST}],
     [{role:"local.db",sha256:DIGEST},{role:"local.db",sha256:SHA2}],
@@ -158,15 +167,15 @@ test("malformed/duplicate/unknown input roles are rejected before DB", t=>{
 });
 test("dataset owner mismatch denies approval even when gesture mock passes",async t=>{
   const repo=setup(t);
-  const ds=repo.createDatasetForApprovedImport({ownerScopeId:"user-A",displayLabel:"phone"});
+  const ds=fixtureExistingDataset(repo,{ownerScopeId:"user-A",displayLabel:"phone"});
   await assert.rejects(approve(repo,"user-B",ds),
     e=>e instanceof LegacyApprovalError&&e.code==="LEGACY_APPROVAL_DATASET_DENIED");
   assert.equal(count(repo,"legacy_import_batches"),0);
 });
 test("two datasets with same old numeric ID never collide",async t=>{
   const repo=setup(t);
-  const d1=repo.createDatasetForApprovedImport({ownerScopeId:"user-A",displayLabel:"phone"});
-  const d2=repo.createDatasetForApprovedImport({ownerScopeId:"user-A",displayLabel:"tablet"});
+  const d1=fixtureExistingDataset(repo,{ownerScopeId:"user-A",displayLabel:"phone"});
+  const d2=fixtureExistingDataset(repo,{ownerScopeId:"user-A",displayLabel:"tablet"});
   const a=await approve(repo,"user-A",d1);
   const b=await approve(repo,"user-A",d2);
   const first=reserve(repo,"user-A",d1,a), second=reserve(repo,"user-A",d2,b);
