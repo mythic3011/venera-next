@@ -1,8 +1,17 @@
 # v2 Account Scope, Passkey and Auth Broker — Adoption Contract
 
-> **Status: implementation design proposal (2026-10-09).** This is an ADR and migration sketch, **not** an implemented contract or replacement for canonical v2 docs 01/02/05/06/07. Read with [14_PLUGIN_RUNTIME_SECURITY.md](14_PLUGIN_RUNTIME_SECURITY.md) and [15_RUNTIME_CREDENTIAL_VAULT.md](15_RUNTIME_CREDENTIAL_VAULT.md). Contradictions below are explicit adoption gates.
+> **Status: implementation design proposal (2026-10-09).** This is an ADR and fresh-schema design sketch, **not** an implemented contract or replacement for canonical v2 docs 01/02/05/06/07. The prior runtime implementation is discarded (greenfield v2); no legacy runtime/schema migration is required. Read with [14_PLUGIN_RUNTIME_SECURITY.md](14_PLUGIN_RUNTIME_SECURITY.md) and [15_RUNTIME_CREDENTIAL_VAULT.md](15_RUNTIME_CREDENTIAL_VAULT.md). Contradictions below are explicit adoption gates.
 >
-> **Technical baseline**: The current source_links unique index is (source_platform_id, remote_work_id); the current download_tasks has plugin_key and source_link_id, but no durable account binding; the v2 provider protocol includes provider.login(credentials) and api.fetch(url, RequestInit); and passkeys table lacks revocation and credential-backup metadata. These are *design gaps*, not observed exploitable runtime defects.
+> **Canonical v2 design baseline**: 02_DATABASE_SCHEMA.md currently specifies source_links uniqueness as (source_platform_id, remote_work_id), while 07_FEATURES.md's proposed DownloadTask has no account binding; 05_PLUGIN_SYSTEM.md proposes provider.login(credentials) and api.fetch(url, RequestInit); and 02's passkeys table does not yet express challenge/revocation and backup metadata. These are **greenfield contract revisions**, not migrations against currently deployed runtime code.
+
+
+## Greenfield implementation ruling (2026-10-09)
+
+- **Discard current runtime code** (legacy `Comic` / `Chapter` / `Page` implementation, legacy database adapters, mutable JS source-host assumptions). Do not route new v2 through any of those classes or tables, and do not spend effort on bridging `page_id` to `unit_id` in the old DB.
+- **Preserve the documented canonical v2 behavior, not existing source binaries**. New v2 starts with `Content` → `ContentSection` → `ContentUnit`, trusted SDK/RPC, fresh schema DDL, account-aware provenance and Vault interfaces.
+- **No backward-compatibility commitment** for old runtime code, schema, one-file JS source format or account cookie persistence. A separate *optional, one-way, explicit user-data importer* may be considered later; it is read-only to old stores, runs outside the new runtime authority and must not import plaintext tokens automatically.
+- **No unrequested deletion yet**: this PR is design-only. Removing the existing runtime tree and any new implementation should happen in an explicit subsequent PR with its own acceptance tests.
+- **Greenfield test source**: write new fixtures/contracts against v2 entities and mocks, not old implementation test snapshots. Treat prior passing tests as evidence about old behavior, not proof that v2 is implemented.
 
 ## ADR-A: Separate three kinds of identity
 
@@ -54,7 +63,7 @@ interface TrustedAccountCommands {
 
 ## ADR-C: Data model: a scoped instance, not a global account cookie
 
-**Candidate SQLite DDL** (illustrative and not yet a migration; exact naming/authorities must be reconciled against 02_DATABASE_SCHEMA).
+**Candidate SQLite DDL** (illustrative fresh-v2 schema additions; exact naming/authorities must be reconciled against 02_DATABASE_SCHEMA before *new* implementation).
 
 ~~~sql
 -- Local runtime assigns one private immutable owner_scope_id per local profile.
@@ -98,10 +107,11 @@ CREATE UNIQUE INDEX ux_source_instance_account
   ON source_instances(source_platform_id,account_profile_id)
   WHERE scope_kind='account';
 
--- Proposed source_links migration:
--- add source_instance_id FK source_instances(id), backfill from global instance,
--- require NOT NULL, then replace existing unique (source_platform_id, remote_work_id)
--- with UNIQUE (source_instance_id, remote_work_id). Keep ContentId separate.
+-- Fresh-v2 source_links definition:
+-- source_instance_id TEXT NOT NULL REFERENCES source_instances(id),
+-- UNIQUE (source_instance_id, remote_work_id) from the FIRST CREATE TABLE.
+-- No legacy backfill or old unique index migration is needed.
+-- Keep ContentId separate.
 -- SourcePlatformId becomes derived via SourceInstance join; avoid keeping a
 -- redundant writable SourcePlatformId on SourceLink without equality enforcement.
 
@@ -116,7 +126,7 @@ CREATE TABLE source_account_access (
 -- Application validates both belong to the same Venera user and owner provider.
 -- Real access MUST be checked through AuthBroker + upstream status on every fetch.
 
--- Proposed download_tasks migration:
+-- Fresh-v2 download_tasks definition (for the M3 feature, not M1):
 -- account_profile_id TEXT REFERENCES external_account_profiles(id) ON DELETE RESTRICT;
 -- auth_binding_kind TEXT CHECK (auth_binding_kind IN ('none','same_profile'));
 -- On resume, reconstruct a NEW immutable per-request snapshot under the SAME
@@ -124,13 +134,13 @@ CREATE TABLE source_account_access (
 -- AUTH_REQUIRED instead of silently adopting a different account.
 ~~~
 
-**MIGRATION GATES:**
-1. Existing public SourceLinks get one global SourceInstance per SourcePlatform before uniqueness changes; preserve ContentId, SectionId, UnitId and current active ReadingSession untouched.
-2. Decide for each provider whether remote IDs are globally unique or scoped to one authenticated account. Do **not** infer from URL/title or just assume all private works are separate: reclassifying global↔account requires a controlled review/migration with conflicts surfaced to the user.
+**GREENFIELD SCHEMA GATES (NOT LEGACY MIGRATIONS):**
+1. From the first new-v2 schema version, public/global SourceLinks reference a global SourceInstance, and account-private SourceLinks reference an account-scoped SourceInstance. ContentId, SectionId and UnitId are allocated by the new canonical v2 use cases; no old runtime state is backfilled.
+2. Decide for each provider whether remote IDs are globally unique or scoped to one authenticated account. Do **not** infer from URL/title or just assume all private works are separate: if classification changes later within the *new* product, handle it as a future v2 schema/data change with explicit conflict review.
 3. For a source with globally stable work IDs but account-dependent access, use global SourceInstance **plus** source_account_access evidence, not duplicate canonical Contents. For genuine account-private work IDs, use account-scoped SourceInstance.
 4. A SourceLink and account owner must have compatible provider/mount ownership; cross-tenant links fail. Foreign keys alone do not enforce complex ownership relations; host application transaction checks are mandatory, or choose an explicit composite-key schema at adoption.
 5. If AccountProfile deletion would orphan account-scoped SourceInstance and SourceLinks, default to disable/revoke and keep canonical provenance/reading history; explicit cleanup must be separate and preserve Canonical IDs.
-6. v2 pre-stable schema is allowed to change, but documented v2 cross-file authority must be updated atomically. No undocumented fallback IDs.
+6. New v2 schemas can be designed correctly on day one. Update the canonical v2 entity/DDL/use-case documents together; no old-schema compatibility adapters, fallback IDs, or incremental migration from the discarded runtime.
 
 ## ADR-D: Multi-account execution and long-lived task semantics
 
@@ -195,7 +205,7 @@ SITE SIGN-IN:
 ~~~
 
 **Proposed passkey-specific persisted additions**:
-- To existing passkeys: revoked_at, user-defined safe label, transports metadata, backed_up/backup_eligible indicator where returned, last_used_at; name the actual verification library output and treat AAGUID/sign-count/backup metadata as advisory when absent.
+- In the new v2 passkeys definition from day one: revoked_at, user-defined safe label, transports metadata, backed_up/backup_eligible indicator where returned, last_used_at; name the actual verification library output and treat AAGUID/sign-count/backup metadata as advisory when absent.
 - New webauthn_challenges table: id/opaque nonce, *hash* of high-entropy challenge, purpose (register/authenticate/step_up), expected RP ID/origin policy reference, bound initial session/user when applicable, created/expiry and consumed_at. Atomic single-use consume, TTL cleanup. Rate limit challenge creation and failed verification.
 - Recovery: pick a **policy** before implementing. Recommended Hosted personal-mode default: at least two registered passkeys (one spare). Optional user-generated high-entropy offline recovery codes may be offered but **must be labeled a weaker bearer recovery channel** and strongly controlled; a strict passkey-only mode should not silently enable them.
 - Device-bound vs synchronized credentials: allow both where policy permits. A signature counter may be unreliable for synced credentials; don't hard-fail solely because it didn't increase. Do not assume backup-state metadata is present or definitive.
@@ -259,11 +269,11 @@ Every test must send at least one *forged protocol message*, not just use friend
 
 1. **M3.0 contract review:** decide SourceInstance identity granularity and browser-site passkey feasibility; confirm platform-specific worker isolation and vault adapters.
 2. **05_PLUGIN_SYSTEM.md:** retire provider.login(credentials)/getRequestHeaders/raw api.fetch target contracts; make login/profile mutation host UI-only; define account-agnostic plugin RPC status and endpoint-based approved requests.
-3. **01_ENTITIES.md + 02_DATABASE_SCHEMA.md:** introduce one ExternalAccountProfile model, SourceInstance, optional access evidence; migrate SourceLink unique index and download task bound profile; add Hosted passkey/challenge lifecycle. Never duplicate an existing account schema.
+3. **01_ENTITIES.md + 02_DATABASE_SCHEMA.md:** design one ExternalAccountProfile, SourceInstance and optional access evidence **directly into the new v2 schema**; define SourceLink uniqueness and account-bound DownloadTask correctly in their initial DDL; add Hosted passkey/challenge lifecycle. No legacy runtime migration.
 4. **07_FEATURES.md:** revise DownloadTask to persist selected profile identity and reacquire per-request revision on restart; existing UC-REMOTE-001/ContentUnit reader identity remains authority.
 5. **04/06/09:** broker+vault ports, secret-safe account events, per-platform isolation/encryption profiles and privacy policy.
 6. **11_MILESTONES.md + SUMMARY.md:** M1 local-only; M3.0 identity/auth tests; hosted Venera passkey UI belongs with Hosted auth M4, not a prerequisite for local M1.
-7. **Implement a single reference provider** with two test accounts and mocked site/redirect/session flows before migrating all venera-configs plugins.
+7. **Implement a single reference provider** with two test accounts and mocked site/redirect/session flows. Any venera-configs source logic is an upstream **reference for clean reimplementation**, not executable compatibility code or a runtime dependency.
 
 ### Open decisions requiring an explicit ADR before code
 
