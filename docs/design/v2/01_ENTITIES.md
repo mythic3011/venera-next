@@ -736,7 +736,7 @@ Entity: ContentVector
 - Evidence is protected local data, not an executable script, raw JSON credentials, or arbitrary filesystem path authority. Human review is required for uncertain source IDs, index bases and duplicated titles. A pending record cannot be passed as a canonical Reader Position or fake Content.
 
 ### LegacyImportReceipt
-- One durable receipt per batch; contains category counts (`imported`/`unchanged`/`deferred`/`review_required`/`failed`), result status (`verified | partial | failed | cancelled`), policy/schema revision and verification timestamp.
+- One durable receipt per batch; contains category counts (`imported`/`unchanged`/`deferred`/`review_required`/`failed`), result status (`verified | partial | failed | cancelled`), policy/schema revision and finalization timestamp (which may be failure/cancellation rather than verification).
 - Receipt reflects **committed** records, not attempted counters. Independent content subtrees may commit successfully even when batch status is partial. Receipt recovery after a crash derives truth from canonical mappings and the asset journal; it must not assume a missing receipt means nothing was written.
 
 ### LegacyAssetJournal
