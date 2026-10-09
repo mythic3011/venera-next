@@ -20,10 +20,20 @@ The intended ownership boundaries are:
 - Diagnostics report evidence; they do not repair invalid state.
 - Legacy code does not own live runtime authority.
 
+## Greenfield v2 implementation ruling (2026-10-09)
+
+The current legacy/runtime code is **discarded as an implementation base**. Venera Next v2 is built afresh from `docs/design/v2/` canonical domain, storage, reader, plugin and security contracts. Do not adapt old `Comic/Chapter/Page` models or existing `runtime/core` migration code as a compatibility foundation.
+
+- **No legacy runtime dependency or in-place schema migration** is required. New v2 database tables are created directly with `Content/ContentSection/ContentUnit` identifiers and complete invariants.
+- No promise of binary compatibility, legacy direct-JS plugin compatibility, account cookie/session reuse or preserved legacy APIs. Any past code may only inform human review or independently written tests.
+- **Optional user-data import is separate** from runtime architecture: read-only old-store ingestion, explicit user intent, no automatic raw credential import, verification before canonical writes. No compatibility fallback in the active v2 read path.
+- This policy itself does **not** delete files or user data. Physical removal of old source trees belongs to a separate reviewed implementation PR.
+
 ## Legacy quarantine
 
-Legacy code may remain for reference, extraction, or migration. New runtime code
-must cross legacy boundaries only through explicit import or migration paths.
+Legacy code may remain temporarily as archived reference only. New runtime code
+must not import, execute or depend on it. An optional one-way data importer is
+an independent ingestion tool, not a cross-runtime bridge.
 
 The following are compatibility inputs under review, not permanent authority:
 
@@ -43,7 +53,7 @@ may be imported on a best-effort basis, but new code must classify every store a
 one of:
 
 - canonical authority
-- compatibility fallback
+- one-way data import input (optional, never live runtime fallback)
 - cache
 - preference/configuration
 - diagnostic-only state
@@ -58,7 +68,7 @@ source_repositories/   repository indexes and package metadata cache
 taxonomy/              canonical tags, labels, and provider mappings
 logs/                  diagnostics and exported logs
 config/                application preferences
-cookies/               optional authentication/session storage
+vault/                 optional encrypted credential records only; keys in OS/vault backend
 ```
 
 The rule is: a shared database file is acceptable; a shared god-database API is
