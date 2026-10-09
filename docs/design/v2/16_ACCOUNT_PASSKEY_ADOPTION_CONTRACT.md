@@ -9,7 +9,7 @@
 
 - **Discard current runtime code** (legacy `Comic` / `Chapter` / `Page` implementation, legacy database adapters, mutable JS source-host assumptions). Do not route new v2 through any of those classes or tables, and do not spend effort on bridging `page_id` to `unit_id` in the old DB.
 - **Preserve the documented canonical v2 behavior, not existing source binaries**. New v2 starts with `Content` → `ContentSection` → `ContentUnit`, trusted SDK/RPC, fresh schema DDL, account-aware provenance and Vault interfaces.
-- **No backward-compatibility commitment** for old runtime code, schema, one-file JS source format or account cookie persistence. A separate *optional, one-way, explicit user-data importer* may be considered later; it is read-only to old stores, runs outside the new runtime authority and must not import plaintext tokens automatically.
+- **No backward-compatibility commitment** for old runtime code, schema, one-file JS source format or account cookie persistence. A separate one-time old-Venera importer accepts only `local.db`, `history.db`, `local_favorite.db`, `appdata.json`, and `implicitData.json`; it explicitly rejects old Unified Store `venera.db` (`17_LEGACY_DISTRIBUTED_IMPORT.md`). It reads consistent, isolated snapshots, never imports plaintext credentials or old JS, and is independent of new runtime authority.
 - **No unrequested deletion yet**: this PR is design-only. Removing the existing runtime tree and any new implementation should happen in an explicit subsequent PR with its own acceptance tests.
 - **Greenfield test source**: write new fixtures/contracts against v2 entities and mocks, not old implementation test snapshots. Treat prior passing tests as evidence about old behavior, not proof that v2 is implemented.
 
