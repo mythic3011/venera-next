@@ -20,6 +20,7 @@ const DEFAULT_LIMITS = Object.freeze({
   maxDbBytes: 48 * 1024 * 1024,
   maxJsonBytes: 4 * 1024 * 1024,
   maxRowsPerTable: 100000,
+  maxTotalRows: 250000,
   maxTables: 500,
   maxTextLength: 64000,
   maxJsonDepth: 24,
@@ -126,6 +127,7 @@ function auditDatabase(db, role, limits) {
       counts.imageFavorites = boundedRows(db, "image_favorites", limits);
       counts.records += counts.imageFavorites;
       counts.deferred += counts.imageFavorites;
+      if (counts.records > limits.maxTotalRows) fail("LEGACY_DATA_BUDGET_EXCEEDED");
     }
   } else if (role === "local_favorite.db") {
     if (tables.length === 0) fail("LEGACY_SCHEMA_UNSUPPORTED");
@@ -133,6 +135,7 @@ function auditDatabase(db, role, limits) {
       assertColumns(db, table, ["id", "name", "author", "type", "tags", "cover_path", "time", "display_order"]);
       const n = boundedRows(db, table, limits);
       counts.records += n;
+      if (counts.records > limits.maxTotalRows) fail("LEGACY_DATA_BUDGET_EXCEEDED");
       counts.deferred += n; // requires mapped Content + M2 UserCollection
     }
     counts.folders = tables.length;
