@@ -30,6 +30,24 @@ jobs:
           node-version: "22.16.0"
       - name: Verify L0 fixtures and read-only inspector
         run: node --test tools/legacy-import/test/*.test.mjs
+      - name: Pull trusted local Docker inspector image
+        run: docker pull node:22.16.0-bookworm-slim
+      - name: Smoke test actual read-only, no-network isolated inspector
+        run: |
+          TEMP_INPUT="$(mktemp -d)"
+          trap 'rm -rf "$TEMP_INPUT"' EXIT
+          RESULT="$(node tools/legacy-import/preview-isolated.mjs --dir "$TEMP_INPUT")"
+          printf '%s' "$RESULT" | node -e '
+            let s="";
+            process.stdin.on("data", x => s+=x);
+            process.stdin.on("end", () => {
+              const d=JSON.parse(s);
+              if(d.status!=="no_inputs" || d.readOnly!==true ||
+                 d.canCommit!==false || d.totals.missing!==5) {
+                process.exitCode=1;
+              }
+            });
+          '
       - name: Verify CLI refuses unknown arguments
         run: |
           if node tools/legacy-import/preview.mjs --invalid; then
