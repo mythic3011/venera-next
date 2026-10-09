@@ -202,6 +202,25 @@ Concurrency / consistency rules:
 
 ---
 
+## One-Time Old Venera Import: category and UI contracts
+
+> **Canonical feature contract** for the separate trusted `LegacyImport` operation, not the general Plugin ImportJob or DownloadManager. Only `local.db`, `history.db`, `local_favorite.db`, `appdata.json` and `implicitData.json` are valid old-Venera metadata inputs. The legacy Unified Store `venera.db` is out of scope. `17_LEGACY_DISTRIBUTED_IMPORT.md` gives detailed parser/fixture evidence; Entities, DDL and Use Cases are authoritative in 01/02/03.
+
+- **Dry-run, before any domain write:** user selects approved input roles and separately grants local asset directories, sees table/schema validity, per-file/category counts, source version, resolved versus unresolved works, estimated storage and reviewed conflict choices. Old files are not modified and there is no network/plugin execution.
+- **Identity and re-import:** batch fingerprint identifies one snapshot; dataset-scoped per-record mapping identifies the old record. Repeated import or a changed `appdata.json` must preserve existing Content/Section/Unit and Collection IDs. New or conflicting metadata is presented as a reviewed change, not blind replace.
+- **Local comics (L1 after M1):** verified images and ordered sections become new canonical works via normal domain/use cases; a missing folder results in a truthful metadata-only/unresolved entry only if user explicitly permits it. Tags/download state and source-only favorites are evidence, not automatically asserted canonical truth.
+- **Reading progress (L1 after M1):** old `ep/page/readEpisode/chapter_group` needs proven old-version semantics and one verifiable `ContentUnitId`. Only then may `UC-005b` write the active session; existing v2 progress is preserved unless the user explicitly chooses to replace it. Ambiguous/remote history is shown as staged review evidence, not a fake reader target.
+- **Folders and comic favorites (L2 after M2):** map valid `local_favorite.db` per-folder tables to UserCollection and member order; only create membership if a real ContentId is mapped. Unmatched remote favorites remain `LegacyUnresolvedRecord`.
+- **Image favorites:** `history.db.image_favorites` is a separate category from comic favorites. Until an explicit image-level favorite model exists, show `DEFERRED_IMAGE_FAVORITES`; never silently remap individual favorite images into whole-comic UserCollection membership.
+- **Tags and settings (L2 after M2):** apply only reviewed source tag mappings and allowlisted keys from `appdata.json` and `implicitData.json`. Before M2 tags remain bounded staging evidence; credentials, legacy scripts and unknown configuration keys are never imported.
+- **Remote references (optional L3 after M3):** source-only history/favorites can be reviewed when SourceInstance/AccountProfile identity contracts are available. Do not run source plugins, attempt login, perform website requests or automatically select a different Account during the one-time import.
+- **Crash/cancel UX:** show `selected → snapshotted → previewed → approved → applying → verified/partial/failed/cancelled` and asset journal recovery status. A partial batch can contain fully committed works but never a half-active ContentUnitOrder; cancellation doesn't delete earlier committed canonical content.
+- **Receipt and privacy:** show `imported / unchanged / deferred / review_required / failed` counts for **every selected category**, with later review and independent purge of staging evidence. No “completed” claim while a requested category is deferred, no irreversible bulk deletion of originals and no secret-bearing diagnostics.
+
+**Repository additions** to the full `CoreRepositories` target interface (phase-gated, not required by M1 minimum): `legacyImportDatasets: LegacyImportDatasetRepositoryPort`, `legacyImportBatches: LegacyImportBatchRepositoryPort`, `legacyRecordMappings: LegacyRecordMappingRepositoryPort`, `legacyUnresolvedRecords: LegacyUnresolvedRepositoryPort`, `legacyAssetJournal: LegacyAssetJournalRepositoryPort`, `legacyImportReceipts: LegacyImportReceiptRepositoryPort`. `04_PACKAGES_AND_PIECES.md` owns the application/adapter port boundary; `02_DATABASE_SCHEMA.md` owns the table DDL. These repositories aren't plugin accessible.
+
+---
+
 ## Notification System
 
 ### Entities
@@ -760,6 +779,14 @@ interface CoreRepositories {
   // Plugin
   installedPlugins:      InstalledPluginRepositoryPort
   importJobs:            ImportJobRepositoryPort
+
+  // One-time old Venera import (trusted application-only, phase-gated)
+  legacyImportDatasets:       LegacyImportDatasetRepositoryPort
+  legacyImportBatches:        LegacyImportBatchRepositoryPort
+  legacyRecordMappings:       LegacyRecordMappingRepositoryPort
+  legacyUnresolvedRecords:    LegacyUnresolvedRepositoryPort
+  legacyAssetJournal:         LegacyAssetJournalRepositoryPort
+  legacyImportReceipts:       LegacyImportReceiptRepositoryPort
   exportJobs:            ExportJobRepositoryPort
   sourceRepositories:    SourceRepositoryRepositoryPort
   packageArtifacts:      SourcePackageArtifactRepositoryPort
