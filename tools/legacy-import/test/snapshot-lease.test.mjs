@@ -1,15 +1,28 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { TrustedSnapshotLeaseRegistry, SnapshotLeaseError } from "../snapshot-lease.mjs";
+import { createHash } from "node:crypto";
 
 const OWNER="user-A";
 const DATASET="54e20f34-2365-4bb9-a9ac-2e6b6fb48525";
 const OTHER="39180d83-0a9d-4757-b630-6ed9af80a36d";
 function dbbytes(extra="old") { return Buffer.from("SQLite format 3\0"+extra); }
+const EVIDENCE_DIGEST="1".repeat(64);
+function proofFor(localBytes,recordDigest=EVIDENCE_DIGEST) {
+ return {version:1,role:"local.db",
+   snapshotSha256:createHash("sha256").update(localBytes).digest("hex"),
+   records:[{fileRole:"local.db",tableKind:"comics",scopeKey:"",
+     legacyTypeKey:"1",legacyId:"42",recordDigest}]};
+}
 function issue(registry, overrides={}) {
+ const inputs=overrides.inputs ?? [{role:"local.db",bytes:dbbytes()},
+   {role:"appdata.json",bytes:Buffer.from('{"settings":{}}')}];
+ const local=inputs.find(x=>x.role==="local.db" &&
+   (Buffer.isBuffer(x.bytes) || x.bytes instanceof Uint8Array));
+ const recordProofs=overrides.recordProofs ??
+   (local ? [proofFor(local.bytes)] : []);
  return registry.issue({ownerScopeId:OWNER,datasetId:DATASET,
-   inputs:[{role:"local.db",bytes:dbbytes()},{role:"appdata.json",bytes:Buffer.from('{"settings":{}}')}],
-   ...overrides});
+   ...overrides,inputs,recordProofs});
 }
 function context(leaseRef, extra={}) {
  return {leaseRef,ownerScopeId:OWNER,datasetId:DATASET,...extra};
@@ -77,4 +90,43 @@ test("one lease has no automatically persisted approval or canonical mapping",()
  assert.equal("bytes" in l,false);
  assert.equal("inputManifest" in l,false);
  assert.equal("planDigest" in l,false);
+});
+
+test("only exact key and digest present in pinned local.db evidence is accepted",()=>{
+ const r=new TrustedSnapshotLeaseRegistry();
+ const l=issue(r),ctx=context(l.leaseRef);
+ const manifest=r.getManifest(ctx);
+ const correct={datasetId:DATASET,fileRole:"local.db",tableKind:"comics",
+   scopeKey:"",legacyTypeKey:"1",legacyId:"42"};
+ assert.equal(r.verifyRecord({...ctx,inputManifest:manifest,
+   key:correct,recordDigest:EVIDENCE_DIGEST}),true);
+ for(const changes of [
+   {key:{...correct,legacyId:"spoof"}},
+   {key:{...correct,legacyTypeKey:"2"}},
+   {key:{...correct,datasetId:OTHER}},
+   {recordDigest:"2".repeat(64)},
+   {ownerScopeId:"attacker"}
+ ])assert.equal(r.verifyRecord({...ctx,inputManifest:manifest,
+   key:correct,recordDigest:EVIDENCE_DIGEST,...changes}),false);
+});
+test("missing or forged snapshot evidence rejects lease creation",()=>{
+ const r=new TrustedSnapshotLeaseRegistry(), bytes=dbbytes();
+ for(const recordProofs of [
+   [],
+   [{...proofFor(bytes),snapshotSha256:"0".repeat(64)}],
+   [{...proofFor(bytes),records:[...proofFor(bytes).records,...proofFor(bytes).records]}],
+   [{...proofFor(bytes),records:[{...proofFor(bytes).records[0],
+     recordDigest:"bad"}]}],
+ ])assert.throws(()=>issue(r,{inputs:[{role:"local.db",bytes}],recordProofs}),
+    SnapshotLeaseError);
+});
+test("only local.db records are attested in L0; history cannot impersonate comics",()=>{
+ const r=new TrustedSnapshotLeaseRegistry();
+ const l=issue(r,{inputs:[{role:"history.db",bytes:dbbytes("history")}]});
+ const ctx=context(l.leaseRef),m=r.getManifest(ctx);
+ assert.equal(r.verify({...ctx,inputManifest:m}),true);
+ assert.equal(r.verifyRecord({...ctx,inputManifest:m,
+   key:{datasetId:DATASET,fileRole:"history.db",tableKind:"history",
+     scopeKey:"",legacyTypeKey:"1",legacyId:"42"},
+   recordDigest:EVIDENCE_DIGEST}),false);
 });
