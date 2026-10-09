@@ -18,7 +18,8 @@ const MAX = Object.freeze({
 const MAX_TOTAL = 152 * 1024 * 1024;
 const MAX_TTL_MS = 15 * 60 * 1000;
 const DEFAULT_TTL_MS = 5 * 60 * 1000;
-const MAX_EVIDENCE_RECORDS=100000;
+const MAX_EVIDENCE_RECORDS=250000;
+const MAX_TOTAL_EVIDENCE_RECORDS=300000;
 const SHA256 = /^[0-9a-f]{64}$/;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 
@@ -52,40 +53,56 @@ function compareManifest(stored, received) {
       Object.keys(received[i]).sort().join(",")==="role,sha256");
 }
 
-function compileRecordEvidence(proofs, manifest, datasetId) {
-  if(!Array.isArray(proofs) || proofs.length>1)
-    reject("LEASE_EVIDENCE_INVALID");
-  const map=new Map();
-  for(const proof of proofs) {
+const RECORD_KINDS = Object.freeze({
+  "local.db":new Set(["comics"]),
+  "history.db":new Set(["history","image_favorites"]),
+  "local_favorite.db":new Set(["folder_item"]),
+  "appdata.json":new Set(["settings"]),
+  "implicitData.json":new Set([]), // no eligible keys: deny mapping
+});
+function compileRecordEvidence(proofs,manifest,datasetId) {
+  if(!Array.isArray(proofs) || proofs.length!==manifest.length ||
+     proofs.length>ROLES.length)reject("LEASE_EVIDENCE_INVALID");
+  const map=new Map(),seenRoles=new Set();
+  let count=0;
+  for(const proof of proofs){
     if(!proof || typeof proof!=="object" || Array.isArray(proof) ||
        Object.keys(proof).sort().join(",")!=="records,role,snapshotSha256,version" ||
-       proof.version!==1 || proof.role!=="local.db" ||
-       !Array.isArray(proof.records) || proof.records.length>MAX_EVIDENCE_RECORDS)
+       proof.version!==1 || !ROLES.includes(proof.role) ||
+       seenRoles.has(proof.role) || !Array.isArray(proof.records) ||
+       proof.records.length>MAX_EVIDENCE_RECORDS)
       reject("LEASE_EVIDENCE_INVALID");
+    seenRoles.add(proof.role);
     const matched=manifest.find(x=>x.role===proof.role);
     if(!matched || matched.sha256!==proof.snapshotSha256)
       reject("LEASE_EVIDENCE_SNAPSHOT_MISMATCH");
-    for(const record of proof.records) {
+    count+=proof.records.length;
+    if(count>MAX_TOTAL_EVIDENCE_RECORDS)reject("LEASE_EVIDENCE_INVALID");
+    for(const record of proof.records){
       if(!record || typeof record!=="object" || Array.isArray(record) ||
          Object.keys(record).sort().join(",")!==
            "fileRole,legacyId,legacyTypeKey,recordDigest,scopeKey,tableKind" ||
-         record.fileRole!=="local.db" || record.tableKind!=="comics" ||
-         record.scopeKey!=="" || !SHA256.test(record.recordDigest))
+         record.fileRole!==proof.role ||
+         !RECORD_KINDS[proof.role].has(record.tableKind) ||
+         !SHA256.test(record.recordDigest))
+        reject("LEASE_EVIDENCE_INVALID");
+      // JSON keys are known candidates, not arbitrary original config keys.
+      if(proof.role==="appdata.json" &&
+         (record.scopeKey!=="" || record.legacyTypeKey!==""))
         reject("LEASE_EVIDENCE_INVALID");
       let identity;
-      try { identity=legacyRecordIdentity({datasetId,
-        fileRole:record.fileRole,tableKind:record.tableKind,
-        scopeKey:record.scopeKey,legacyTypeKey:record.legacyTypeKey,
-        legacyId:record.legacyId}); }
-      catch { reject("LEASE_EVIDENCE_INVALID"); }
+      try {
+        identity=legacyRecordIdentity({
+          datasetId,fileRole:record.fileRole,tableKind:record.tableKind,
+          scopeKey:record.scopeKey,legacyTypeKey:record.legacyTypeKey,
+          legacyId:record.legacyId
+        });
+      } catch { reject("LEASE_EVIDENCE_INVALID"); }
       if(map.has(identity.keyDigest))reject("LEASE_EVIDENCE_DUPLICATE");
       map.set(identity.keyDigest,record.recordDigest);
     }
   }
-  // If a local.db snapshot is present, evidence must be supplied and complete
-  // by the *trusted isolated exporter*. Registry can't itself parse the DB.
-  if(manifest.some(x=>x.role==="local.db") && proofs.length!==1)
-    reject("LEASE_EVIDENCE_MISSING");
+  if(manifest.some(x=>!seenRoles.has(x.role)))reject("LEASE_EVIDENCE_MISSING");
   return map;
 }
 
