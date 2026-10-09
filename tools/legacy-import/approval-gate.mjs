@@ -41,7 +41,10 @@ export function makeTrustedPreviewPlan({ownerScopeId,datasetId,leaseRef,inputMan
   if (datasetIntent==="new") textValue(newDatasetLabel);
   else if (newDatasetLabel!==null) fail("LEGACY_PLAN_INVALID");
   const manifest=normalizeManifest(inputManifest);
-  const body={ownerScopeId,datasetId,leaseRef,datasetIntent,newDatasetLabel,policyRevision,
+  // This wizard can only approve evidence reservations, NEVER canonical
+  // Content/Unit/Storage/Settings writes. Future scopes need a new reviewed gate.
+  const body={ownerScopeId,datasetId,leaseRef,datasetIntent,newDatasetLabel,
+    approvalScope:"evidence_only",policyRevision,
     inputManifest:manifest.map(x=>({role:x.role,sha256:x.sha256}))};
   const planDigest=createHash("sha256").update(JSON.stringify(["legacy-import-plan-v1",body])).digest("hex");
   return Object.freeze({...body,inputManifest:manifest,planDigest});
@@ -114,8 +117,8 @@ export class TrustedLegacyApprovalService {
       }
       db.prepare(
         "INSERT INTO legacy_import_batches "+
-        "(id,dataset_id,input_manifest_json,policy_revision,plan_digest,snapshot_lease_ref,state,created_at,approved_at,updated_at) "+
-        "VALUES (?,?,?,?,?,?,'approved',?,?,?)"
+        "(id,dataset_id,input_manifest_json,policy_revision,plan_digest,approval_scope,snapshot_lease_ref,state,created_at,approved_at,updated_at) "+
+        "VALUES (?,?,?,?,?,'evidence_only',?,'approved',?,?,?)"
       ).run(id,validated.datasetId,JSON.stringify(validated.inputManifest),
         validated.policyRevision,validated.planDigest,validated.leaseRef,stamp,stamp,stamp);
       db.exec("COMMIT");
