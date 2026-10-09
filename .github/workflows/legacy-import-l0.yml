@@ -120,6 +120,8 @@ jobs:
             assert.equal(registry.revoke(context),true);
             assert.equal(registry.verify({...context,inputManifest:manifest}),false);
           ' "$TEMP_INPUT"
+      - name: Verify all five input roles through actual Docker snapshot attestation
+        run: node tools/legacy-import/ci-smoke-all-roles.mjs
       - name: Verify CLI refuses unknown arguments
         run: |
           if node tools/legacy-import/preview.mjs --invalid; then
