@@ -34,6 +34,15 @@ The CLI reads only the five exact basenames in the explicit directory; unknown f
 - `appdata.json` has a tiny explicit typed settings-candidate whitelist, still **deferred** until an approved v2 mapping exists; unknown fields are skipped. `implicitData.json` has zero auto-importable keys at L0; all contents are skipped. This prevents session/token/source-code copying.
 - A `preview_only` status is **not** approval, import, verification of media, or permission to modify anything. `canCommit` is always false. No durable Batch, Dataset, RecordMapping, Journal or Receipt exists in this L0 tool.
 
+
+## Local-comic record provenance (incremental L0)
+
+`record-provenance.mjs` now runs in the restricted snapshot-export worker and computes **typed, deterministic record digests** for each inspected `local.db.comics` row, including all ten reviewed columns. The sandbox writes a **private** `.record-evidence.json` artifact tied to the exact SQLite Snapshot SHA-256; record IDs, titles and filesystem paths are never published in CLI stdout, logs or plugin RPC.
+
+`snapshot-lease.mjs` checks the proof's snapshot hash against the owner-/dataset-bound manifest, rejects duplicate or malformed keys, and retains dataset-scoped, keyed digests for that lease's lifetime. `mapping-repository.mjs` now **denies `reserveAfterApprovedPlan` unless the exact requested LegacyRecordKey and recordDigest appear in that approved lease**. This rejects forged IDs, changed type, invented digest and unrelated records even when the file role and Approved Batch are valid. The actual Docker smoke also exercises a valid row and forged row/digest.
+
+**Explicit phase restriction:** per-record proof is implemented **only for `local.db.comics`**. History, comic folders, image favorites and settings remain preview/deferred; their mapping mutations fail closed until corresponding reviewed isolated proof adapters exist. This code still does not write canonical Content, ContentUnit, UserCollection, ReadingSession or image files. Evidence integrity depends on the restricted parser worker generating proofs from the same inspected immutable snapshot; the host alone cannot verify SQL row extraction from a bare SHA-256. A compromised Docker daemon or worker vulnerability remains within the threat model, and a production security review is required.
+
 ## Known L0 boundaries
 
 - `docker-sandbox.mjs` provides a **tested Linux-container boundary** on GitHub Actions. It is a reference adapter, not a universal mobile/desktop sandbox or a proof against every Docker/kernel vulnerability. A compromised Docker daemon is trusted-host compromise. Per-platform production isolation, Docker image digest pinning, tighter per-file mounts and process/IPC audits remain open.
