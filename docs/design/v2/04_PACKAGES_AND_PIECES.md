@@ -466,6 +466,38 @@ export const RateLimits = {
 
 ---
 
+## One-Time Legacy Import: application ports and adapters
+
+> **Canonical service boundary**, distinct from `@venera/sdk` website scrapers, `defineImporter` and regular plugin `ImportJob`. This importer is a trusted host-initiated one-way data conversion for exactly five distributed old Venera files, governed by `01_ENTITIES.md`, `02_DATABASE_SCHEMA.md`, `03_USE_CASES.md` (UC-LGI-001–004), `17_LEGACY_DISTRIBUTED_IMPORT.md` and L0–L3 in `11_MILESTONES.md`. Legacy Unified Store `venera.db` is not a supported input. The current old runtime is not imported/executed.
+
+~~~text
+Trusted Host UI / Legacy Import wizard
+   -> LegacyImportApplicationService [preview, apply, reconcile, resume, purge]
+      -> LegacyInputSnapshotPort       (read-only, 5-role registry, SQLite WAL-consistent)
+      -> LegacyFormatParserPort        (isolated, bounded, schema-aware old DB/JSON)
+      -> LegacyMediaGrantPort          (explicit user-approved local asset roots)
+      -> LegacyIdentityReconcilePort   (dataset + record keys, conflict/evidence analysis)
+      -> LegacyImportRepositoryPort    (fresh v2 dataset/batch/mapping/staging/journal/receipt)
+      -> LegacyManagedAssetPort        (stage/hash/fsync/promote/recover/GC)
+      -> canonical Content/Section/Storage/Collection/UC-005b Reader use cases
+~~~
+
+**Port contract requirements** (logical interface, not implemented Typescript source):
+- `LegacyInputSnapshotPort.snapshot(role, trustedHandle)`: refuse any role outside `local.db`/`history.db`/`local_favorite.db`/`appdata.json`/`implicitData.json`; verify exact role+format and distinctness from the destination DB, including symlinks; produce immutable private snapshot ID and SHA-256 evidence. SQLite `-wal`/`-shm` are internal journal components, not extra import roles. Original files are never modified.
+- `LegacyFormatParserPort.inspect(snapshotRef, parserVersion, limits)`: use only reviewed table/column signatures and JSON key/type maps; bounded result/evidence; no legacy Dart import, direct JS or source-supplied SQL. Dynamic favorite folder table identifiers require strict SQLite quoting/validation (binding values alone does not protect identifiers).
+- `LegacyMediaGrantPort.resolveAndOpen(grantRef, legacyMediaHint)`: path normalization, symlink/TOCTOU containment and actual opened-file validation; no implicit filesystem grant derived from strings in the legacy DB.
+- `LegacyIdentityReconcilePort.propose(datasetId, normalizedRecordEvidence)`: deterministic per-record stable keys and categorical position dispositions (`VERIFIED_UNIT`, `REVIEW_REQUIRED`, `UNRESOLVED`, `UNSUPPORTED_FORMAT`); never match by title/page ordinal alone.
+- `LegacyImportRepositoryPort`: transactional fresh-v2 dataset/batch/mapping/unresolved/receipt/journal mutations, monotonic state transitions, dataset-scoped serialization, and read-only preview queries. Do not put filesystem mutations inside a SQL transaction abstraction.
+- `LegacyManagedAssetPort`: bounded staging+digest, verified promotion to managed storage, recover pending journal writes, and GC only importer-owned unreferenced objects. One canonical DB transaction activates a *complete* readable Content subtree after assets exist.
+- `LegacyImportApplicationService`: public-to-host only commands `preview`/`approve`/`resume`/`review`/`purgeEvidence` with trusted user intent, per-file outcomes and durable receipt. **No third-party plugin RPC method** authorizes any of these, and importer outputs never execute source code or trigger website login.
+- Reuse existing domain repositories/use cases for canonical writes. The importer must not independently create incomplete active `ContentUnitOrder` rows or bypass `UC-005b` when setting a verified reading position.
+
+**Packages and dependency policy:** design a standalone trusted `piece-legacy-import` (or equivalent application piece), wired by `adapter-sqlite`, `adapter-electron` (OS file picker/storage) and `adapter-memory` (tests). A parser library can be a leaf pure-data component, but **must not depend on the old Venera code tree**. It must not depend on `piece-plugin-runtime` for executing old providers. Enable L0 after M0; reader/media mapping after M1; collections/tag mapping after M2; optional remote-source evidence review after M3.
+
+**Test ports:** fake snapshots with active WAL, old table names containing quotes, invalid/unrecognized DB signatures, two distinct old installations with colliding IDs, changed-only preferences, missing/symlink media, crash after physical promotion, and imported positions with ambiguous base. Prove no source write/network/plugin invocation and no half-visible active order.
+
+---
+
 ## Infrastructure Adapters
 
 Every infrastructure component is an adapter behind a port interface:
