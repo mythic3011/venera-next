@@ -48,6 +48,27 @@ jobs:
               }
             });
           '
+      - name: Smoke test isolated inspector with real legacy local.db
+        run: |
+          TEMP_INPUT="$(mktemp -d)"
+          trap 'rm -rf "$TEMP_INPUT"' EXIT
+          node --input-type=module -e '
+            import { DatabaseSync } from "node:sqlite";
+            const db=new DatabaseSync(process.argv[1]);
+            db.exec("CREATE TABLE comics (id TEXT NOT NULL, title TEXT NOT NULL, subtitle TEXT NOT NULL, tags TEXT NOT NULL, directory TEXT NOT NULL, chapters TEXT NOT NULL, cover TEXT NOT NULL, comic_type INTEGER NOT NULL, downloadedChapters TEXT NOT NULL, created_at INTEGER, PRIMARY KEY (id, comic_type))");
+            db.prepare("INSERT INTO comics VALUES (?,?,?,?,?,?,?,?,?,?)").run("c1", "PRIVATE_TITLE", "", "[]", "d", "{}", "", 1, "[]", 1);
+            db.close();
+          ' "$TEMP_INPUT/local.db"
+          RESULT="$(node tools/legacy-import/preview-isolated.mjs --dir "$TEMP_INPUT")"
+          printf '%s' "$RESULT" | node -e '
+            let s="";
+            process.stdin.on("data",x=>s+=x);
+            process.stdin.on("end",()=>{
+              const d=JSON.parse(s);
+              if(d.files[0].status!=="inspected" || d.files[0].eligible!==1 ||
+                 d.canCommit!==false || s.includes("PRIVATE_TITLE")) process.exitCode=1;
+            });
+          '
       - name: Verify CLI refuses unknown arguments
         run: |
           if node tools/legacy-import/preview.mjs --invalid; then
