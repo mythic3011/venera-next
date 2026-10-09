@@ -22,8 +22,9 @@ function setup(t) {
                        "user_collection_items","storage_objects"])
     db.exec("CREATE TABLE "+table+"(id TEXT PRIMARY KEY)");
   db.exec(authoritativeSql);
-  const repo=new LegacyMappingRepository(db);
-  repo.leases=new TrustedSnapshotLeaseRegistry(); // trusted test fixture, not renderer-accessible
+  const leases=new TrustedSnapshotLeaseRegistry();
+  const repo=new LegacyMappingRepository(db,{snapshotLeaseRegistry:leases});
+  repo.leases=leases; // test-only access; production never publishes this to renderers
   return repo;
 }
 // TEST FIXTURE ONLY: a previously approved Dataset, not a product creation API.
@@ -253,4 +254,22 @@ test("new dataset does not leak into canonical DB when gesture or snapshot verif
   }),e=>e instanceof LegacyApprovalError&&e.code==="LEGACY_APPROVAL_STALE");
   assert.equal(count(repo,"legacy_import_datasets"),0);
   assert.equal(count(repo,"legacy_import_batches"),0);
+});
+
+test("approved batch cannot reserve records after snapshot lease revocation",async t=>{
+ const repo=setup(t);
+ const ds=fixtureExistingDataset(repo,{ownerScopeId:"user-A",displayLabel:"phone"});
+ const p=plan(repo,"user-A",ds);
+ const gate=new TrustedLegacyApprovalService({
+   canonicalDb:repo.db,snapshotLeaseRegistry:repo.leases,
+   verifyTrustedUserGesture:async()=>true
+ });
+ const approved=await gate.approve({
+   plan:p,expectedPlanDigest:p.planDigest,gesture:{mock:true}
+ });
+ repo.leases.revoke({leaseRef:p.leaseRef,ownerScopeId:"user-A",datasetId:ds});
+ assert.throws(()=>reserve(repo,"user-A",ds,{
+   batchId:approved.batchId,expectedPlanDigest:approved.planDigest
+ }),e=>e instanceof MappingStoreError&&e.code==="LEGACY_SNAPSHOT_STALE");
+ assert.equal(count(repo,"legacy_record_mappings"),0);
 });
