@@ -88,7 +88,16 @@ export class LegacyMappingRepository {
             leaseRef:batch.snapshot_lease_ref,ownerScopeId,datasetId,inputManifest:manifest
           }))
         throw new MappingStoreError("LEGACY_SNAPSHOT_STALE");
-      // This gate authorizes only dataset/role identity reservation. The future
+      // A valid file role is NOT enough. The record key and exact digest must
+      // be attested inside the approved immutable snapshot.
+      // Only local.db/comics evidence is implemented; all other kinds deny.
+      if(typeof this.#leases.verifyRecord!=="function" ||
+          !this.#leases.verifyRecord({
+            leaseRef:batch.snapshot_lease_ref,ownerScopeId,datasetId,
+            inputManifest:manifest,key,recordDigest
+          }))
+        throw new MappingStoreError("LEGACY_RECORD_UNATTESTED");
+      // This only reserves identity evidence; no Content/Unit storage commit. The future
       // importer MUST independently prove that each record came from the
       // still-pinned approved snapshot before any canonical content write.
       const before=this.lookupMapping({ownerScopeId,key});
