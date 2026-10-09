@@ -246,15 +246,15 @@ export async function previewLegacyDirectory(userSelectedDirectory, options = {}
         files.push({ role, status: "rejected", code: e?.code || "LEGACY_SOURCE_UNREADABLE" });
       }
     }
-    const totals = { inspected: 0, missing: 0, rejected: 0, records: 0, eligible: 0, deferred: 0, reviewRequired: 0 };
+    const totals = { inspected: 0, missing: 0, rejected: 0, records: 0, eligible: 0, deferred: 0, reviewRequired: 0, invalid: 0 };
     for (const f of files) {
       totals[f.status]++;
-      for (const k of ["records", "eligible", "deferred", "reviewRequired"]) totals[k] += f[k] || 0;
+      for (const k of ["records", "eligible", "deferred", "reviewRequired", "invalid"]) totals[k] += f[k] || 0;
     }
     // Internal-only plan evidence. No path, titles, cookies, raw input or hash in public report.
     const planDigest = sha(Buffer.from(JSON.stringify(digests)));
     return {
-      status: totals.rejected ? "needs_attention" : totals.inspected ? "preview_only" : "no_inputs",
+      status: totals.rejected || totals.invalid ? "needs_attention" : totals.inspected ? "preview_only" : "no_inputs",
       scope: "old-venera-five-distributed-files",
       readOnly: true,
       canCommit: false,
