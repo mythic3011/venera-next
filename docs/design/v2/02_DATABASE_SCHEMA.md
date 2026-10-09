@@ -799,6 +799,7 @@ CREATE TABLE legacy_import_batches (
   input_manifest_json  TEXT NOT NULL,          -- approved five-role snapshot digests and options, no raw credentials
   policy_revision      TEXT NOT NULL,
   plan_digest          TEXT NOT NULL,          -- approved plan; batch fingerprint ≠ record identity
+  snapshot_lease_ref   TEXT,                   -- host-private ephemeral ref; mandatory to execute approved work
   state                TEXT NOT NULL DEFAULT 'selected'
                        CHECK (state IN
                          ('selected','snapshotted','previewed','approved','applying',
@@ -905,7 +906,7 @@ CREATE TABLE legacy_import_receipts (
 
 **Canonical write/transaction semantics (mandatory):**
 1. `LegacyRecordKey` normalization uses all six **non-null** identity components. `scope_key` and `legacy_type_key` are literal empty strings only when their scopes do not apply, never SQL NULL. File role is an enum, not arbitrary filename.
-2. The importer obtains a dataset-level lock/lease before upsert of mappings. SQLite UNIQUE constraints are the last safety line; ID allocation and per-content canonical imports are serialized for a dataset, with safe replay of an interrupted approved batch.
+2. The importer obtains a dataset-level lock/lease before upsert of mappings. `snapshot_lease_ref` is **mandatory for an approved/applying L0 batch** and checked against a still-live private SnapshotLeaseRegistry before any mapping mutation. Once the memory lease expires or app restarts, refuse new mapping writes; reacquire a verified immutable snapshot and a fresh explicit approval before proceeding. `snapshot_lease_ref` is not a permanent recovery credential and is never sent to plugin JS. Future durable leases require a separately reviewed OS-protected snapshot store; do not simply trust saved digests. SQLite UNIQUE constraints are the last safety line; ID allocation and per-content canonical imports are serialized for a dataset, with safe replay of an interrupted approved batch.
 3. `legacy_asset_journal` intent is durably inserted first. Physical staging/promoting occurs outside canonical SQL transactions. After verify/promote, one SQLite transaction commits a full readable content subtree, complete active order, readable placements, per-record canonical mapping and corresponding committed journal states. No partial active order.
 4. Recover `staged`/`verified`/`promoted` artifacts by comparing journal to **both** storage bytes and committed mappings. `promoted` without a canonical reference is an orphan candidate, never automatically user-file deletion. `committed` with missing bytes requires explicit StorageUnavailable error and repair (no silent success).
 5. A missing or stale Receipt is derived from durable committed mappings/journal, not counters in memory. The batch can be `partial` without rolling back other fully committed content subtrees. No user-visible “complete” claim while requested categories are deferred/ambiguous.
