@@ -133,3 +133,26 @@ test("only local.db records are attested in L0; history cannot impersonate comic
      scopeKey:"",legacyTypeKey:"1",legacyId:"42"},
    recordDigest:EVIDENCE_DIGEST}),false);
 });
+
+test("registry is globally bounded and frees capacity after revocation",()=>{
+ const registry=new TrustedSnapshotLeaseRegistry();
+ const a=issue(registry);
+ const b=issue(registry);
+ assert.throws(()=>issue(registry),e=>e instanceof SnapshotLeaseError &&
+   e.code==="LEASE_REGISTRY_CAPACITY");
+ assert.equal(registry.revoke(context(a.leaseRef)),true);
+ const c=issue(registry);
+ assert.ok(c.leaseRef);
+ assert.equal(registry.revoke(context(b.leaseRef)),true);
+ assert.equal(registry.revoke(context(c.leaseRef)),true);
+});
+test("idle timeout evicts private snapshot automatically without next caller",async()=>{
+ const registry=new TrustedSnapshotLeaseRegistry();
+ const value=issue(registry,{ttlMs:25});
+ await new Promise(resolve=>setTimeout(resolve,110));
+ assert.equal(registry.getManifest(context(value.leaseRef)),null);
+ // The evacuated slot is ready for new input, not leaked indefinitely.
+ const current=issue(registry);
+ assert.equal(registry.getManifest(context(current.leaseRef)).length,2);
+ registry.revoke(context(current.leaseRef));
+});
