@@ -3,10 +3,13 @@
 import assert from "node:assert/strict";
 import { DatabaseSync } from "node:sqlite";
 import { mkdtemp, writeFile, rm } from "node:fs/promises";
+import { readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { previewAndIssueSnapshotLease } from "./docker-sandbox.mjs";
 import { TrustedSnapshotLeaseRegistry } from "./snapshot-lease.mjs";
+import { createHostGestureAuthority } from "./trusted-gesture.mjs";
+import { runTrustedEvidenceWizard } from "./trusted-wizard.mjs";
 import {
   attestLocalComicsSnapshot, attestHistorySnapshot,
   attestFavoriteFoldersSnapshot, attestJsonSnapshot
@@ -84,6 +87,45 @@ try {
   for(const secret of ["SECRET_LOCAL_TITLE","SECRET_HISTORY_TITLE",
     "SECRET_IMAGE_TITLE","SECRET_FAVORITE_TITLE","SECRET_TOKEN",temp])
     assert.ok(!exposed.includes(secret));
+  // Host UI integration E2E on a test-only in-memory canonical DB. The real
+  // product must use its authenticated principal and trusted native GUI.
+  const canonical=new DatabaseSync(":memory:");
+  try {
+    canonical.exec("PRAGMA foreign_keys=ON");
+    for(const table of ["contents","content_sections","content_units",
+      "user_collections","user_collection_items","storage_objects"])
+      canonical.exec("CREATE TABLE "+table+"(id TEXT PRIMARY KEY)");
+    const ddl=readFileSync(new URL("../../docs/design/v2/02_DATABASE_SCHEMA.md",
+      import.meta.url),"utf8");
+    const from=ddl.indexOf("CREATE TABLE legacy_import_datasets (");
+    const until=ddl.indexOf("~~~",from);
+    assert.ok(from>=0 && until>from);
+    canonical.exec(ddl.slice(from,until));
+    const stamp=new Date().toISOString();
+    canonical.prepare(
+      "INSERT INTO legacy_import_datasets VALUES(?,?,?,'active',?,?)"
+    ).run(datasetId,ownerScopeId,"CI already-approved dataset",stamp,stamp);
+    const gesture=createHostGestureAuthority({
+      // CI-only simulated trusted console. Production TTY requires human
+      // to type a one-time phrase, cannot use this callback.
+      requestConfirmation:async ({challenge})=>challenge
+    });
+    const outcome=await runTrustedEvidenceWizard({
+      selectedDirectory:temp,ownerScopeId,canonicalDb:canonical,
+      datasetIntent:"existing",datasetId,snapshotLeaseRegistry:registry,
+      gestureAuthority:gesture,
+      snapshotter:async()=>({preview,leaseRef}) // reuse real Docker evidence
+    });
+    assert.equal(outcome.status,"evidence_approved");
+    assert.equal(outcome.importedContents,0);
+    const batch=canonical.prepare(
+      "SELECT state,policy_revision FROM legacy_import_batches"
+    ).get();
+    assert.equal(batch.state,"approved");
+    assert.equal(batch.policy_revision,"l0-evidence-only-v1");
+    assert.equal(canonical.prepare("SELECT COUNT(*) AS n FROM legacy_record_mappings").get().n,0);
+    assert.equal(canonical.prepare("SELECT COUNT(*) AS n FROM contents").get().n,0);
+  }finally{canonical.close();}
   assert.equal(registry.revoke(context),true);
   assert.equal(registry.verify({...context,inputManifest:manifest}),false);
   process.stdout.write("PASS: five-role Docker snapshot and private record proof verification\n");
