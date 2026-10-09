@@ -6,7 +6,7 @@
 
 ---
 
-> **Greenfield reset (2026-10-09):** the current legacy runtime is discarded; M1 is a new implementation against the canonical `contents/content_sections/content_units` model and fresh SQLite schema. Historical `Implemented (Core+DB)` annotations below do not mean code is retained or reused. There is no old `comics/chapters/pages` migration, compatibility adapter or legacy source runtime requirement in M1. An optional one-way user-data importer is a separate future feature and does not change the fresh-build scope.
+> **Greenfield reset (2026-10-09):** the current legacy runtime is discarded; M1 is a new implementation against the canonical `contents/content_sections/content_units` model and fresh SQLite schema. Historical `Implemented (Core+DB)` annotations below do not mean code is retained or reused. There is no old `comics/chapters/pages` migration, compatibility adapter or legacy source runtime requirement in M1. A separate one-time importer (proposal `17_LEGACY_DISTRIBUTED_IMPORT.md`) accepts only `local.db`, `history.db`, `local_favorite.db`, `appdata.json` and `implicitData.json` from old Venera; it rejects old Unified Store `venera.db`. This separate feature does not change M1 greenfield scope.
 
 ## 1. MVP Statement
 
