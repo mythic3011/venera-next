@@ -6,6 +6,8 @@
 >
 > **Canonical dependencies:** [01_ENTITIES.md](01_ENTITIES.md), [02_DATABASE_SCHEMA.md](02_DATABASE_SCHEMA.md), [03_USE_CASES.md](03_USE_CASES.md), [10_MVP_SCOPE.md](10_MVP_SCOPE.md), [11_MILESTONES.md](11_MILESTONES.md). This proposal does not create a second Reader Position authority or loosen the ContentUnitOrder completeness invariant.
 
+> **L0 code evidence (2026-10-10):** `tools/legacy-import/` now contains a standalone Node 22.16 read-only five-file inspector, CLI, test-generated fixtures and CI workflow; its output is aggregate schema/count/deferred statistics with `canCommit=false`. All ten test fixtures passed on GitHub Actions. **Not yet implemented:** a trusted UI, durable dataset/record identity, approval/commit, media grants, independently hardened OS process sandbox or crash/receipt writer. L0 CLI should only be used on trusted old-data copies pending parser sandbox validation; no user data was actually imported.
+
 ## 1. Strict source-format registry
 
 | Exactly allowed input basename | Inspected legacy implementation | Allowed *categories* |
