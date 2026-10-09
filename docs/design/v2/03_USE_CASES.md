@@ -353,7 +353,7 @@ Diagnostics note:
 
 **Errors:** `LEGACY_INPUT_NOT_ALLOWED`, `LEGACY_UNIFIED_STORE_UNSUPPORTED`, `LEGACY_SCHEMA_UNSUPPORTED`, `LEGACY_SNAPSHOT_UNAVAILABLE`, `LEGACY_SOURCE_CORRUPT`, `LEGACY_MEDIA_OUTSIDE_GRANT`, `LEGACY_DATA_BUDGET_EXCEEDED`.
 
-**L0 record provenance gate (implementation slice):** before reserving a `LegacyRecordMapping`, the trusted service checks the approved Batch, owner, live lease, and exact record key + typed source row digest emitted from that lease's **same inspected snapshot**. As of 2026-10-10, this record-level adapter exists only for `local.db.comics`; other input roles can be previewed but **must not** mutate mappings or canonical library state until their own attestation adapters are reviewed. A batch snapshot SHA-256 or caller-supplied row digest alone is insufficient proof. Records may be updated only from newly reviewed/approved evidence. No third-party plugin can make or spoof this host-only call.
+**L0 record evidence (implemented slice):** before reserving any mapping, the trusted host validates owner, Approved Batch, live immutable Snapshot Lease and the exact LegacyRecordKey + typed digest from that same inspected snapshot. Adapters attest `local.db.comics`, `history.db` (history and image favorites separately), dynamic `local_favorite.db` memberships, and allowlisted `appdata.json.settings`; `implicitData.json` is proven empty (no eligible key). These are **identity evidence only**. Existing Reader Position, collection, account, import/storage and settings use-case requirements remain blocking; no attestation by itself authorizes a canonical write.
 
 ### UC-LGI-002: Approve and Apply One-Time Import
 
