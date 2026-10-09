@@ -59,7 +59,9 @@ export class LegacyMappingRepository {
   }
   reserveAfterApprovedPlan({ownerScopeId,batchId,expectedPlanDigest,key,recordDigest}) {
     requireText(ownerScopeId);
-    requireText(batchId);
+    if (typeof batchId!=="string" || !batchId ||
+        batchId.length>256 || batchId.includes("\0"))
+      throw new MappingStoreError("LEGACY_APPROVAL_REQUIRED");
     if(typeof expectedPlanDigest!=="string" || !/^[0-9a-f]{64}$/.test(expectedPlanDigest))
       throw new MappingStoreError("LEGACY_APPROVAL_REQUIRED");
     if(typeof recordDigest!=="string" || !/^[a-f0-9]{64}$/.test(recordDigest))
