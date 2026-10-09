@@ -31,6 +31,8 @@ M7 items may be pulled earlier opportunistically; they are batched last only bec
 
 ---
 
+> **L0 implementation evidence (2026-10-10; partial, not a product release):** `tools/legacy-import/l0.mjs`, `preview.mjs`, independently generated `test/l0.test.mjs` fixtures and `.github/workflows/legacy-import-l0.yml` implement a *statistics-only, no-commit* five-file inspector. GitHub Actions on Node 22.16 reported 10/10 passing fixture tests. It does **not** yet provide persistent dataset identity/record mapping, an OS-level parser sandbox, user consent UI, media grant resolver or import receipts; those L0/L1 acceptance gates remain open. No source files or v2 canonical DB are written.
+
 ### Separate one-time legacy-data import milestones (not a runtime migration)
 
 > Proposed contract: [17_LEGACY_DISTRIBUTED_IMPORT.md](17_LEGACY_DISTRIBUTED_IMPORT.md). Input files **only**: `local.db`, `history.db`, `local_favorite.db`, `appdata.json` and `implicitData.json`. Old Unified Store `venera.db` is excluded. Journal sidecars (`-wal` / `-shm`) are SQLite snapshot mechanics, never extra import types. The importer does not depend on the old runtime.
