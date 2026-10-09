@@ -188,3 +188,17 @@ test("L0: cross-folder aggregate row cap applies to dynamic favorite tables", as
   assert.equal(out.files[2].status, "rejected");
   assert.equal(out.files[2].code, "LEGACY_DATA_BUDGET_EXCEEDED");
 });
+
+test("L0: local embedded JSON must have known shapes, malformed UTF-8 is rejected", async t => {
+  const dir=await fixture(t);
+  const db=sqlite(join(dir,"local.db"),LOCAL_SCHEMA);
+  db.prepare("INSERT INTO comics VALUES (?,?,?,?,?,?,?,?,?,?)")
+    .run("bad","Title","","{}", "dir", "[]", "", 1, "{}", 1);
+  db.close();
+  await writeFile(join(dir,"implicitData.json"),Buffer.from([0x7b,0xff,0x7d]));
+  const out=await previewLegacyDirectory(dir);
+  assert.equal(out.files[0].status,"inspected");
+  assert.equal(out.files[0].eligible,0);
+  assert.equal(out.files[0].invalid,1);
+  assert.equal(out.files[4].code,"LEGACY_JSON_INVALID_UTF8");
+});
