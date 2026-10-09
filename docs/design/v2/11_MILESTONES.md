@@ -10,6 +10,8 @@
 
 ---
 
+> **Greenfield reset (2026-10-09):** retire the existing legacy runtime code. Start M0 from canonical v2 documents and fresh interfaces/storage schemas, not by porting old `Comic/Chapter/Page` implementations. M1 local-only and M3 online remain milestones; there is no in-place old-runtime or old-DB migration workstream. An optional one-way user-data importer is independent. See `16_ACCOUNT_PASSKEY_ADOPTION_CONTRACT.md` (proposal) for account-scoped identity and downloaded-content authority decisions.
+
 ## Milestone Map
 
 ```
@@ -129,6 +131,8 @@ now describe when those contracts are implemented, migrated, and tested.
 **Idea**: The two hardest open problems land together because they are two halves of one promise: *safely acquire the code* (08's install pipeline — the project's largest security surface) and *safely acquire the content* (N8's unit materialization — the project's largest design gap). Neither can be "iterated into" later without migration pain, so both get their full design closed before code starts. This milestone has an explicit **design sub-phase (M3.0)** for that reason.
 
 ### M3.0 Contract application sub-phase (blocking)
+
+> **Account/security gates proposed 2026-10-09 (not adopted yet):** before implementing M3 providers, define first-class SourceInstance + ExternalAccountProfile within the **initial fresh-v2 schema**, Account-bound DownloadTask, host-only login and account UI, typed capability RPC, per-platform Vault isolation, and source-scoped request auth. Do **not** treat `provider.login(credentials)`, `api.fetch(RequestInit)` or old source-runtime code as required compatibility constraints. Hosted Venera passkey registration belongs to M4 auth, distinct from a third-party website's actual login capabilities.
 
 | Finding | Contract to implement |
 |---|---|
