@@ -157,8 +157,20 @@ export async function previewAndIssueSnapshotLease({
     }
     if(buffers.length!==preview.totals.inspected)
       deny("SANDBOX_LEASE_FILE_INVALID");
+    const evidencePath=join(outputDir,".record-evidence.json");
+    const evidenceInfo=await lstat(evidencePath);
+    if(!evidenceInfo.isFile() || evidenceInfo.isSymbolicLink() ||
+       evidenceInfo.size>32*1024*1024)
+      deny("SANDBOX_LEASE_EVIDENCE_INVALID");
+    const evidenceText=await readFile(evidencePath,"utf8");
+    let evidence;
+    try { evidence=JSON.parse(evidenceText); }
+    catch { deny("SANDBOX_LEASE_EVIDENCE_INVALID"); }
+    if(!evidence || evidence.version!==1 || !Array.isArray(evidence.proofs) ||
+       Object.keys(evidence).sort().join(",")!=="proofs,version")
+      deny("SANDBOX_LEASE_EVIDENCE_INVALID");
     const {leaseRef,expiresAt}=snapshotLeaseRegistry.issue({
-      ownerScopeId,datasetId,inputs:buffers
+      ownerScopeId,datasetId,inputs:buffers,recordProofs:evidence.proofs
     });
     return Object.freeze({preview,leaseRef,expiresAt});
   }catch(e){
