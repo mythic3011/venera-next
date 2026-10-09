@@ -6,6 +6,8 @@
 
 ---
 
+> **Greenfield reset (2026-10-09):** the current legacy runtime is discarded; M1 is a new implementation against the canonical `contents/content_sections/content_units` model and fresh SQLite schema. Historical `Implemented (Core+DB)` annotations below do not mean code is retained or reused. There is no old `comics/chapters/pages` migration, compatibility adapter or legacy source runtime requirement in M1. An optional one-way user-data importer is a separate future feature and does not change the fresh-build scope.
+
 ## 1. MVP Statement
 
 **A standalone desktop app where a user imports local comic files, reads them, and always resumes exactly where they left off.**
