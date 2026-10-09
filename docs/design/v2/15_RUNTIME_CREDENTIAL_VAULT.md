@@ -292,3 +292,171 @@ On adoption consolidate into the existing authoritative 01/02/04/05/06/09/11/SUM
 - [Bitwarden encryption](https://bitwarden.com/help/what-encryption-is-used/)
 
 **Unresolved choices**: actual Flutter/JS/Electron host Keychain/Keystore bridges; cross-platform non-OAuth login browser partition/capture; background unlock policy; optional external password-manager Autofill; hosted tenant key isolation and recovery; site-specific auth signatures without giving hooks raw secrets. Do not claim those are solved by merely defining CredentialVaultPort.
+
+---
+
+## 12. Passkey-first architecture: three independent meanings
+
+**Ruling:** prefer phishing-resistant passkeys whenever the **actual relying party** supports WebAuthn. Never present "use a passkey" as an app-controlled replacement for a third-party website that accepts only passwords, cookie sessions, Basic Auth or API keys. Do not use passkey authentication as a substitute for encryption at rest.
+
+### 12.1 Venera Hosted identity (Venera owns the RP)
+
+Venera Hosted controls its own HTTPS RP ID and can offer passkey-first login using WebAuthn:
+
+- User registration: generate unpredictable server challenge, credential-creation options, opaque stable user handle, RP ID and user-verification policy. Native/platform credential manager or browser presents registration. Server validates clientDataJSON type/challenge/origin, RP ID hash, authenticator flags (UP and UV according to policy), algorithms and attestation policy. Persist credential ID, public key, user binding, transports/backed-up state when supported, last-used metadata and revocation state. **Never private key or authenticator PIN/biometric templates.**
+- Authentication: issue one-use expiring challenge, verify signature/origin/RP ID/challenge/UV and credential/user binding, atomically consume challenge, create a Venera session through existing hosted token policy (opaque selector + HMAC verifier). Sign-count behavior is authenticator-dependent; treat it as a conditional clone-risk signal, not guaranteed monotonic proof.
+- Allow multiple passkeys per Hosted User (desktop, phone, hardware key and synchronized passkey provider); each registration has its own credential ID. Multiple Venera users may each have different passkeys under the same RP; use discoverable credentials and safe account selection.
+- Settings for add/remove passkey, recent re-auth for destructive account changes, loss/recovery, session revocation, optional device-bound credentials for high-assurance cases. Passkey removal must not automatically remove a website account profile or erase comics.
+- Self-hosted instances have their own HTTPS origins and RP IDs. A different hostname/RP ID **does not inherit** an existing credential; migrations need a planned registration/recovery process. Do not use plugin-defined RP IDs, wildcard origins or arbitrary callback allowlists.
+- Passkey-first UX must not accidentally preserve a weak password-only recovery or second-channel path that defeats the stronger primary method. Recovery is separate and risk-assessed, with user notification and anti-takeover controls.
+
+This is **Venera's own authentication**. It does not log a third-party comic website in.
+
+### 12.2 Third-party website account (external RP, not controlled by Venera)
+
+- Website A must actually support passkeys/FIDO2/WebAuthn (or a federated provider that supports it) for user A to authenticate with a passkey. A JS scraper cannot add WebAuthn support to Website A, mint a valid assertion for an unowned RP, or access passkey private keys.
+- Prefer the user's system browser/native credential manager and site's supported authorization flow. OAuth/OIDC browser+PKCE handoff may produce a token the host can safely capture **only if the site supports an approved callback/token protocol**.
+- Do not assume logging in to Website A in a system browser hands the Venera HTTP client a cookie. Browser cookie jars are separate; generic cookie-session sites without an OAuth/code handoff may require a compatible trusted isolated website login context or a different supported login method.
+- Apple native-app passkey APIs require RP-associated domains for app-initiated registration/assertion, while real browser apps have separate WebAuthn handling. Therefore a general-purpose Venera comic app cannot promise first-party native passkey APIs for arbitrary website RPs. Browser context feasibility must be tested per platform.
+- If a website cannot support safe cookie capture, session transfer or login without exposing secrets to plugin JS, return AUTH_FLOW_UNSUPPORTED / REAUTH_REQUIRED instead of weakening the host boundary.
+- A website relying on a password/API key/WebDAV Basic continues to require that protocol until the server offers another supported one. The runtime can store such secrets safely; it cannot unilaterally convert the external service to passkey authentication.
+- **Passkey authentication produces an authenticated website session or token**; subsequent allowed search/image requests use per-account scoped sessions via AuthBroker, not a repeated passkey assertion for every page.
+
+### 12.3 Local CredentialVault unlocking (not a website RP login)
+
+- Default: unlock or authorize vault-key use through OS device authentication (Keychain/Keystore/DPAPI/etc.), and keep DEKs separate from protected ciphertext. Device biometrics/PIN gate an OS key operation; this is **not automatically a WebAuthn/passkey flow**.
+- Optional advanced: use the WebAuthn PRF extension, where explicitly supported and tested, to derive *wrapping-key material* from a Venera-owned credential under a dedicated RP, domain-separated PRF salt and audited KDF/key-wrapping scheme. A normal signed WebAuthn assertion is **not an encryption/decryption key**.
+- Check PRF availability **per credential, authenticator, browser and platform at runtime**. Never require it as the only recovery/decryption method or assume the PRF output is portable to replacement credentials. Do not use an external website's RP/credential for Venera's vault key.
+- Keep an independent, approved recovery/rewrap path: multiple unlocking credentials can wrap one randomly generated Vault DEK; adding/removing a passkey requires verified **re-wrapping** of that DEK while it is accessible. Losing the only wrapping key may make the vault unrecoverable; make this explicit.
+- A Venera passkey login to Hosted **does not** prove a standalone Vault has been unlocked, and vice versa. A compromised trusted runtime can still misuse an unlocked Vault; plugin isolation and per-request broker grants remain mandatory.
+- Routine background/image reads should rely on bounded unlocked-runtime session state and per-account request grants, not demand user presence per image. Background tasks while vault-locked remain paused and expose VAULT_LOCKED.
+
+## 13. Multi-account: account identity, source identity and session isolation
+
+### 13.1 What counts as an account?
+
+Distinguish these independent dimensions:
+
+1. **Venera User (local/hosted)**: owner of a library, preferences, encryption scope and credential profiles. A Hosted user can register multiple passkeys and devices.
+2. **External Account Profile**: one logged-in account at a comic provider or configured remote mount (one user may have multiple at the same provider). Each profile has its own secretRef, cookie jar, auth scheme, status and monotonic revision.
+3. **Authenticator registration**: a credential owned by a relying party, not the website-account profile itself. One website account may have multiple passkeys and alternate supported login methods; a single credential manager can present multiple website account passkeys for the same RP.
+4. **Reader/Download Request Context**: an ephemeral binding of a selected external account to one tab/read session/download job and its queued requests. Reader position remains ContentUnitId, not account ID.
+5. **Source identity namespace**: whether remote work/section/page IDs are provider-global or account-scoped; this must be explicit in source capability metadata. Two accounts may have different rights to identical work IDs.
+
+### 13.2 Recommended account and context semantics
+
+~~~ts
+// Illustrative design only: metadata fields, no secrets.
+interface ExternalAccountProfile {
+  id: string;                 // stable UUID
+  veneraUserScope: string;    // local user / hosted tenant+user
+  ownerKind: "provider" | "remote_mount";
+  ownerRef: string;           // provider key or immutable mount ID
+  identityNamespace: string;  // per-provider global/account-scoped decision
+  label: string;
+  authScheme: "passkey_session" | "cookie_session" | "basic" | "api_key" | "oauth2";
+  credentialRef?: string;     // opaque vault record ref; never the credential
+  authRevision: number;
+  state: "active" | "expired" | "locked" | "reauth_required" | "disabled";
+}
+
+interface ReaderAccountBinding {
+  providerKey: string;
+  accountProfileRef: string;  // caller may request; host validates ownership
+  readerContextRef: string;   // runtime-issued opaque per-reader/tab context
+}
+
+// Trusted host-only, never serialized to JS with secrets.
+interface BoundRequestAuthContext {
+  callerSessionId: string;
+  veneraUserScope: string;
+  accountProfileId: string;
+  credentialRevision: number;
+  permissionRevision: number;
+  originGrantId: string;
+  requestId: string;
+}
+~~~
+
+- **No singleton credential state** per Plugin. Permit several profiles for the same provider or origin. A provider's preferred/default profile is a *per-Venera-user preference*, not global mutable login state or permanent ReaderSession authority.
+- **Account selection priority:** explicit user choice for a particular reader/download action > existing trusted reader-context affinity > saved preference for this provider and user > trusted account picker. A plugin cannot silently choose another profile with broader privileges.
+- **Account switch semantics:** new requests are bound to the newly selected profile; queued/inflight requests tied to account A either continue under the original valid snapshot (if policy permits) or are canceled; **they must never silently switch to B**. Changing account for a reader tab triggers re-resolution of accessible page assets; it does not overwrite stable canonical reading history.
+- **Concurrent contexts:** Tab 1 may use Profile A while Tab 2 uses Profile B; downloader may use Profile A independently. Every request, retry, cookie jar and authenticated cache is partitioned by profile ID + secret revision. Never store raw cookies in per-plugin JavaScript fields.
+- **Visibility:** account A can see pages/library entries that B cannot. An authorization failure from A cannot cause the runtime to fetch from B automatically (even if B's credentials are available). Show ACCOUNT_ACCESS_DENIED or prompt trusted account choice.
+- **Identity:** if provider remote IDs are account-global, share canonical SourcePlatform and apply account-scoped access/availability bindings. If work IDs are per-account or private-library scoped, **the unique provenance namespace must include the account/source instance**; otherwise existing (sourcePlatformId, remoteWorkId) uniqueness could cause cross-account identity collision. This is a **design/schema adoption gate**, not a quiet assumption that SourceLink invariants already cover it.
+- **No implicit credential sharing:** same website, eTLD+1, CDN, plugin family or SSO brand does not authorize merging Vault profiles or cookie partitions. Any deliberate shared-login broker must have a host-approved scoped grant, and every consumer must be named.
+- **Hosted multi-tenant:** enforce tenant/user ID on every account profile lookup, vault use, account picker result, session binding and download task. IDs guessed from another tenant remain inaccessible.
+
+### 13.3 Use-case matrix
+
+| Case | Expected system behavior |
+|---|---|
+| Same provider: personal A and secondary B | two separate AccountProfiles and CookieJars; choose per reader or download |
+| Site supports passkeys for A, password for B | trusted account picker chooses A/B; each runs its site's supported flow; no JS access to either credential |
+| Same RP supports multiple passkeys/accounts | OS/browser account picker selects credential, RP verifies; broker binds returned authenticated identity to chosen/confirmed Venera profile |
+| Website passkey signed-in in system browser, but app HTTP cookie absent | do not assume transferable login; require supported callback/token handoff or compatible isolated session |
+| Two Komga/LANraragi/WebDAV instances | each remote mount has its own ownerRef, endpoint and credential scope; do not mix server instances |
+| Two devices reading same work | Venera Hosted session/sync policy is separate from external website credentials; no silent credential sync |
+| A background download under A while UI switches to B | task retains A/revision or pauses/cancels; never replays under B |
+| A expires or is revoked, B remains active | A task fails/reauth; B unaffected and never auto-used to bypass A permissions |
+| A and B have account-scoped identical remoteWorkId | distinct provenance namespace prevents accidental canonical merge |
+| Local Vault locked during background task | auth-bound task pauses, no secret exposed; offline verified pages still readable under data access policy |
+
+### 13.4 New threat chains and checks
+
+**Passkey authentication confused-deputy / RP mix-up**
+~~~text
+Malicious plugin supplies a website RP ID or login URL
+ -> host incorrectly treats plugin origin as trusted WebAuthn RP
+ -> wrong-account assertion or token handoff bound to attacker session
+~~~
+Mitigation: RP ID/origin/challenge bound to the external site's real browser/approved relying-party context, callback state, account selection and verified principal; no plugin-chosen arbitrary WebAuthn assertion API. Venera Hosted verifies its own fixed RP ID/origin on server.
+
+**Passkey downgrade through recovery or second method**
+~~~text
+Passkey-first account has password-only recovery without equivalent security
+ -> attacker invokes weaker recovery/session path
+ -> steals account even though passkey login was phishing-resistant
+~~~
+Mitigation: independent recovery threat model, strong verified account recovery, notification/revocation and anti-replay/re-enrollment policy. "Passkey-first" is not necessarily "passkey-only" and must not claim it.
+
+**Cross-account credential confusion**
+~~~text
+A request starts as Profile A
+ -> user selects B, global active account changes
+ -> retry/refresh/image CDN request uses B cookies
+ -> cached response is visible in A's reader
+~~~
+Mitigation: host-issued immutable profile snapshot, versioned auth context, per-profile cache, CAS refresh, cancellation on grant revocation and no automatic cross-account fallback.
+
+**Vault PRF key-loss trap**
+~~~text
+Vault DEK is wrapped solely under passkey-PRF-derived key
+ -> authenticator lost/replaced, PRF unsupported or credential rotated
+ -> valid Venera content DB survives but credential vault cannot decrypt
+~~~
+Mitigation: optional PRF, multiple audited key wrappers or user-managed recovery, rewrap before deleting old passkey, explicit unrecoverable-state warning; no secret-export API to plugin.
+
+### 13.5 Integration and test gates
+
+Before third-party online plugin launch (M3 security preflight):
+
+1. WebAuthn Hosted test: duplicate/stale challenge, invalid origin/RP ID, missing UV, wrong credential-user binding, registration and removal of several credentials, passkey loss/recovery.
+2. Native third-party RP feasibility per OS: Apple associated domains limitations, Android Credential Manager/browser flow, desktop system browser, OAuth callback vs cookie-only site. Never promise automatic system-browser cookie handoff.
+3. Vault unlock: OS Keychain/Keystore gate vs WebAuthn PRF availability; verify optional PRF, per-credential wrapping, rotation, unsupported device and recovery.
+4. Two profiles same provider: simultaneous readers/downloads, queued requests and account switching, cookie scope, refresh under CAS and revoked profile.
+5. Same work visible to both with different access rights; no silent alternate-profile fetch or change of ReadingSession.unitId.
+6. Provider-global versus account-scoped remote ID uniqueness test; no cross-account provenance collision.
+7. Cross-tenant/profile forged RPC and direct AuthBroker invocation; rejected before vault/network operation.
+8. Fallback security review: password/API key allowed only when required by the external service and protected by Vault; never describe such a service as converted to passkey.
+
+### 13.6 References
+
+- [W3C WebAuthn Level 3 (2026 Candidate Recommendation)](https://www.w3.org/TR/2026/CR-webauthn-3-20260113/) — RP ID, origin validation, challenges and optional PRF.
+- [FIDO Alliance passkeys FAQ](https://fidoalliance.org/passkeys/) — device-bound/synced credentials and RP adoption.
+- [Apple supporting passkeys](https://developer.apple.com/documentation/authenticationservices/supporting-passkeys) — native associated domain constraints; browser behavior differs.
+- [Apple passkeys in web browsers](https://developer.apple.com/documentation/authenticationservices/passkey-use-in-web-browsers) — browser WebAuthn context distinction.
+- [Android Credential Manager: multiple accounts](https://developer.android.com/design/ui/mobile/guides/patterns/passkeys) — multi-account picker and login-method unification.
+- [MDN WebAuthn extensions / PRF](https://developer.mozilla.org/en-US/docs/Web/API/Web_Authentication_API/WebAuthn_extensions) — optional PRF capability, not generic authentication signature-derived encryption.
+
+**Design adoption note:** merge the existing CredentialProfile model above with the proposed ExternalAccountProfile instead of creating parallel authoritative profile tables. Normalize the authKind/passkey_session enum before final schema; do not let internal WebAuthn registration IDs double as external website account IDs. Update 01/02/05/06/07/11 and SUMMARY after the source-ID namespace decision.
