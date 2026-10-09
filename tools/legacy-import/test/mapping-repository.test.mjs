@@ -44,7 +44,7 @@ function key(datasetId,id="42",changes={}) {
 }
 function fixtureInput(role) {
   return role.endsWith(".db")
-    ? Buffer.from("SQLite format 3\\0fixture")
+    ? Buffer.from("SQLite format 3\0fixture")
     : Buffer.from('{"settings":{}}');
 }
 function plan(repo,ownerScopeId,datasetId,options={}) {
