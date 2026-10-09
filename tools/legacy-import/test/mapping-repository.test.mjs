@@ -172,3 +172,53 @@ test("two datasets with same old numeric ID never collide",async t=>{
   const first=reserve(repo,"user-A",d1,a), second=reserve(repo,"user-A",d2,b);
   assert.notEqual(first.mappingId,second.mappingId);
 });
+
+test("new dataset is provisional until user approval, then batch and dataset commit together",async t=>{
+  const repo=setup(t);
+  const ds="d7b84fe9-2a83-47b4-8dc7-6e2b825bc7b2";
+  const proposed=makeTrustedPreviewPlan({
+    ownerScopeId:"user-A",datasetId:ds,datasetIntent:"new",
+    newDatasetLabel:"Old Venera from laptop",policyRevision:"v1",
+    inputManifest:[{role:"local.db",sha256:DIGEST}]
+  });
+  assert.equal(repo.findDataset({ownerScopeId:"user-A",datasetId:ds}),null);
+  const gate=new TrustedLegacyApprovalService({
+    canonicalDb:repo.db,
+    verifyTrustedUserGesture:async()=>true,
+    verifyCurrentSnapshots:async()=>true
+  });
+  const batch=await gate.approve({
+    plan:proposed,expectedPlanDigest:proposed.planDigest,gesture:{mock:true}
+  });
+  assert.equal(repo.findDataset({ownerScopeId:"user-A",datasetId:ds}).state,"active");
+  assert.equal(count(repo,"legacy_import_batches"),1);
+  const mapped=reserve(repo,"user-A",ds,{
+    batchId:batch.batchId,expectedPlanDigest:batch.planDigest
+  });
+  assert.equal(mapped.state,"reserved_unresolved");
+  await assert.rejects(
+    gate.approve({plan:proposed,expectedPlanDigest:proposed.planDigest,gesture:{mock:true}}),
+    e=>e instanceof LegacyApprovalError && e.code==="LEGACY_APPROVAL_DATASET_CONFLICT"
+  );
+  assert.equal(count(repo,"legacy_import_batches"),1);
+});
+test("new dataset does not leak into canonical DB when gesture or snapshot verification fails",async t=>{
+  const repo=setup(t);
+  const ds="3d19b3a2-03c3-4eb1-9d3d-110879888792";
+  const plan=makeTrustedPreviewPlan({
+    ownerScopeId:"user-A",datasetId:ds,datasetIntent:"new",
+    newDatasetLabel:"Backup A",policyRevision:"v1",
+    inputManifest:[{role:"history.db",sha256:SHA2}]
+  });
+  for(const callbacks of [
+    {verifyTrustedUserGesture:async()=>false,verifyCurrentSnapshots:async()=>true},
+    {verifyTrustedUserGesture:async()=>true,verifyCurrentSnapshots:async()=>false},
+  ]) {
+    const gate=new TrustedLegacyApprovalService({canonicalDb:repo.db,...callbacks});
+    await assert.rejects(gate.approve({
+      plan,expectedPlanDigest:plan.planDigest,gesture:{mock:true}
+    }),LegacyApprovalError);
+  }
+  assert.equal(count(repo,"legacy_import_datasets"),0);
+  assert.equal(count(repo,"legacy_import_batches"),0);
+});
