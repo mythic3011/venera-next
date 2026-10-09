@@ -114,10 +114,10 @@ export class TrustedLegacyApprovalService {
       }
       db.prepare(
         "INSERT INTO legacy_import_batches "+
-        "(id,dataset_id,input_manifest_json,policy_revision,plan_digest,state,created_at,approved_at,updated_at) "+
-        "VALUES (?,?,?,?,?,'approved',?,?,?)"
+        "(id,dataset_id,input_manifest_json,policy_revision,plan_digest,snapshot_lease_ref,state,created_at,approved_at,updated_at) "+
+        "VALUES (?,?,?,?,?,?,'approved',?,?,?)"
       ).run(id,validated.datasetId,JSON.stringify(validated.inputManifest),
-        validated.policyRevision,validated.planDigest,stamp,stamp,stamp);
+        validated.policyRevision,validated.planDigest,validated.leaseRef,stamp,stamp,stamp);
       db.exec("COMMIT");
     } catch(e) {
       db.exec("ROLLBACK");
