@@ -25,10 +25,12 @@ function tx(db, action) {
   }
 }
 export class LegacyMappingRepository {
-  constructor(trustedCanonicalDb) {
-    // Not a security check: caller must be the host-only approved UC-LGI service.
-    // No arbitrary SQL, path, filename, cookie or plugin value is accepted here.
+  #leases;
+  constructor(trustedCanonicalDb,{snapshotLeaseRegistry}={}) {
+    // Trusted host wiring only. No untrusted plugin RPC can hold this registry.
+    // Without the pinned snapshot lease, every mutation MUST fail closed.
     this.db=trustedCanonicalDb;
+    this.#leases=snapshotLeaseRegistry;
   }
   findDataset({ownerScopeId,datasetId}) {
     requireText(ownerScopeId); requireText(datasetId);
@@ -66,7 +68,7 @@ export class LegacyMappingRepository {
       if(!owner || owner.state!=="active")
         throw new MappingStoreError("LEGACY_MAPPING_SCOPE_DENIED");
       const batch=this.db.prepare(
-        "SELECT b.id,b.state,b.plan_digest,b.input_manifest_json FROM legacy_import_batches b "+
+        "SELECT b.id,b.state,b.plan_digest,b.input_manifest_json,b.snapshot_lease_ref FROM legacy_import_batches b "+
         "JOIN legacy_import_datasets d ON d.id=b.dataset_id "+
         "WHERE b.id=? AND b.dataset_id=? AND d.owner_scope_id=?"
       ).get(batchId,datasetId,ownerScopeId);
@@ -79,6 +81,13 @@ export class LegacyMappingRepository {
       if(!Array.isArray(manifest) ||
           !manifest.some(e=>e && e.role===fileRole && /^[a-f0-9]{64}$/.test(e.sha256)))
         throw new MappingStoreError("LEGACY_APPROVAL_ROLE_DENIED");
+      // The approval is NOT a permanent grant. It is bound to the still-live,
+      // immutable, owner-scoped snapshot lease. App restart/expiration fails closed.
+      if(!this.#leases || typeof this.#leases.verify!=="function" ||
+          !this.#leases.verify({
+            leaseRef:batch.snapshot_lease_ref,ownerScopeId,datasetId,inputManifest:manifest
+          }))
+        throw new MappingStoreError("LEGACY_SNAPSHOT_STALE");
       // This gate authorizes only dataset/role identity reservation. The future
       // importer MUST independently prove that each record came from the
       // still-pinned approved snapshot before any canonical content write.
