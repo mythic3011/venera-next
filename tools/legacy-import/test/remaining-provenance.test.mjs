@@ -52,7 +52,7 @@ test("history and image favorites produce separate, stable row keys without leak
 });
 test("history proof disallows duplicate compound identities from ambiguous source",async t=>{
  const dir=await fixture(t),path=join(dir,"history.db");
- const db=writeDb(path,HISTORY_SQL);
+ const db=writeDb(path,HISTORY_SQL.replace("id TEXT PRIMARY KEY","id TEXT"));
  const ins=db.prepare("INSERT INTO history VALUES(?,?,?,?,?,?,?,?,?,?,?)");
  ins.run("dup","a","","",1,1,0,0,"",1,null);
  ins.run("dup","b","","",1,2,0,0,"",1,null);
