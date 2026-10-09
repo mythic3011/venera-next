@@ -30,13 +30,17 @@ function normalizeManifest(manifest) {
   }).sort((a,b)=>ROLES.indexOf(a.role)-ROLES.indexOf(b.role));
   return Object.freeze(safe);
 }
-export function makeTrustedPreviewPlan({ownerScopeId,datasetId,inputManifest,policyRevision}) {
+export function makeTrustedPreviewPlan({ownerScopeId,datasetId,inputManifest,policyRevision,
+  datasetIntent="existing",newDatasetLabel=null}) {
   textValue(ownerScopeId); textValue(datasetId); textValue(policyRevision,64);
   // Dataset ID is an immutable canonical UUID, not a filename, pluginKey or path.
   if (!/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(datasetId))
     fail("LEGACY_PLAN_INVALID");
+  if (!["existing","new"].includes(datasetIntent)) fail("LEGACY_PLAN_INVALID");
+  if (datasetIntent==="new") textValue(newDatasetLabel);
+  else if (newDatasetLabel!==null) fail("LEGACY_PLAN_INVALID");
   const manifest=normalizeManifest(inputManifest);
-  const body={ownerScopeId,datasetId,policyRevision,
+  const body={ownerScopeId,datasetId,datasetIntent,newDatasetLabel,policyRevision,
     inputManifest:manifest.map(x=>({role:x.role,sha256:x.sha256}))};
   const planDigest=createHash("sha256").update(JSON.stringify(["legacy-import-plan-v1",body])).digest("hex");
   return Object.freeze({...body,inputManifest:manifest,planDigest});
@@ -78,10 +82,21 @@ export class TrustedLegacyApprovalService {
     const db=this.#db,id=randomUUID(),stamp=new Date().toISOString();
     db.exec("BEGIN IMMEDIATE");
     try {
-      const owner=db.prepare(
-        "SELECT id FROM legacy_import_datasets WHERE id=? AND owner_scope_id=? AND state='active'"
-      ).get(validated.datasetId,validated.ownerScopeId);
-      if (!owner)fail("LEGACY_APPROVAL_DATASET_DENIED");
+      if (validated.datasetIntent==="new") {
+        const exists=db.prepare("SELECT id FROM legacy_import_datasets WHERE id=?")
+          .get(validated.datasetId);
+        if (exists)fail("LEGACY_APPROVAL_DATASET_CONFLICT");
+        db.prepare(
+          "INSERT INTO legacy_import_datasets "+
+          "(id,owner_scope_id,display_label,state,created_at,updated_at) "+
+          "VALUES (?,?,?,'active',?,?)"
+        ).run(validated.datasetId,validated.ownerScopeId,validated.newDatasetLabel,stamp,stamp);
+      } else {
+        const owner=db.prepare(
+          "SELECT id FROM legacy_import_datasets WHERE id=? AND owner_scope_id=? AND state='active'"
+        ).get(validated.datasetId,validated.ownerScopeId);
+        if (!owner)fail("LEGACY_APPROVAL_DATASET_DENIED");
+      }
       db.prepare(
         "INSERT INTO legacy_import_batches "+
         "(id,dataset_id,input_manifest_json,policy_revision,plan_digest,state,created_at,approved_at,updated_at) "+
