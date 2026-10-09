@@ -36,3 +36,16 @@ test("sandbox cannot invoke shell, select arbitrary image or elevate root", () =
   for(const input of bad)
     assert.throws(()=>buildDockerArgs(input), SandboxError);
 });
+
+test("snapshot export mode has bounded output mount and no raw source or network access",()=>{
+  const args=buildDockerArgs({...clean,outputDir:"/tmp/private-stage"});
+  for(const required of [
+    "type=bind,src=/tmp/private-stage,dst=/out",
+    "type=bind,src=/tmp/old-venera,dst=/legacy,readonly",
+    "--network=none","--read-only","--cap-drop=ALL",
+    "/app/export-snapshots.mjs","--out","/out"
+  ])assert.ok(args.includes(required),"missing "+required);
+  assert.ok(!args.includes("--privileged"));
+  assert.ok(!args.some(x=>x.includes("docker.sock")));
+  assert.throws(()=>buildDockerArgs({...clean,outputDir:"/tmp/bad,path"}),SandboxError);
+});
