@@ -12,12 +12,17 @@ The old Unified Store `venera.db` is **never** an accepted import role (includin
 
 ## Run
 
-Requires **Node >=22.16** with the experimental built-in `node:sqlite` module; no third-party runtime dependency. For the first release, run only on trusted copies or controlled test fixtures until OS-level parser sandboxing has been verified on each target platform.
+Requires **Node >=22.16** with the experimental built-in `node:sqlite` module. The **recommended reference isolation path** is Docker on Linux or macOS with Docker Desktop. First pull the specified trusted Node image, then run the fail-closed launcher:
 
 ```sh
-node tools/legacy-import/preview.mjs --dir "/path/to/old-venera-data"
+docker pull node:22.16.0-bookworm-slim
+node tools/legacy-import/preview-isolated.mjs --dir "/path/to/old-venera-data"
 node --test tools/legacy-import/test/*.test.mjs
 ```
+
+`preview-isolated.mjs` starts the inspector inside a separate Docker container with `--network=none`, read-only root + mounts, non-root host UID/GID, dropped Linux capabilities, no-new-privileges, private bounded tmpfs, CPU/memory/PID budgets and a host-side runtime deadline/output cap. It **does not** fall back to direct JS when Docker is absent or fails. The source directory is mounted **read-only as a whole**; if it contains unrelated sensitive files, a compromised parser may still read them within the container (although outbound network is blocked). Use a **dedicated directory containing only the five selected distributed files and SQLite WAL/SHM sidecars**, not a shared home directory. The image tag is currently version-selected, **not digest-pinned**; pin/verify an image digest and audit the Docker daemon/runtime before shipping.
+
+The original `preview.mjs` runs **without OS isolation** and is retained for controlled developer fixture/debug work only. Node subprocesses/Workers do not themselves provide this isolation. Windows/native macOS sandbox alternatives need their own verified adapters rather than an unsafe transparent fallback. No plugin or public HTTP API can trigger this trusted host-only tool.
 
 The CLI reads only the five exact basenames in the explicit directory; unknown files are ignored, not discovered or treated as a fallback. Output is **aggregate schema/count/deferred statistics** and typed error codes only. It does not expose titles, history items, usernames, URLs, raw JSON, filesystem locations or content hashes. It returns a no-input status when all five are missing.
 
@@ -31,9 +36,9 @@ The CLI reads only the five exact basenames in the explicit directory; unknown f
 
 ## Known L0 boundaries
 
-- Parser executes locally in a Node process and **does not yet constitute an independently hardened OS sandbox**. Do not position it as safe for untrusted SQLite files on all desktop/mobile platforms. Before product UI integration, use a per-platform isolated worker process with OS-level limits/egress/filesystem restrictions and tests.
+- `docker-sandbox.mjs` provides a **tested Linux-container boundary** on GitHub Actions. It is a reference adapter, not a universal mobile/desktop sandbox or a proof against every Docker/kernel vulnerability. A compromised Docker daemon is trusted-host compromise. Per-platform production isolation, Docker image digest pinning, tighter per-file mounts and process/IPC audits remain open.
 - Resource checks are bounded by per-file max bytes, per-table row count, JSON depth and node count, but `quick_check`/backup can still consume CPU on adversarial databases. OS process limits/timeout are required before shipping a general import wizard.
-- This is a read-only preflight, not the L1-L3 importer. Dataset identity association, stable per-record IDs, asset-root grants, receipt journaling, storage commit, reader position reconciliation and user conflict approvals are **deliberately not implemented** here.
+- `record-identity.mjs` implements **pure, deterministic six-part dataset-scoped record keys** with no DB writes or canonical ID creation. Persistence of Dataset/RecordMapping in the future *canonical* v2 repository, user-approved Preview UI, asset-root grants, journal/receipt writing, ContentUnit matching and Import Apply are **not yet implemented**. Do not create a separate production mapping database beside canonical v2.
 - Login credentials, cookies, website account profiles, legacy source JS, legacy `syncdata.json` and Unified Store are outside this contract.
 
 Canonical design: [17_LEGACY_DISTRIBUTED_IMPORT.md](../../docs/design/v2/17_LEGACY_DISTRIBUTED_IMPORT.md) and [03_USE_CASES.md](../../docs/design/v2/03_USE_CASES.md) (UC-LGI-001–004).
