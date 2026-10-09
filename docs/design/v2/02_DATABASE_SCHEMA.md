@@ -807,8 +807,8 @@ CREATE TABLE legacy_import_batches (
   approved_at          TEXT,
   completed_at         TEXT,
   updated_at           TEXT NOT NULL,
-  CHECK (state NOT IN ('verified','partial','failed','cancelled')
-         OR completed_at IS NOT NULL)
+  CHECK ((state IN ('verified','partial','failed','cancelled') AND completed_at IS NOT NULL)
+      OR (state NOT IN ('verified','partial','failed','cancelled') AND completed_at IS NULL))
 );
 CREATE INDEX idx_legacy_batches_dataset ON legacy_import_batches(dataset_id,created_at);
 
@@ -849,7 +849,8 @@ CREATE TABLE legacy_record_mappings (
 CREATE INDEX idx_legacy_mappings_batch ON legacy_record_mappings(last_batch_id);
 CREATE INDEX idx_legacy_mappings_content ON legacy_record_mappings(target_content_id);
 -- Storage/application contract: never treat mapping_state='mapped' with a missing
--- target as successful import. On explicit canonical deletion, detach/tombstone
+-- canonical target as successful content import (preference evidence is the
+-- explicitly permitted targetless case). On explicit canonical deletion, detach/tombstone
 -- affected mappings in the same use-case transaction; never resurrect silently.
 
 CREATE TABLE legacy_unresolved_records (
@@ -897,7 +898,7 @@ CREATE TABLE legacy_import_receipts (
   state                TEXT NOT NULL CHECK (state IN ('verified','partial','failed','cancelled')),
   counters_json        TEXT NOT NULL,         -- derived from committed mapping and journal state
   policy_revision      TEXT NOT NULL,
-  verified_at          TEXT NOT NULL,
+  finalized_at         TEXT NOT NULL,         -- can be partial/failed/cancelled; not always verified
   created_at           TEXT NOT NULL
 );
 ~~~
