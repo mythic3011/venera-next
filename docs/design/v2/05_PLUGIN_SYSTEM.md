@@ -998,6 +998,10 @@ const EH_CATEGORIES = [
 
 ## ImportJob Entity Contract
 
+> **One-time old-Venera distributed-data import is NOT a Plugin ImportJob.** Its trusted `LegacyImportDataset`, `LegacyImportBatch`, `LegacyRecordMapping`, `LegacyUnresolvedRecord`, `LegacyAssetJournal` and `LegacyImportReceipt` are authoritative in `01_ENTITIES.md`/`02_DATABASE_SCHEMA.md`. UC-LGI-001–004 in `03_USE_CASES.md` authorize a host-only parser and canonical writer for exactly `local.db`, `history.db`, `local_favorite.db`, `appdata.json` and `implicitData.json`; no old Unified Store `venera.db`, no executing old JS source, and no third-party plugin RPC to launch it. `defineImporter`/`ImportJob` remain the normal file/archive import path. Reference: `17_LEGACY_DISTRIBUTED_IMPORT.md`.
+ 
+
+
 **Purpose**: Runtime import orchestration record for plugin-based importers.
 
 ```
