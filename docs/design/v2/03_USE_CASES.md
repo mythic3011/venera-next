@@ -345,7 +345,7 @@ Diagnostics note:
 1. Reject disallowed roles, duplicate/conflicting input handles, old Unified Store schema signatures (including files renamed `local.db`) and the new v2 database as input.
 2. Acquire SQLite-consistent read-only snapshots for supplied DB roles, respecting journal sidecars via SQLite; separately copy bounded JSON role inputs. Incomplete journal/lock/corruption means a typed per-file failure, no source mutation.
 3. Verify schema signature, integrity and per-file budgets. Parse only reviewed old-table/JSON variants in an isolated adapter; never execute legacy Dart/JS or input SQL.
-4. Find/confirm `LegacyImportDataset` identity using trusted user intent; derive stable `LegacyRecordKey` with dataset/file role/table/folder/type/id rather than digest or title. Generate record digests, candidate Content/Section/Unit identities and category readiness.
+4. Resolve an existing `LegacyImportDataset` identity using trusted user intent, or reserve a provisional, **not-yet-persisted** dataset UUID for the proposed plan. Derive stable `LegacyRecordKey` with dataset/file role/table/folder/type/id rather than digest or title. Persist a newly created dataset only after explicit approved apply. Generate record digests, candidate Content/Section/Unit identities and category readiness.
 5. Validate available media against granted roots; detect symlink/path escapes, missing media and ambiguous section/page ordering.
 6. Return a **read-only preview** with per-file counts, candidate merges, existing canonical progress conflicts, unresolved/pending image favorites, tag deferrals and destination artifact budget. No canonical writes or account/network effects.
 
