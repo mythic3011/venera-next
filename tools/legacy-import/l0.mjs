@@ -224,7 +224,7 @@ export async function previewLegacyDirectory(userSelectedDirectory, options = {}
       const source = join(folder, role);
       let input;
       try { input = await regularInput(source, DB_ROLES.has(role) ? limits.maxDbBytes : limits.maxJsonBytes); }
-      catch (e) { files.push({ role, status: "rejected", code: e?.code || "LEGACY_SOURCE_UNREADABLE" }); continue; }
+      catch (e) { files.push({ role, status: "rejected", code: e instanceof LegacyInspectionError ? e.code : "LEGACY_SOURCE_UNREADABLE" }); continue; }
       if (!input) { files.push({ role, status: "missing", code: "SKIPPED_MISSING_INPUT" }); continue; }
       try {
         const real = await realpath(source);
@@ -243,7 +243,7 @@ export async function previewLegacyDirectory(userSelectedDirectory, options = {}
         digests.push([role, digest]);
         files.push({ role, status: "inspected", ...result });
       } catch (e) {
-        files.push({ role, status: "rejected", code: e?.code || "LEGACY_SOURCE_UNREADABLE" });
+        files.push({ role, status: "rejected", code: e instanceof LegacyInspectionError ? e.code : "LEGACY_SOURCE_UNREADABLE" });
       }
     }
     const totals = { inspected: 0, missing: 0, rejected: 0, records: 0, eligible: 0, deferred: 0, reviewRequired: 0, invalid: 0 };
