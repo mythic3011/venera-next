@@ -174,3 +174,17 @@ test("L0: row budgets enforced before DB iteration; changed settings never creat
  assert.equal(next.files[3].deferred,1);
  assert.equal(next.canCommit,false);
 });
+
+test("L0: cross-folder aggregate row cap applies to dynamic favorite tables", async t => {
+  const dir=await fixture(t);
+  const db=sqlite(join(dir,"local_favorite.db"),
+    'CREATE TABLE "Folder A" (' + FAV_SCHEMA + '); CREATE TABLE "Folder B" (' + FAV_SCHEMA + ')');
+  for(const folder of ["Folder A","Folder B"]){
+    db.prepare('INSERT INTO "'+folder+'" VALUES (?,?,?,?,?,?,?,?,?)')
+      .run("id", "title", "", 1, "", "", "", "", 0);
+  }
+  db.close();
+  const out=await previewLegacyDirectory(dir, {limits:{maxTotalRows:1}});
+  assert.equal(out.files[2].status, "rejected");
+  assert.equal(out.files[2].code, "LEGACY_DATA_BUDGET_EXCEEDED");
+});
