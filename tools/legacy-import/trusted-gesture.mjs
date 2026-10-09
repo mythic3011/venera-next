@@ -37,7 +37,7 @@ export function createHostGestureAuthority({requestConfirmation,now=()=>Date.now
         let typed;
         try { typed=await requestConfirmation({challenge,context:Object.freeze({...context}),preview}); }
         catch { fail("WIZARD_GESTURE_CANCELLED"); }
-        if(typeof typed!=="string" || now()-createdAt<0 ||
+        if(typeof typed!=="string" || typed.length>256 || now()-createdAt<0 ||
            now()-createdAt>MAX_AGE_MS || !eq(typed.trim(),challenge))
           fail("WIZARD_GESTURE_REJECTED");
         const gesture=Object.freeze(Object.create(null));
