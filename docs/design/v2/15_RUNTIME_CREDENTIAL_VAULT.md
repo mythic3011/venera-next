@@ -116,49 +116,48 @@ Plugin metadata can declare label keys and field types, **never arbitrary login 
 
 ## 5. Proposed SDK facade: no raw credential return
 
+**Updated ruling (see 16_ACCOUNT_PASSKEY_ADOPTION_CONTRACT.md): the untrusted plugin may inspect a minimal auth state but cannot initiate login dialogs, change accounts, register passkeys, or log out the user.** Such operations belong to a trusted user-gesture-bound UI channel. This supersedes earlier exploratory PluginAuthFacade.requestLogin/selectProfile/logout sketches.
+
 ~~~ts
-// Exposed inside sandbox worker as typed RPC facade only.
-interface PluginAuthFacade {
-  status(): Promise<{
-    state: "guest" | "active" | "locked" | "expired" | "reauth_required";
-    profileRef?: string;   // opaque and bound to the calling plugin
-    label?: string;        // non-secret host-approved summary
-  }>;
-  requestLogin(opts?: { scheme?: "cookie_session" | "basic" | "api_key" | "oauth2" }):
-    Promise<{ state: "active" | "cancelled" | "reauth_required" }>;
-  selectProfile(profileRef: string): Promise<void>;
-  logout(profileRef: string): Promise<void>;
+// SANDBOXED PLUGIN — typed RPC only, status never includes passwords/cookies/tokens.
+interface PluginAuthStatusFacade {
+  status(): Promise<{ state: "guest" | "ready" | "locked" | "expired" }>;
+}
+
+// Only host-owned trusted UI can invoke the following:
+interface TrustedAccountUiCommands {
+  beginLogin(gesture: TrustedGesture, ownerRef: OwnerRef): Promise<LoginOutcome>;
+  chooseAccount(gesture: TrustedGesture, ownerRef: OwnerRef, profileRef: string):
+    Promise<ReaderContextRef>;
+  logout(gesture: TrustedGesture, profileRef: string): Promise<void>;
 }
 
 interface PluginAuthAwareNetworkRequest {
-  endpointRef: string;                 // registered approved endpoint, not arbitrary URL
-  method: "GET" | "POST";               // further constrained by endpoint grant
+  endpointRef: string;                 // registered and approved, not arbitrary URL
+  method: "GET" | "POST";               // constrained by endpoint grant
   pathParams?: Record<string, string>;
   query?: Record<string, string>;
-  headerProfileRef?: string;           // identifies approved profile, not raw header
-  auth: "none" | "active_profile";
-  responseAs: "html_snapshot" | "json" | "bytes";
+  headerProfileRef?: string;           // approved non-secret profile
+  auth: "none" | "bound";               // selected by trusted host reader context
+  responseAs: "html_snapshot" | "json" | "image_resource";
 }
 
-// HOST-ONLY contract. SecureSecretHandle is not serializable to plugin IPC.
+// HOST-ONLY contract. Handles never cross plugin IPC.
 interface CredentialVaultPort {
   store(profile: TrustedProfile, kind: SecretKind, input: SecureSecretInput):
     Promise<VaultRecordRef>;
-  withCredential<T>(
+  useForApprovedOperation(
     principal: TrustedPrincipal,
     operation: ApprovedOperation,
-    secretRef: VaultRecordRef,
-    fn: (handle: HostOnlySecretHandle) => Promise<T>
-  ): Promise<T>;  // MUST not allow returning a raw secret as T
+    ref: VaultRecordRef
+  ): Promise<ApprovedResult>; // constrained schema; no decrypted-secret result
   rotate(profile: TrustedProfile, expectedRevision: number, input: SecureSecretInput):
     Promise<number>;
   revoke(profile: TrustedProfile): Promise<void>;
 }
 ~~~
 
-**Never expose** getPassword(), getCookies(), getToken(), decryptSecret(), raw CookieJar, Set-Cookie, API key in RequestInit, token-bearing URLs, unrestricted headers or a privileged browser DOM to JS plugins. A plugin-config login form with custom HTML/event JS is also prohibited. Host must enforce typed runtime RPC and schema; TS types alone are not a security boundary.
-
-Note: a generic callback typed as T could accidentally return the secret; the actual trusted implementation should restrict output to safe result schema and avoid any free-form “decrypt and return” method, including exceptions and logs.
+**Never expose** getPassword(), getCookies(), getToken(), decryptSecret(), raw CookieJar, Set-Cookie, arbitrary RequestInit, plugin-triggered Login UI, account-switch authority, unrestricted headers or a privileged browser DOM. Trusted CredentialVaultPort implementations may internally access plaintext to construct an upstream request, but their externally returned result must be an approved non-secret schema. TypeScript types are documentation, not a security boundary.
 
 ## 6. Request-bound credential lifecycle
 
@@ -452,7 +451,7 @@ Before third-party online plugin launch (M3 security preflight):
 
 ### 13.6 References
 
-- [W3C WebAuthn Level 3 (2026 Candidate Recommendation)](https://www.w3.org/TR/2026/CR-webauthn-3-20260113/) — RP ID, origin validation, challenges and optional PRF.
+- [W3C WebAuthn Level 3 (2026 Recommendation)](https://www.w3.org/TR/2026/REC-webauthn-3-20260825/) — RP ID, origin validation, challenges and optional PRF.
 - [FIDO Alliance passkeys FAQ](https://fidoalliance.org/passkeys/) — device-bound/synced credentials and RP adoption.
 - [Apple supporting passkeys](https://developer.apple.com/documentation/authenticationservices/supporting-passkeys) — native associated domain constraints; browser behavior differs.
 - [Apple passkeys in web browsers](https://developer.apple.com/documentation/authenticationservices/passkey-use-in-web-browsers) — browser WebAuthn context distinction.
