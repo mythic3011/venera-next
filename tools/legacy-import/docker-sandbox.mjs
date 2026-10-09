@@ -100,7 +100,7 @@ function cleanupContainer(name) {
   proc.on("error", () => {});
 }
 export async function previewInDocker(selectedDirectory) {
-  if (process.platform !== "linux") deny("SANDBOX_PLATFORM_UNSUPPORTED");
+  if (!["linux","darwin"].includes(process.platform)) deny("SANDBOX_PLATFORM_UNSUPPORTED");
   const uid = process.getuid?.(), gid = process.getgid?.();
   if (!uid || !gid) deny("SANDBOX_UNPRIVILEGED_USER_REQUIRED");
   const selectedDir = await validateDirectory(selectedDirectory);
