@@ -21,6 +21,8 @@
 | `08_SOURCE_PACKAGE_LIFECYCLE.md` | Source package install commit order, lease timers, trust tiers, PackageStore contract (authority over 05's summary) |
 | `09_OBSERVABILITY.md` | Diagnostics events contract (bounded evidence, best-effort writes, schema evolution policy) |
 
+> **2026-10-09 greenfield ruling:** Current `runtime/core` and other legacy execution code will be retired, not refactored. Canonical v2 documents define the **new implementation target**; historical “Implemented (Core+DB)” status lines refer to code being discarded and must **not** be used as evidence that fresh v2 runtime components already exist. No migration of legacy Comic/Chapter/Page database schemas is required. Optional explicit old-data import is a separate project, not a runtime compatibility layer. Account/source-scope and passkey contracts are under design review in proposed files 12–16 (Draft PR #6), not yet canonical.
+
 Implementation status vocabulary (carried from v1, applies per use case / per table):
 `Implemented (Core+DB)` | `Target` | `Planned Canonical` | `Deferred/Legacy`.
 
