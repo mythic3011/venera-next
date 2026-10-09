@@ -30,15 +30,6 @@ export class LegacyMappingRepository {
     // No arbitrary SQL, path, filename, cookie or plugin value is accepted here.
     this.db=trustedCanonicalDb;
   }
-  createDatasetForApprovedImport({ownerScopeId,displayLabel}) {
-    requireText(ownerScopeId);
-    requireText(displayLabel);
-    const id=randomUUID(), time=now();
-    this.db.prepare(
-      "INSERT INTO legacy_import_datasets(id,owner_scope_id,display_label,state,created_at,updated_at) VALUES (?,?,?,?,?,?)"
-    ).run(id,ownerScopeId,displayLabel,"active",time,time);
-    return id;
-  }
   findDataset({ownerScopeId,datasetId}) {
     requireText(ownerScopeId); requireText(datasetId);
     return this.db.prepare(
