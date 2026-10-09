@@ -5,6 +5,7 @@ import { backup, DatabaseSync } from "node:sqlite";
 import { lstat, readFile, writeFile, chmod, stat } from "node:fs/promises";
 import { join } from "node:path";
 import { previewLegacyDirectory, INPUT_ROLES } from "./l0.mjs";
+import { attestLocalComicsSnapshot } from "./record-provenance.mjs";
 
 const MAX_DB=48*1024*1024,MAX_JSON=4*1024*1024;
 function fail(){throw new Error("LEGACY_SNAPSHOT_EXPORT_FAILED");}
@@ -45,6 +46,18 @@ try {
   // host later pins in the lease; do not inspect one version and reopen originals.
   const result=await previewLegacyDirectory("/out");
   if(result.status==="needs_attention")fail(); // fail closed; host deletes staging
+  // Private evidence artifact, NOT stdout or additional metadata input.
+  // Only local.db record attestation is implemented in this phase.
+  const local=result.files.find(f=>f.role==="local.db");
+  const proofs=[];
+  if(local.status==="inspected") {
+    const proof=await attestLocalComicsSnapshot("/out/local.db");
+    if(proof.records.length!==local.eligible || local.invalid!==0)fail();
+    proofs.push(proof);
+  }
+  const evidence=JSON.stringify({version:1,proofs});
+  if(Buffer.byteLength(evidence,"utf8")>32*1024*1024)fail();
+  await writeFile("/out/.record-evidence.json",evidence,{flag:"wx",mode:0o600});
   process.stdout.write(JSON.stringify(result)+"\n");
 } catch {
   process.stderr.write("LEGACY_SNAPSHOT_EXPORT_FAILED\n"); // no paths/data
