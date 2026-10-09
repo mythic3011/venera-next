@@ -19,6 +19,7 @@ function encode(value) {
     if (Buffer.byteLength(value,"utf8")>LIMIT_FIELD_BYTES) reject();
     return ["string",value];
   }
+  if (typeof value === "boolean") return ["boolean",value];
   if (typeof value === "number" && Number.isSafeInteger(value)) return ["integer",String(value)];
   if (typeof value === "bigint") return ["integer",String(value)];
   reject(); // BLOB and floating-point identities are unsupported
