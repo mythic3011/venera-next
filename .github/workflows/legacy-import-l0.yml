@@ -69,6 +69,45 @@ jobs:
                  d.canCommit!==false || s.includes("PRIVATE_TITLE")) process.exitCode=1;
             });
           '
+      - name: Smoke test sandboxed immutable snapshots and live lease verification
+        run: |
+          TEMP_INPUT="$(mktemp -d)"
+          trap 'rm -rf "$TEMP_INPUT"' EXIT
+          node --input-type=module -e '
+            import { DatabaseSync } from "node:sqlite";
+            import { writeFileSync } from "node:fs";
+            const db=new DatabaseSync(process.argv[1]+"/local.db");
+            db.exec("CREATE TABLE comics (id TEXT NOT NULL, title TEXT NOT NULL, subtitle TEXT NOT NULL, tags TEXT NOT NULL, directory TEXT NOT NULL, chapters TEXT NOT NULL, cover TEXT NOT NULL, comic_type INTEGER NOT NULL, downloadedChapters TEXT NOT NULL, created_at INTEGER, PRIMARY KEY (id, comic_type))");
+            db.prepare("INSERT INTO comics VALUES (?,?,?,?,?,?,?,?,?,?)").run("one","PRIVATE_BOOK","","[]","d","{}","",1,"[]",1);
+            db.close();
+            writeFileSync(process.argv[1]+"/appdata.json",JSON.stringify({settings:{theme_mode:"dark"}}));
+          ' "$TEMP_INPUT"
+          node --input-type=module -e '
+            import assert from "node:assert/strict";
+            import { DatabaseSync } from "node:sqlite";
+            import { TrustedSnapshotLeaseRegistry } from "./tools/legacy-import/snapshot-lease.mjs";
+            import { previewAndIssueSnapshotLease } from "./tools/legacy-import/docker-sandbox.mjs";
+            const registry=new TrustedSnapshotLeaseRegistry();
+            const datasetId="c20ed232-9d89-4e42-a30e-e5105e198724";
+            const result=await previewAndIssueSnapshotLease({
+              selectedDirectory:process.argv[1],ownerScopeId:"ci-test",
+              datasetId,snapshotLeaseRegistry:registry
+            });
+            assert.equal(result.preview.canCommit,false);
+            assert.equal(result.preview.files[0].eligible,1);
+            assert.equal(result.preview.totals.inspected,2);
+            const context={leaseRef:result.leaseRef,ownerScopeId:"ci-test",datasetId};
+            const manifest=registry.getManifest(context);
+            assert.deepEqual(manifest.map(x=>x.role),["local.db","appdata.json"]);
+            assert.equal(registry.verify({...context,inputManifest:manifest}),true);
+            const db=new DatabaseSync(process.argv[1]+"/local.db");
+            db.prepare("INSERT INTO comics VALUES (?,?,?,?,?,?,?,?,?,?)").run("two","CHANGED_TITLE","","[]","d","{}","",1,"[]",1);
+            db.close();
+            assert.equal(registry.verify({...context,inputManifest:manifest}),true);
+            assert.equal(registry.verify({...context,ownerScopeId:"wrong",inputManifest:manifest}),false);
+            assert.equal(registry.revoke(context),true);
+            assert.equal(registry.verify({...context,inputManifest:manifest}),false);
+          ' "$TEMP_INPUT"
       - name: Verify CLI refuses unknown arguments
         run: |
           if node tools/legacy-import/preview.mjs --invalid; then
