@@ -53,6 +53,14 @@ Trusted user intent
 
 **No side effects during dry run:** no new Content rows, no active orders, no network, no downloaded plugin/translation packs, no vault credentials, no source file writes, and no background auto-login.
 
+### Implemented per-record L0 attestation boundary (2026-10-10)
+
+The isolated `export-snapshots.mjs` worker inspects and exports the *same* `local.db` snapshot, then `record-provenance.mjs` hashes each `comics` row using a typed, versioned field encoding covering all ten inspected source columns. The worker writes a bounded **private artifact** rather than putting IDs/titles in public CLI stdout. The host checks the evidence's `snapshotSha256` against the privately pinned lease manifest, derives a dataset-scoped `LegacyRecordKey` for each proof, rejects duplicate or mismatched keys and stores only those commitments for the lifetime of the lease.
+
+`reserveAfterApprovedPlan` now requires **all three gates**: (1) live owner/dataset/role-matched Approved Batch, (2) live immutable Snapshot Lease, (3) an **exact key + rowDigest pair proven to exist in that lease**. A caller-supplied arbitrary SHA-256 is not a source record attestation. A changed row may be reviewed only from a *new separately approved snapshot* carrying that new digest. An unknown key, a known key with the wrong digest, or a role with no record adapter fails closed.
+
+**Scope/remaining gate:** `local.db.comics` only; `history.db`, `local_favorite.db`, JSON settings and image favorites remain *unattested and unavailable for persistent mapping mutations*, even though read-only aggregate preview supports all five input files. OS-worker trust is still a production-review boundary. No content/media commit, user-facing wizard or recovery receipt is implemented.
+
 ## 3. Dataset / Record Identity vs Batch Evidence (P0)
 
 An input snapshot digest and a legacy record identity solve **different** problems. They must **not** be conflated.
