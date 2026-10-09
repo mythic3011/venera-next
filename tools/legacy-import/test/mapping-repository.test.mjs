@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
+import { createHash } from "node:crypto";
 import { DatabaseSync } from "node:sqlite";
 import { LegacyMappingRepository, MappingStoreError } from "../mapping-repository.mjs";
 import { makeTrustedPreviewPlan, TrustedLegacyApprovalService, LegacyApprovalError } from "../approval-gate.mjs";
@@ -58,8 +59,16 @@ function plan(repo,ownerScopeId,datasetId,options={}) {
     });
   }
   const role=options.role || "local.db";
+  const inputBytes=fixtureInput(role);
+  const recordProofs=role==="local.db" ? [{
+    version:1,role:"local.db",
+    snapshotSha256:createHash("sha256").update(inputBytes).digest("hex"),
+    records:[{fileRole:"local.db",tableKind:"comics",
+      scopeKey:"",legacyTypeKey:"1",legacyId:"42",
+      recordDigest:options.recordDigest ?? DIGEST}]
+  }] : [];
   const {leaseRef}=repo.leases.issue({ownerScopeId,datasetId,
-    inputs:[{role,bytes:fixtureInput(role)}]});
+    inputs:[{role,bytes:inputBytes}],recordProofs});
   return makeTrustedPreviewPlan({
     ownerScopeId,datasetId,leaseRef,policyRevision:"v1",
     datasetIntent:options.datasetIntent || "existing",
@@ -121,7 +130,12 @@ test("approved batch binds exact digest and owner; reimport is idempotent",async
   const again=reserve(repo,"user-A",ds,a);
   assert.equal(again.state,"existing");
   assert.equal(first.mappingId,again.mappingId);
-  const newer=reserve(repo,"user-A",ds,a,{recordDigest:SHA2});
+  // Changed metadata must come from a NEW pinned snapshot and separately
+  // approved batch, not an arbitrary forged caller-supplied SHA2.
+  assert.throws(()=>reserve(repo,"user-A",ds,a,{recordDigest:SHA2}),
+    e=>e instanceof MappingStoreError&&e.code==="LEGACY_RECORD_UNATTESTED");
+  const newerApproval=await approve(repo,"user-A",ds,{recordDigest:SHA2});
+  const newer=reserve(repo,"user-A",ds,newerApproval,{recordDigest:SHA2});
   assert.equal(newer.state,"changed_pending");
   assert.equal(newer.mappingId,first.mappingId);
   const stored=repo.lookupMapping({ownerScopeId:"user-A",key:key(ds)});
@@ -271,5 +285,18 @@ test("approved batch cannot reserve records after snapshot lease revocation",asy
  assert.throws(()=>reserve(repo,"user-A",ds,{
    batchId:approved.batchId,expectedPlanDigest:approved.planDigest
  }),e=>e instanceof MappingStoreError&&e.code==="LEGACY_SNAPSHOT_STALE");
+ assert.equal(count(repo,"legacy_record_mappings"),0);
+});
+
+test("valid approved file with forged legacyId or digest cannot reserve mapping",async t=>{
+ const repo=setup(t);
+ const ds=fixtureExistingDataset(repo,{ownerScopeId:"user-A",displayLabel:"phone"});
+ const a=await approve(repo,"user-A",ds);
+ for(const changes of [
+   {key:key(ds,"not-in-snapshot")},
+   {key:key(ds,"42",{legacyTypeKey:"2"})},
+   {recordDigest:"9".repeat(64)},
+ ]) assert.throws(()=>reserve(repo,"user-A",ds,a,changes),
+   e=>e instanceof MappingStoreError&&e.code==="LEGACY_RECORD_UNATTESTED");
  assert.equal(count(repo,"legacy_record_mappings"),0);
 });
