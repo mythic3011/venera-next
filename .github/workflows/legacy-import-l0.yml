@@ -87,6 +87,7 @@ jobs:
             import { DatabaseSync } from "node:sqlite";
             import { TrustedSnapshotLeaseRegistry } from "./tools/legacy-import/snapshot-lease.mjs";
             import { previewAndIssueSnapshotLease } from "./tools/legacy-import/docker-sandbox.mjs";
+            import { digestComicRow } from "./tools/legacy-import/record-provenance.mjs";
             const registry=new TrustedSnapshotLeaseRegistry();
             const datasetId="c20ed232-9d89-4e42-a30e-e5105e198724";
             const result=await previewAndIssueSnapshotLease({
@@ -100,6 +101,17 @@ jobs:
             const manifest=registry.getManifest(context);
             assert.deepEqual(manifest.map(x=>x.role),["local.db","appdata.json"]);
             assert.equal(registry.verify({...context,inputManifest:manifest}),true);
+            const key={datasetId,fileRole:"local.db",tableKind:"comics",
+              scopeKey:"",legacyTypeKey:"1",legacyId:"one"};
+            const recordDigest=digestComicRow({id:"one",comic_type:1,
+              title:"PRIVATE_BOOK",subtitle:"",tags:"[]",directory:"d",
+              chapters:"{}",cover:"",downloadedChapters:"[]",created_at:1});
+            assert.equal(registry.verifyRecord({...context,inputManifest:manifest,
+              key,recordDigest}),true);
+            assert.equal(registry.verifyRecord({...context,inputManifest:manifest,
+              key:{...key,legacyId:"nonexistent"},recordDigest}),false);
+            assert.equal(registry.verifyRecord({...context,inputManifest:manifest,
+              key,recordDigest:"0".repeat(64)}),false);
             const db=new DatabaseSync(process.argv[1]+"/local.db");
             db.prepare("INSERT INTO comics VALUES (?,?,?,?,?,?,?,?,?,?)").run("two","CHANGED_TITLE","","[]","d","{}","",1,"[]",1);
             db.close();
