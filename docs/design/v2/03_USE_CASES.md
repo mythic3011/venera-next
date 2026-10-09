@@ -353,6 +353,8 @@ Diagnostics note:
 
 **Errors:** `LEGACY_INPUT_NOT_ALLOWED`, `LEGACY_UNIFIED_STORE_UNSUPPORTED`, `LEGACY_SCHEMA_UNSUPPORTED`, `LEGACY_SNAPSHOT_UNAVAILABLE`, `LEGACY_SOURCE_CORRUPT`, `LEGACY_MEDIA_OUTSIDE_GRANT`, `LEGACY_DATA_BUDGET_EXCEEDED`.
 
+**L0 record provenance gate (implementation slice):** before reserving a `LegacyRecordMapping`, the trusted service checks the approved Batch, owner, live lease, and exact record key + typed source row digest emitted from that lease's **same inspected snapshot**. As of 2026-10-10, this record-level adapter exists only for `local.db.comics`; other input roles can be previewed but **must not** mutate mappings or canonical library state until their own attestation adapters are reviewed. A batch snapshot SHA-256 or caller-supplied row digest alone is insufficient proof. Records may be updated only from newly reviewed/approved evidence. No third-party plugin can make or spoof this host-only call.
+
 ### UC-LGI-002: Approve and Apply One-Time Import
 
 **Input:** trusted user-gesture approval of an exact preview/plan digest, dataset identity, explicit `skip | keep_both | merge_verified | metadata_only | defer` decisions, retention policy and granted media roots.
