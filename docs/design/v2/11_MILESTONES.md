@@ -31,7 +31,7 @@ M7 items may be pulled earlier opportunistically; they are batched last only bec
 
 ---
 
-> **L0 implementation evidence (2026-10-10; partial, not a product release):** `tools/legacy-import/l0.mjs`, `preview.mjs`, independently generated `test/l0.test.mjs` fixtures and `.github/workflows/legacy-import-l0.yml` implement a *statistics-only, no-commit* five-file inspector. GitHub Actions on Node 22.16 reported 10/10 passing fixture tests. It does **not** yet provide persistent dataset identity/record mapping, an OS-level parser sandbox, user consent UI, media grant resolver or import receipts; those L0/L1 acceptance gates remain open. No source files or v2 canonical DB are written.
+> **L0 implementation evidence (2026-10-10; partial, not a product release):** `tools/legacy-import/l0.mjs` performs no-commit five-file preview; `docker-sandbox.mjs` + `preview-isolated.mjs` add a tested Docker reference boundary (network disabled, RO mounts/root, resource limits and no unsafe fallback); `sanitize-result.mjs` validates/declassifies the subprocess output in the host; `record-identity.mjs` provides pure dataset-scoped six-part keys without allocating canonical IDs. `.github/workflows/legacy-import-l0.yml` runs Node 22.16 fixture tests and live Docker smoke. **Not yet done:** persisted dataset/record mappings in the fresh canonical v2 database, a real trusted user approval UI, media grants, crash/receipt writer, per-platform production isolation/security signoff. No user source files or v2 database are written.
 
 ### Separate one-time legacy-data import milestones (not a runtime migration)
 
