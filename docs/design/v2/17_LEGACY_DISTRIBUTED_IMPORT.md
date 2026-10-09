@@ -53,13 +53,13 @@ Trusted user intent
 
 **No side effects during dry run:** no new Content rows, no active orders, no network, no downloaded plugin/translation packs, no vault credentials, no source file writes, and no background auto-login.
 
-### Implemented per-record L0 attestation boundary (2026-10-10)
+### Five-file L0 record attestation (implemented 2026-10-10)
 
-The isolated `export-snapshots.mjs` worker inspects and exports the *same* `local.db` snapshot, then `record-provenance.mjs` hashes each `comics` row using a typed, versioned field encoding covering all ten inspected source columns. The worker writes a bounded **private artifact** rather than putting IDs/titles in public CLI stdout. The host checks the evidence's `snapshotSha256` against the privately pinned lease manifest, derives a dataset-scoped `LegacyRecordKey` for each proof, rejects duplicate or mismatched keys and stores only those commitments for the lifetime of the lease.
+Docker-isolated `export-snapshots.mjs` produces commitments from **the same inspected immutable snapshots**. `record-provenance.mjs` covers `local.db.comics`, `history.db.history`, `history.db.image_favorites`, dynamic folder memberships in `local_favorite.db` and only vetted `appdata.json.settings` keys. `implicitData.json` has an explicit **empty attestation**—no secret-bearing implicit key is eligible for Record Mapping.
 
-`reserveAfterApprovedPlan` now requires **all three gates**: (1) live owner/dataset/role-matched Approved Batch, (2) live immutable Snapshot Lease, (3) an **exact key + rowDigest pair proven to exist in that lease**. A caller-supplied arbitrary SHA-256 is not a source record attestation. A changed row may be reviewed only from a *new separately approved snapshot* carrying that new digest. An unknown key, a known key with the wrong digest, or a role with no record adapter fails closed.
+Each proof is bound to the exact input snapshot SHA-256. Record identity includes the appropriate role, table, source type and favorite-folder scope. Host checks proof counts by file/category and validates unique keys; `reserveAfterApprovedPlan` requires an Approved Batch, live owner-bound Snapshot Lease and **exact Key + Record Digest** in that lease. Arbitrary SHA-256, changed source records and forged IDs are rejected.
 
-**Scope/remaining gate:** `local.db.comics` only; `history.db`, `local_favorite.db`, JSON settings and image favorites remain *unattested and unavailable for persistent mapping mutations*, even though read-only aggregate preview supports all five input files. OS-worker trust is still a production-review boundary. No content/media commit, user-facing wizard or recovery receipt is implemented.
+**This is evidence-only, not data migration.** Attested records may be reserved for review, but remote source resolution, History → ContentUnit/ReadingSession, favorites → UserCollection, and preference application remain phase-gated and require separate explicit authorization. The old Unified Store `venera.db` remains unsupported, and no old website credentials or JS source code is imported. Production sandbox/host trust signoff and the end-user Wizard are still outstanding.
 
 ## 3. Dataset / Record Identity vs Batch Evidence (P0)
 
