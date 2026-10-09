@@ -1,6 +1,6 @@
 # v2 One-Time Legacy Venera Distributed-Data Import
 
-> **Status: revised design proposal — 2026-10-09.** User-initiated, one-way **data migration from old Venera to a fresh v2 canonical database**. The old executable runtime and schemas are not part of the new runtime. This proposal must be reviewed and consolidated into the relevant canonical 01–11 documents before implementation.
+> **Status: design companion — 2026-10-10.** User-initiated, one-way **data import from old Venera to a fresh v2 canonical database**. The old executable runtime and schemas are not part of the new runtime. **Domain entities and invariants are authoritative in 01_ENTITIES; reference target DDL in 02_DATABASE_SCHEMA; UC-LGI-001–004 in 03_USE_CASES; application ports in 04; category behavior in 07; diagnostics in 09; phase gates in 11.** This document retains inspected old-format evidence, threat cases and acceptance tests; no runtime has yet been implemented.
 >
 > **Hard scope:** only `local.db`, `history.db`, `local_favorite.db`, `appdata.json` and `implicitData.json` may be imported as old-Venera metadata inputs. Old Unified Store `venera.db` is **explicitly unsupported** and **must never** be used as a fallback. The new v2 `data/venera.db` is the **destination**, not a legacy input.
 >
@@ -51,7 +51,7 @@ Trusted user intent
 
 **No side effects during dry run:** no new Content rows, no active orders, no network, no downloaded plugin/translation packs, no vault credentials, no source file writes, and no background auto-login.
 
-## 3. Two levels of import identity (P0)
+## 3. Dataset / Record Identity vs Batch Evidence (P0)
 
 An input snapshot digest and a legacy record identity solve **different** problems. They must **not** be conflated.
 
@@ -225,8 +225,8 @@ Select permitted files and local media roots
 | P1: WAL vs five-file scope | `1–2` SQLite sidecars solely for snapshot, not metadata inputs | Contract specified |
 | P1: No unresolved staging model | `3` typed staging schema, lifecycle, retention, uniqueness | Contract specified |
 | P1: Image Favorites conflated with collection items | `4.2–4.3` distinct destination and deferred model | Contract specified |
-| P2: Malformed escaped Markdown + M1 tags | Proper Markdown code spans; tags staged until M2 (`4, `8) | Contract specified |
+| P2: Malformed escaped Markdown + M1 tags | Proper Markdown code spans; tags staged until M2 (§4, §8) | Contract specified |
 
 **Research trail:** inspected old Venera file readers in `lib/legacy/foundation/db/local_comics_store.dart`, `history_store.dart`, `favorites_store.dart` and `lib/legacy/foundation/appdata.dart`. Their source code informs fixtures only; the Unified Store and its modules are not allowed importer inputs or code dependencies.
 
-**Canonical adoption map:** propose authoritative entity/DDL updates in `01_ENTITIES.md` and `02_DATABASE_SCHEMA.md` for import dataset/batch/mapping/unresolved/journal/receipt; use-case steps in `03_USE_CASES.md`; port/service in `04_PACKAGES_AND_PIECES.md`; category mapping and deferred resolution in `07_FEATURES.md`; privacy events in `09_OBSERVABILITY.md`; rollout in `11_MILESTONES.md` and index in `SUMMARY.md`. This document is a **reviewed proposal**, not authorization to silently change active canonical invariants.
+**Canonical adoption status (Draft PR #6 only):** entity, DDL, use case, port, feature, diagnostics, plugin-boundary, milestone and index updates have been committed to 01/02/03/04/05/07/09/11/SUMMARY. This file is supporting rationale, not a second executable schema or repository authority. **Unmerged documentation is not implemented functionality**; no existing runtime or user data was modified.
