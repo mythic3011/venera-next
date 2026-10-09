@@ -775,6 +775,144 @@ CREATE VIRTUAL TABLE content_fts USING fts5(
 );
 ```
 
+## One-Time Legacy Distributed Import Tables (canonical schema authority)
+
+These tables support a **separate trusted data-import operation** from the discarded old Venera distributed stores, not the general `import_jobs` plugin pipeline or the Deferred `ImportBatch`. Only `local.db`, `history.db`, `local_favorite.db`, `appdata.json` and `implicitData.json` are valid source metadata formats; legacy Unified Store `venera.db` is prohibited. SQLite journal sidecars are only consistency mechanisms during read-only source snapshots.
+
+These are **reference target DDL** for the fresh v2 database. Install the subset in L0/L1 after M0/M1 as required; collection-target references become usable only once M2 collection tables exist. All physical legacy input access is isolated from SQL repositories. The trusted application layer additionally checks user/tenant scope, file signatures, JSON schemas, record hashes and path grants. SQLite checks alone cannot enforce those rules.
+
+~~~sql
+CREATE TABLE legacy_import_datasets (
+  id             TEXT PRIMARY KEY,            -- fresh UUID v4, not input-path/hash
+  owner_scope_id TEXT NOT NULL,               -- trusted Venera principal; runtime verifies scope
+  display_label  TEXT NOT NULL,
+  state          TEXT NOT NULL DEFAULT 'active'
+                  CHECK (state IN ('active','archived')),
+  created_at     TEXT NOT NULL,
+  updated_at     TEXT NOT NULL
+);
+CREATE INDEX idx_legacy_dataset_owner ON legacy_import_datasets(owner_scope_id,state);
+
+CREATE TABLE legacy_import_batches (
+  id                   TEXT PRIMARY KEY,
+  dataset_id           TEXT NOT NULL REFERENCES legacy_import_datasets(id) ON DELETE RESTRICT,
+  input_manifest_json  TEXT NOT NULL,          -- approved five-role snapshot digests and options, no raw credentials
+  policy_revision      TEXT NOT NULL,
+  plan_digest          TEXT NOT NULL,          -- approved plan; batch fingerprint ≠ record identity
+  state                TEXT NOT NULL DEFAULT 'selected'
+                       CHECK (state IN
+                         ('selected','snapshotted','previewed','approved','applying',
+                          'verified','partial','failed','cancelled')),
+  created_at           TEXT NOT NULL,
+  approved_at          TEXT,
+  completed_at         TEXT,
+  updated_at           TEXT NOT NULL,
+  CHECK (state NOT IN ('verified','partial','failed','cancelled')
+         OR completed_at IS NOT NULL)
+);
+CREATE INDEX idx_legacy_batches_dataset ON legacy_import_batches(dataset_id,created_at);
+
+CREATE TABLE legacy_record_mappings (
+  id                   TEXT PRIMARY KEY,      -- stable trusted assignment, UUID v4
+  dataset_id           TEXT NOT NULL REFERENCES legacy_import_datasets(id) ON DELETE RESTRICT,
+  file_role            TEXT NOT NULL
+                       CHECK (file_role IN
+                         ('local.db','history.db','local_favorite.db',
+                          'appdata.json','implicitData.json')),
+  table_kind           TEXT NOT NULL,          -- normalized table or JSON namespace
+  scope_key            TEXT NOT NULL DEFAULT '',-- normalized folder/table scope; never NULL
+  legacy_type_key      TEXT NOT NULL DEFAULT '',-- normalized comic type/source key; never NULL
+  legacy_id            TEXT NOT NULL,          -- old ID or JSON setting key
+  source_record_digest TEXT NOT NULL,          -- version evidence, NOT identity
+  mapping_state        TEXT NOT NULL CHECK (mapping_state IN
+                       ('mapped','unchanged','changed_pending','conflict','unresolved','tombstoned')),
+  target_content_id    TEXT REFERENCES contents(id) ON DELETE SET NULL,
+  target_section_id    TEXT REFERENCES content_sections(id) ON DELETE SET NULL,
+  target_unit_id       TEXT REFERENCES content_units(id) ON DELETE SET NULL,
+  target_collection_id TEXT REFERENCES user_collections(id) ON DELETE SET NULL,
+  target_item_id       TEXT REFERENCES user_collection_items(id) ON DELETE SET NULL,
+  last_batch_id        TEXT REFERENCES legacy_import_batches(id) ON DELETE SET NULL,
+  evidence_revision    INTEGER NOT NULL DEFAULT 1 CHECK (evidence_revision > 0),
+  created_at           TEXT NOT NULL,
+  updated_at           TEXT NOT NULL,
+  UNIQUE (dataset_id,file_role,table_kind,scope_key,legacy_type_key,legacy_id),
+  CHECK (length(table_kind)>0 AND length(legacy_id)>0),
+  -- One canonical target per record. Preference keys may have zero target FKs.
+  CHECK (
+      (target_content_id IS NOT NULL)
+    + (target_section_id IS NOT NULL)
+    + (target_unit_id IS NOT NULL)
+    + (target_collection_id IS NOT NULL)
+    + (target_item_id IS NOT NULL) <= 1
+  )
+);
+CREATE INDEX idx_legacy_mappings_batch ON legacy_record_mappings(last_batch_id);
+CREATE INDEX idx_legacy_mappings_content ON legacy_record_mappings(target_content_id);
+-- Storage/application contract: never treat mapping_state='mapped' with a missing
+-- target as successful import. On explicit canonical deletion, detach/tombstone
+-- affected mappings in the same use-case transaction; never resurrect silently.
+
+CREATE TABLE legacy_unresolved_records (
+  id                     TEXT PRIMARY KEY,
+  batch_id               TEXT NOT NULL REFERENCES legacy_import_batches(id) ON DELETE RESTRICT,
+  mapping_id             TEXT REFERENCES legacy_record_mappings(id) ON DELETE SET NULL,
+  category               TEXT NOT NULL CHECK (category IN
+                         ('work','reader_position','favorite','image_favorite',
+                          'tag','preference','source_reference','media')),
+  reason_code            TEXT NOT NULL,
+  evidence_json          TEXT NOT NULL,       -- bounded schema-validated private *non-secret* evidence
+  next_eligible_milestone TEXT,
+  state                  TEXT NOT NULL DEFAULT 'pending'
+                         CHECK (state IN ('pending','resolved','skipped','dismissed')),
+  resolved_target_id     TEXT,                -- typed evidence only; not identity authority
+  created_at             TEXT NOT NULL,
+  updated_at             TEXT NOT NULL
+);
+CREATE INDEX idx_legacy_unresolved_batch
+  ON legacy_unresolved_records(batch_id,state,category);
+CREATE UNIQUE INDEX ux_legacy_unresolved_active
+  ON legacy_unresolved_records(batch_id,mapping_id,category)
+  WHERE state='pending' AND mapping_id IS NOT NULL;
+
+CREATE TABLE legacy_asset_journal (
+  id                      TEXT PRIMARY KEY,
+  batch_id                TEXT NOT NULL REFERENCES legacy_import_batches(id) ON DELETE RESTRICT,
+  mapping_id              TEXT REFERENCES legacy_record_mappings(id) ON DELETE SET NULL,
+  planned_storage_id      TEXT NOT NULL,      -- reserved v2 UUID, no object row before DB visibility commit
+  committed_storage_id    TEXT REFERENCES storage_objects(id) ON DELETE SET NULL,
+  staging_ref             TEXT NOT NULL,      -- opaque importer-owned private staging handle
+  promoted_ref            TEXT,              -- opaque importer-owned managed location handle
+  expected_sha256         TEXT NOT NULL,      -- checked against actual bytes
+  expected_bytes          INTEGER NOT NULL CHECK (expected_bytes >= 0),
+  state                   TEXT NOT NULL CHECK (state IN
+                          ('staged','verified','promoted','committed','gc_pending')),
+  created_at              TEXT NOT NULL,
+  updated_at              TEXT NOT NULL,
+  UNIQUE (batch_id,planned_storage_id)
+);
+CREATE INDEX idx_legacy_journal_recovery ON legacy_asset_journal(batch_id,state);
+
+CREATE TABLE legacy_import_receipts (
+  batch_id             TEXT PRIMARY KEY REFERENCES legacy_import_batches(id) ON DELETE RESTRICT,
+  state                TEXT NOT NULL CHECK (state IN ('verified','partial','failed','cancelled')),
+  counters_json        TEXT NOT NULL,         -- derived from committed mapping and journal state
+  policy_revision      TEXT NOT NULL,
+  verified_at          TEXT NOT NULL,
+  created_at           TEXT NOT NULL
+);
+~~~
+
+**Canonical write/transaction semantics (mandatory):**
+1. `LegacyRecordKey` normalization uses all six **non-null** identity components. `scope_key` and `legacy_type_key` are literal empty strings only when their scopes do not apply, never SQL NULL. File role is an enum, not arbitrary filename.
+2. The importer obtains a dataset-level lock/lease before upsert of mappings. SQLite UNIQUE constraints are the last safety line; ID allocation and per-content canonical imports are serialized for a dataset, with safe replay of an interrupted approved batch.
+3. `legacy_asset_journal` intent is durably inserted first. Physical staging/promoting occurs outside canonical SQL transactions. After verify/promote, one SQLite transaction commits a full readable content subtree, complete active order, readable placements, per-record canonical mapping and corresponding committed journal states. No partial active order.
+4. Recover `staged`/`verified`/`promoted` artifacts by comparing journal to **both** storage bytes and committed mappings. `promoted` without a canonical reference is an orphan candidate, never automatically user-file deletion. `committed` with missing bytes requires explicit StorageUnavailable error and repair (no silent success).
+5. A missing or stale Receipt is derived from durable committed mappings/journal, not counters in memory. The batch can be `partial` without rolling back other fully committed content subtrees. No user-visible “complete” claim while requested categories are deferred/ambiguous.
+6. `ReadingSession` can be changed only using `UC-005b` after verified Unit identity and conflict policy; never write a guessed old `ep`/`page` value as unit ID. Old history timestamp is evidence, not fabricated `reading_sessions.updated_at`.
+7. `legacy_import_datasets`, mappings, receipts and unresolved evidence are separate from `operation_idempotency` and `import_jobs`. Temporary private snapshots have short retention; mappings/receipts persist under explicit retention and purge choices. No import secrets, direct JS plugins, old Unified Store tables or unsupported source formats.
+8. On canonical Content/Collection deletion, application must reconcile mapping FKs/status in the same use-case transaction. `ON DELETE SET NULL` preserves record evidence, **not** license for a subsequent import to recreate deleted data automatically.
+9. Source DB integrity is checked on a read-only, SQLite-consistent snapshot. A source `-wal` or `-shm` may be used by SQLite under that input role but is not an independently accepted metadata input. Reject a renamed Unified Store using a validated schema signature.
+
 ## diagnostics_events
 
 Bounded local/dev diagnostics evidence (not an unbounded production log store; see `09_OBSERVABILITY.md`).
