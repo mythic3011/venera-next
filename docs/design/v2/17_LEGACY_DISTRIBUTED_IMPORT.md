@@ -61,6 +61,14 @@ Each proof is bound to the exact input snapshot SHA-256. Record identity include
 
 **This is evidence-only, not data migration.** Attested records may be reserved for review, but remote source resolution, History → ContentUnit/ReadingSession, favorites → UserCollection, and preference application remain phase-gated and require separate explicit authorization. The old Unified Store `venera.db` remains unsupported, and no old website credentials or JS source code is imported. Production sandbox/host trust signoff and the end-user Wizard are still outstanding.
 
+### L0 trusted terminal approval slice (2026-10-10)
+
+`trusted-wizard.mjs` coordinates a host-only **evidence approval**, using the already inspected Docker Snapshot and private Lease. `trusted-gesture.mjs` uses a randomized challenge phrase bound to owner, dataset and Plan Digest; a real interactive TTY must collect it. A credential is an **opaque one-shot host object**, consumed on first verification, including rejection. The reference `wizard-console.mjs` refuses non-TTY/implicit approvals, requires a pre-existing fresh-v2 DB and does not import Content, ReaderSession, Favorites, images or Settings.
+
+The Approved Batch now contains a schema-enforced `approval_scope='evidence_only'` and `policy_revision='l0-evidence-only-v1'`. A later Content importer **must never reuse** this metadata-evidence approval as consent to migrate user records or storage; future action scopes require their own reviewed contract and user confirmation. Failure/cancellation revokes the private Snapshot Lease; approval expiry or app restart never silently reopens original files. Memory leases are bounded and auto-expire even while idle.
+
+This TTY prototype **is not the final end-user Desktop UI, OS identity authentication, or proof of physical presence**. Final Desktop clients need a trusted native main-process consent surface and authenticated principal; ordinary renderer events, plugin JS and remote API flags cannot authorize an import. All L1/L2/M1/M2 data import gates remain open.
+
 ## 3. Dataset / Record Identity vs Batch Evidence (P0)
 
 An input snapshot digest and a legacy record identity solve **different** problems. They must **not** be conflated.
