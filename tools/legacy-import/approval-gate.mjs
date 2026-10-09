@@ -30,32 +30,43 @@ function normalizeManifest(manifest) {
   }).sort((a,b)=>ROLES.indexOf(a.role)-ROLES.indexOf(b.role));
   return Object.freeze(safe);
 }
-export function makeTrustedPreviewPlan({ownerScopeId,datasetId,inputManifest,policyRevision,
+export function makeTrustedPreviewPlan({ownerScopeId,datasetId,leaseRef,inputManifest,policyRevision,
   datasetIntent="existing",newDatasetLabel=null}) {
   textValue(ownerScopeId); textValue(datasetId); textValue(policyRevision,64);
   // Dataset ID is an immutable canonical UUID, not a filename, pluginKey or path.
-  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(datasetId))
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(datasetId) ||
+      !/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(leaseRef))
     fail("LEGACY_PLAN_INVALID");
   if (!["existing","new"].includes(datasetIntent)) fail("LEGACY_PLAN_INVALID");
   if (datasetIntent==="new") textValue(newDatasetLabel);
   else if (newDatasetLabel!==null) fail("LEGACY_PLAN_INVALID");
   const manifest=normalizeManifest(inputManifest);
-  const body={ownerScopeId,datasetId,datasetIntent,newDatasetLabel,policyRevision,
+  const body={ownerScopeId,datasetId,leaseRef,datasetIntent,newDatasetLabel,policyRevision,
     inputManifest:manifest.map(x=>({role:x.role,sha256:x.sha256}))};
   const planDigest=createHash("sha256").update(JSON.stringify(["legacy-import-plan-v1",body])).digest("hex");
   return Object.freeze({...body,inputManifest:manifest,planDigest});
 }
 
 export class TrustedLegacyApprovalService {
-  #db; #verifyGesture; #verifySnapshots;
-  constructor({canonicalDb,verifyTrustedUserGesture,verifyCurrentSnapshots}) {
+  #db; #verifyGesture; #leases;
+  constructor({canonicalDb,verifyTrustedUserGesture,snapshotLeaseRegistry}) {
     if (!canonicalDb || typeof canonicalDb.prepare!=="function" ||
         typeof verifyTrustedUserGesture!=="function" ||
-        typeof verifyCurrentSnapshots!=="function")
+        !snapshotLeaseRegistry || typeof snapshotLeaseRegistry.verify!=="function" ||
+        typeof snapshotLeaseRegistry.getManifest!=="function")
       fail("LEGACY_TRUSTED_HOST_REQUIRED");
     this.#db=canonicalDb;
     this.#verifyGesture=verifyTrustedUserGesture;
-    this.#verifySnapshots=verifyCurrentSnapshots;
+    this.#leases=snapshotLeaseRegistry;
+  }
+  // A plan is built from the private pinned snapshot manifest, never from
+  // a renderer/plugin-supplied hash list or mutable original filesystem paths.
+  createPlanForLease({ownerScopeId,datasetId,leaseRef,policyRevision,
+    datasetIntent="existing",newDatasetLabel=null}) {
+    const inputManifest=this.#leases.getManifest({leaseRef,ownerScopeId,datasetId});
+    if (!inputManifest)fail("LEGACY_APPROVAL_STALE");
+    return makeTrustedPreviewPlan({ownerScopeId,datasetId,leaseRef,policyRevision,
+      datasetIntent,newDatasetLabel,inputManifest});
   }
   // The caller must be the trusted Venera user-gesture UI service.
   // No approval is possible from L0's stats-only CLI or a third-party plugin.
@@ -75,10 +86,14 @@ export class TrustedLegacyApprovalService {
     } catch { fail("LEGACY_APPROVAL_GESTURE_REJECTED"); }
     if (gestureOk!==true)fail("LEGACY_APPROVAL_GESTURE_REJECTED");
     try {
-      snapshotsOk=await this.#verifySnapshots(validated.inputManifest);
+      snapshotsOk=this.#leases.verify({
+        leaseRef:validated.leaseRef,ownerScopeId:validated.ownerScopeId,
+        datasetId:validated.datasetId,inputManifest:validated.inputManifest
+      });
     } catch { fail("LEGACY_APPROVAL_STALE"); }
     if (snapshotsOk!==true)fail("LEGACY_APPROVAL_STALE");
-    // No await after verification. SQLite transaction starts before lookup/write.
+    // No await after lease verification. SQLite transaction starts before lookup/write.
+    // The validated *memory copy* is independent of changes to the user's old files.
     const db=this.#db,id=randomUUID(),stamp=new Date().toISOString();
     db.exec("BEGIN IMMEDIATE");
     try {
