@@ -30,8 +30,24 @@ jobs:
           node-version: "22.16.0"
       - name: Verify L0 fixtures and read-only inspector
         run: node --test tools/legacy-import/test/*.test.mjs
-      - name: Pull trusted local Docker inspector image
-        run: docker pull node:22.16.0-bookworm-slim
+      - name: Pull and verify pinned Docker inspector image
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Docker Hub can throttle anonymous CI runners. Use the Docker Official
+          # Image mirror in Public ECR only if its *manifest digest* matches the
+          # pinned upstream multi-architecture index. Never silently retag a
+          # different image after a registry failure.
+          IMAGE="node:22.16.0-bookworm-slim"
+          EXPECTED="sha256:048ed02c5fd52e86fda6fbd2f6a76cf0d4492fd6c6fee9e2c463ed5108da0e34"
+          if docker pull "node@${EXPECTED}"; then
+            docker tag "node@${EXPECTED}" "${IMAGE}"
+          else
+            MIRROR="public.ecr.aws/docker/library/node@${EXPECTED}"
+            docker pull "${MIRROR}"
+            docker tag "${MIRROR}" "${IMAGE}"
+          fi
+          test "$(docker run --rm --network none "${IMAGE}" node --version)" = "v22.16.0"
       - name: Smoke test actual read-only, no-network isolated inspector
         run: |
           TEMP_INPUT="$(mktemp -d)"
