@@ -35,13 +35,13 @@ The CLI reads only the five exact basenames in the explicit directory; unknown f
 - A `preview_only` status is **not** approval, import, verification of media, or permission to modify anything. `canCommit` is always false. No durable Batch, Dataset, RecordMapping, Journal or Receipt exists in this L0 tool.
 
 
-## Local-comic record provenance (incremental L0)
+## Five-file Record Attestation (L0)
 
-`record-provenance.mjs` now runs in the restricted snapshot-export worker and computes **typed, deterministic record digests** for each inspected `local.db.comics` row, including all ten reviewed columns. The sandbox writes a **private** `.record-evidence.json` artifact tied to the exact SQLite Snapshot SHA-256; record IDs, titles and filesystem paths are never published in CLI stdout, logs or plugin RPC.
+The isolated `record-provenance.mjs` now produces typed, versioned per-record commitments from the **same inspected snapshots** for `local.db.comics`, `history.db.history`, `history.db.image_favorites`, dynamic per-folder `local_favorite.db` memberships, and **allowlisted non-sensitive** `appdata.json.settings` keys. `implicitData.json` is deliberately represented by an **empty proof**: no key, token, cookie, or password can become a mappable record.
 
-`snapshot-lease.mjs` checks the proof's snapshot hash against the owner-/dataset-bound manifest, rejects duplicate or malformed keys, and retains dataset-scoped, keyed digests for that lease's lifetime. `mapping-repository.mjs` now **denies `reserveAfterApprovedPlan` unless the exact requested LegacyRecordKey and recordDigest appear in that approved lease**. This rejects forged IDs, changed type, invented digest and unrelated records even when the file role and Approved Batch are valid. The actual Docker smoke also exercises a valid row and forged row/digest.
+Evidence goes into the host-private `.record-evidence.json`, **not** stdout. `docker-sandbox.mjs` checks per-role record counts against the inspected Preview; the lease checks exact file SHA-256, identity type and duplicate keys. `mapping-repository.mjs` denies any mutation whose exact key and record digest did not occur in the approved lease. Altering an original after Preview cannot modify pinned records; changing a record requires a newly reviewed/approved snapshot.
 
-**Explicit phase restriction:** per-record proof is implemented **only for `local.db.comics`**. History, comic folders, image favorites and settings remain preview/deferred; their mapping mutations fail closed until corresponding reviewed isolated proof adapters exist. This code still does not write canonical Content, ContentUnit, UserCollection, ReadingSession or image files. Evidence integrity depends on the restricted parser worker generating proofs from the same inspected immutable snapshot; the host alone cannot verify SQL row extraction from a bare SHA-256. A compromised Docker daemon or worker vulnerability remains within the threat model, and a production security review is required.
+**Attestation ≠ import.** Record Mapping is still evidence only. Reader Position, image favorites, UserCollections, settings application, Content and Storage all require subsequent canonical feature/consent gates. The current tool does not commit canonical user data. The remaining work includes a real trusted Wizard UI, per-platform security review, asset grants, journal/receipt and recovery.
 
 ## Known L0 boundaries
 
