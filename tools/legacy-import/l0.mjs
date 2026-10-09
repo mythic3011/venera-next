@@ -77,9 +77,14 @@ function safeParse(text, limits) {
   assertJsonShape(data, limits.maxJsonDepth, limits.maxJsonNodes);
   return data;
 }
-function readEmbeddedJson(value, limits) {
+function readEmbeddedJson(value, limits, expectedKind) {
   if (typeof value !== "string" || value.length > limits.maxTextLength) return false;
-  try { safeParse(value, limits); return true; } catch { return false; }
+  try {
+    const parsed = safeParse(value, limits);
+    return expectedKind === "array"
+      ? Array.isArray(parsed)
+      : !!parsed && typeof parsed === "object" && !Array.isArray(parsed);
+  } catch { return false; }
 }
 function schemaTables(db, limits) {
   const tables = db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY name").all().map(r => r.name);
@@ -108,11 +113,12 @@ function auditDatabase(db, role, limits) {
     boundedRows(db, "comics", limits);
     for (const row of db.prepare("SELECT id, comic_type, title, chapters, tags, downloadedChapters FROM comics").iterate()) {
       counts.records++;
-      if (typeof row.id !== "string" || !Number.isSafeInteger(row.comic_type) ||
+      if (typeof row.id !== "string" || row.id.length > limits.maxTextLength ||
+          !Number.isSafeInteger(row.comic_type) ||
           typeof row.title !== "string" || row.title.length > limits.maxTextLength ||
-          !readEmbeddedJson(row.chapters, limits) ||
-          !readEmbeddedJson(row.tags, limits) ||
-          !readEmbeddedJson(row.downloadedChapters, limits)) counts.invalid++;
+          !readEmbeddedJson(row.chapters, limits, "object") ||
+          !readEmbeddedJson(row.tags, limits, "array") ||
+          !readEmbeddedJson(row.downloadedChapters, limits, "array")) counts.invalid++;
       else counts.eligible++; // metadata candidate only, never assert image availability
     }
     counts.reviewRequired = counts.eligible; // no explicit asset-root grant or inspected pages in L0
@@ -143,7 +149,10 @@ function auditDatabase(db, role, limits) {
   return { schemaVariant: "distributed-v1", ...counts };
 }
 function auditJson(value, role, limits) {
-  const data = safeParse(value.toString("utf8"), limits);
+  let utf8;
+  try { utf8 = new TextDecoder("utf-8", { fatal: true }).decode(value); }
+  catch { fail("LEGACY_JSON_INVALID_UTF8"); }
+  const data = safeParse(utf8, limits);
   if (!data || typeof data !== "object" || Array.isArray(data)) fail("LEGACY_SCHEMA_UNSUPPORTED");
   if (role === "appdata.json") {
     if (!data.settings || typeof data.settings !== "object" || Array.isArray(data.settings)) fail("LEGACY_SCHEMA_UNSUPPORTED");
