@@ -132,6 +132,8 @@ test("approved evidence-only wizard creates new Dataset + Batch together, never 
   assert.equal(db.prepare("SELECT state FROM legacy_import_batches").get().state,"approved");
   assert.equal(db.prepare("SELECT policy_revision FROM legacy_import_batches").get().policy_revision,
     "l0-evidence-only-v1");
+  assert.equal(db.prepare("SELECT approval_scope FROM legacy_import_batches").get().approval_scope,
+    "evidence_only");
   assert.equal(registry.getManifest({leaseRef:state.leaseRef,
     ownerScopeId:OWNER,datasetId:state.datasetId}).length,1);
 });
