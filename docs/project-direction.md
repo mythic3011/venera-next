@@ -26,7 +26,7 @@ The current legacy/runtime code is **discarded as an implementation base**. Vene
 
 - **No legacy runtime dependency or in-place schema migration** is required. New v2 database tables are created directly with `Content/ContentSection/ContentUnit` identifiers and complete invariants.
 - No promise of binary compatibility, legacy direct-JS plugin compatibility, account cookie/session reuse or preserved legacy APIs. Any past code may only inform human review or independently written tests.
-- **Optional user-data import is separate** from runtime architecture: read-only old-store ingestion, explicit user intent, no automatic raw credential import, verification before canonical writes. No compatibility fallback in the active v2 read path.
+- **One-time old-Venera import uses a strict five-file whitelist**: `local.db`, `history.db`, `local_favorite.db`, `appdata.json`, `implicitData.json`. Legacy Unified Store `venera.db` and all other old DB/JSON inputs are explicitly excluded. The imported data goes through independent read-only snapshots, explicit review and fresh v2 canonical writers; see proposed `docs/design/v2/17_LEGACY_DISTRIBUTED_IMPORT.md`.
 - This policy itself does **not** delete files or user data. Physical removal of old source trees belongs to a separate reviewed implementation PR.
 
 ## Legacy quarantine
@@ -38,8 +38,8 @@ an independent ingestion tool, not a cross-runtime bridge.
 The following are compatibility inputs under review, not permanent authority:
 
 ```text
-local.db, history.db, local_favorite.db, implicitData.json
-fragmented local databases and mixed app/domain JSON state
+local.db, history.db, local_favorite.db, appdata.json, implicitData.json
+# Exactly these five distributed legacy files; Unified Store venera.db is excluded.
 legacy IDs and source keys used as runtime identity
 direct JavaScript source files without package manifests
 hard-coded source tag translation
@@ -48,8 +48,7 @@ UI-created reader identity and fallback resume state
 
 ## Data compatibility
 
-Breaking changes to local data and source-package storage are allowed. Old stores
-may be imported on a best-effort basis, but new code must classify every store as
+Breaking changes to local data and source-package storage are allowed. Only the five named distributed legacy files may be imported, by explicit user action; Unified Store venera.db is not accepted. New code classifies eligible input as
 one of:
 
 - canonical authority
