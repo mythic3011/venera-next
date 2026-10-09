@@ -1,0 +1,38 @@
+name: legacy-import-l0
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/legacy-import-l0.yml"
+      - "tools/legacy-import/**"
+  push:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/legacy-import-l0.yml"
+      - "tools/legacy-import/**"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: legacy-import-l0-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  read-only-preflight:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22.16.0"
+      - name: Verify L0 fixtures and read-only inspector
+        run: node --test tools/legacy-import/test/*.test.mjs
+      - name: Verify CLI refuses unknown arguments
+        run: |
+          if node tools/legacy-import/preview.mjs --invalid; then
+            echo "expected CLI argument validation to fail"
+            exit 1
+          fi
