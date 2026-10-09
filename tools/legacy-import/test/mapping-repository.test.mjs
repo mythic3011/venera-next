@@ -66,7 +66,11 @@ function plan(repo,ownerScopeId,datasetId,options={}) {
     records:[{fileRole:"local.db",tableKind:"comics",
       scopeKey:"",legacyTypeKey:"1",legacyId:"42",
       recordDigest:options.recordDigest ?? DIGEST}]
-  }] : [];
+  }] : [{
+    version:1,role,
+    snapshotSha256:createHash("sha256").update(inputBytes).digest("hex"),
+    records:[] // test-only fixture: no reservable history/other rows
+  }];
   const {leaseRef}=repo.leases.issue({ownerScopeId,datasetId,
     inputs:[{role,bytes:inputBytes}],recordProofs});
   return makeTrustedPreviewPlan({
