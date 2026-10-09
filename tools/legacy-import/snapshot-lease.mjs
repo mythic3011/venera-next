@@ -16,6 +16,8 @@ const MAX = Object.freeze({
   "implicitData.json": 4 * 1024 * 1024
 });
 const MAX_TOTAL = 152 * 1024 * 1024;
+const MAX_ACTIVE_LEASES = 2;
+const MAX_REGISTRY_BYTES = 192 * 1024 * 1024;
 const MAX_TTL_MS = 15 * 60 * 1000;
 const DEFAULT_TTL_MS = 5 * 60 * 1000;
 const MAX_EVIDENCE_RECORDS=250000;
@@ -119,6 +121,7 @@ export class TrustedSnapshotLeaseRegistry {
     return true;
   }
   #purge(ref,entry) {
+    clearTimeout(entry.expiryTimer);
     this.#leases.delete(ref);
     for(const buf of entry.buffers.values())buf.fill(0); // best effort; GC also applies
     entry.buffers.clear();
@@ -150,10 +153,24 @@ export class TrustedSnapshotLeaseRegistry {
       }
       manifest.sort((a,b)=>ROLES.indexOf(a.role)-ROLES.indexOf(b.role));
       const provenance=compileRecordEvidence(recordProofs,manifest,datasetId);
+      // Bound aggregate resident private old-data copies; a per-lease budget
+      // alone permits unbounded user-sensitive memory retention.
+      this.purgeExpired();
+      let resident=0;
+      for(const e of this.#leases.values())resident+=e.totalBytes;
+      if(this.#leases.size>=MAX_ACTIVE_LEASES ||
+         resident+total.n>MAX_REGISTRY_BYTES)
+        reject("LEASE_REGISTRY_CAPACITY");
       const leaseRef=randomUUID(),expiresAt=this.#clock()+ttlMs;
       const entry={ownerScopeId,datasetId,buffers:bufferMap,provenance,
-        manifest:Object.freeze(manifest.map(e=>Object.freeze(e))),expiresAt};
+        manifest:Object.freeze(manifest.map(e=>Object.freeze(e))),
+        expiresAt,totalBytes:total.n,expiryTimer:null};
       this.#leases.set(leaseRef,entry);
+      // Clear sensitive bytes even when no caller verifies/revokes the lease.
+      entry.expiryTimer=setTimeout(()=>{
+        if(this.#leases.get(leaseRef)===entry)this.#purge(leaseRef,entry);
+      },ttlMs);
+      entry.expiryTimer.unref?.();
       return Object.freeze({leaseRef,expiresAt});
     } catch(err) {
       for(const b of bufferMap.values())b.fill(0);
