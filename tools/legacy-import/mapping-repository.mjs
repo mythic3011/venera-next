@@ -68,11 +68,12 @@ export class LegacyMappingRepository {
       if(!owner || owner.state!=="active")
         throw new MappingStoreError("LEGACY_MAPPING_SCOPE_DENIED");
       const batch=this.db.prepare(
-        "SELECT b.id,b.state,b.plan_digest,b.input_manifest_json,b.snapshot_lease_ref FROM legacy_import_batches b "+
+        "SELECT b.id,b.state,b.plan_digest,b.approval_scope,b.input_manifest_json,b.snapshot_lease_ref FROM legacy_import_batches b "+
         "JOIN legacy_import_datasets d ON d.id=b.dataset_id "+
         "WHERE b.id=? AND b.dataset_id=? AND d.owner_scope_id=?"
       ).get(batchId,datasetId,ownerScopeId);
       if(!batch || !["approved","applying"].includes(batch.state) ||
+          batch.approval_scope!=="evidence_only" ||
           batch.plan_digest!==expectedPlanDigest)
         throw new MappingStoreError("LEGACY_APPROVAL_REQUIRED");
       let manifest;
