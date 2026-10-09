@@ -169,6 +169,16 @@ export async function previewAndIssueSnapshotLease({
     if(!evidence || evidence.version!==1 || !Array.isArray(evidence.proofs) ||
        Object.keys(evidence).sort().join(",")!=="proofs,version")
       deny("SANDBOX_LEASE_EVIDENCE_INVALID");
+    const local=preview.files.find(f=>f.role==="local.db");
+    if(local.status==="inspected") {
+      if(evidence.proofs.length!==1 ||
+         evidence.proofs[0]?.role!=="local.db" ||
+         !Array.isArray(evidence.proofs[0]?.records) ||
+         evidence.proofs[0].records.length!==local.eligible)
+        deny("SANDBOX_LEASE_EVIDENCE_INVALID");
+    } else if(evidence.proofs.length!==0) {
+      deny("SANDBOX_LEASE_EVIDENCE_INVALID");
+    }
     const {leaseRef,expiresAt}=snapshotLeaseRegistry.issue({
       ownerScopeId,datasetId,inputs:buffers,recordProofs:evidence.proofs
     });
