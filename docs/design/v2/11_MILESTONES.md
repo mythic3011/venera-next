@@ -10,7 +10,7 @@
 
 ---
 
-> **Greenfield reset (2026-10-09):** retire the existing legacy runtime code. Start M0 from canonical v2 documents and fresh interfaces/storage schemas, not by porting old `Comic/Chapter/Page` implementations. M1 local-only and M3 online remain milestones; there is no in-place old-runtime or old-DB migration workstream. An optional one-way user-data importer is independent. See `16_ACCOUNT_PASSKEY_ADOPTION_CONTRACT.md` (proposal) for account-scoped identity and downloaded-content authority decisions.
+> **Greenfield reset (2026-10-09):** retire the existing legacy runtime code. Start M0 from canonical v2 documents and fresh interfaces/storage schemas, not by porting old `Comic/Chapter/Page` implementations. M1 local-only and M3 online remain milestones; there is no in-place old-runtime or old-DB migration workstream. The separate one-time legacy import accepts **only** `local.db`, `history.db`, `local_favorite.db`, `appdata.json`, and `implicitData.json` from old Venera. Unified Store `venera.db` is excluded (see proposed `17_LEGACY_DISTRIBUTED_IMPORT.md`). See `16_ACCOUNT_PASSKEY_ADOPTION_CONTRACT.md` (proposal) for account-scoped identity and downloaded-content authority decisions.
 
 ## Milestone Map
 
@@ -30,6 +30,14 @@ M4 and M5 are parallel-safe after M3 (different subsystems, no shared open contr
 M7 items may be pulled earlier opportunistically; they are batched last only because none block correctness.
 
 ---
+
+### Separate legacy-data import milestones (no runtime code reuse)
+
+- **L0 schema/fixture work**: implement independent read-only snapshot readers and parsers for the five explicitly supported distributed legacy file formats. Fixed filename allowlist, no Unified Store detection or fallback, no executable legacy code, dry-run report.
+- **L1 local reading data**: import eligible local works and media paths from \`local.db\`, reconcile \`history.db\` chapter/page positions against verified new canonical ContentUnit identities (after new Reader and unit-order invariants exist). Missing/ambiguous rows remain unresolved.
+- **L2 collections/settings**: bring in \`local_favorite.db\` folder membership/order once M2 UserCollection exists; map only reviewed, non-secret \`appdata.json\` and \`implicitData.json\` preferences. No credential or direct JS source import.
+- **L3 optional remote favorite/history resolution**: once M3 provider identity/account boundaries exist, allow explicit reconciliation of unresolved records; no automatic provider sign-in/source execution. User-facing "import all selected files" must report any pending categories.
+- **Completion rule**: one user-initiated wizard with consistent snapshots, preview, approval, canonical writes, validation and idempotent receipt. Does **not** alter the new v2 fresh-schema design, and never mutates source files.
 
 ## M0 — Foundations & Doc-Fix Batch
 
