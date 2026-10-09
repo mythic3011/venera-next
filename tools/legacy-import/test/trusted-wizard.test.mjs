@@ -134,6 +134,9 @@ test("approved evidence-only wizard creates new Dataset + Batch together, never 
     "l0-evidence-only-v1");
   assert.equal(db.prepare("SELECT approval_scope FROM legacy_import_batches").get().approval_scope,
     "evidence_only");
+  assert.throws(()=>db.prepare(
+    "UPDATE legacy_import_batches SET approval_scope='content_import'"
+  ).run(),/CHECK constraint failed/);
   assert.equal(registry.getManifest({leaseRef:state.leaseRef,
     ownerScopeId:OWNER,datasetId:state.datasetId}).length,1);
 });
