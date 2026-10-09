@@ -5,6 +5,7 @@ import { spawn } from "node:child_process";
 import { lstat, realpath } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { sanitizeSandboxResult } from "./sanitize-result.mjs";
 
 export class SandboxError extends Error {
   constructor(code) { super(code); this.name = "SandboxError"; this.code = code; }
@@ -82,12 +83,10 @@ function runDocker(args, { timeoutMs = TIMEOUT_MS, maxOutputBytes = MAX_OUTPUT_B
       if (code !== 0) return rejectPromise(new SandboxError("SANDBOX_EXECUTION_FAILED"));
       let data;
       try { data = JSON.parse(stdout); } catch { return rejectPromise(new SandboxError("SANDBOX_RESULT_INVALID")); }
-      if (!data || data.canCommit !== false ||
-          data.scope !== "old-venera-five-distributed-files" ||
-          !Array.isArray(data.files) || data.files.length !== 5) {
-        return rejectPromise(new SandboxError("SANDBOX_RESULT_INVALID"));
-      }
-      resolvePromise(data);
+      // Even an exploited parser process cannot return arbitrary strings to
+      // the trusted UI. Only bounded, typed aggregate counters cross IPC.
+      try { resolvePromise(sanitizeSandboxResult(data)); }
+      catch { rejectPromise(new SandboxError("SANDBOX_RESULT_INVALID")); }
     });
   });
 }
