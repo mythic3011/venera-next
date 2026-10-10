@@ -155,6 +155,32 @@ After successful confirmation the only side effect is a deduplicated `legacy_ass
 
 **Hard blockers before actual Apply:** (a) a verified, explicit, least-privilege user-granted media-root resolver (old DB paths are not grants); (b) new trusted *asset write* consent scope and controlled stage/promote worker; (c) durable two-resource crash journal+recovery+receipts; (d) verified Content/Section/Unit order and destination identifiers; (e) alignment of the physical runtime `comics/chapters/pages` schema and canonical design `contents/content_sections/content_units`; (f) real native Desktop host identity and consent UI. Unit tests of reference DDL do not establish that current Runtime migrations satisfy this contract.
 
+### Greenfield physical schema and narrow Linux media-root reference (2026-10-10)
+
+The standalone tools/v2-schema/fresh-sqlite.mjs generates an empty-DB
+canonical Content/Section/Unit + six importer evidence-table foundation from
+02_DATABASE_SCHEMA.md. It uses neither the old runtime/core migration code nor
+compatibility aliases; CI checks real SQLite FK and ReaderSession/UnitOrder
+constraints. This is **schema foundation only**: full M1 use cases/DI,
+production database lifecycle and actual Content import are not shipped.
+
+Media-root access has a separate Linux-only host-private capability. The
+requestTrustedDirectory callback must originate from a trusted native OS
+folder selection, not the old DB directory string. The granted directory is
+held by an open FD; each child is resolved relative to that FD via
+/proc/self/fd, with O_NOFOLLOW, validated path segments and regular-file
+checks. Only JPEG/PNG/GIF/WebP/AVIF with consistent magic/extension and size
+at most 64 MiB can cross to a private in-memory asset digest. Refusing
+filesystem top-level roots, symlinks, traversal, scope mismatch and revoked
+grants is the default. The grant is short-lived and non-serializable.
+
+Asset-intent.inspectGrantedImage() accepts only a private trusted resolver
+instance, verifies the read digest, and produces a planned/plan_only journal
+intent through separate approval. **Neither root grant nor plan-only intent
+permits file promotion, Content creation, unit-order mutation or session
+restore.** macOS/Windows/native GUI picker remain unsupported; Linux
+hardlinks, mount policy and threat-model details still need OS security review.
+
 ## 6. Filesystem + DB commit, crash recovery and idempotent retry (P0)
 
 **SQLite transactions do not cover filesystem writes.** Never claim copying/promoting image files and inserting StorageObject/Placement rows is one atomic SQLite transaction. Use a durable, importer-controlled journal and a recoverable **two-resource commit protocol**.
