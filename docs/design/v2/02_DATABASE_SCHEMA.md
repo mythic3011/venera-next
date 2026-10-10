@@ -353,6 +353,54 @@ CREATE UNIQUE INDEX ux_placements_one_authority
   ON storage_placements(storage_object_id) WHERE role = 'authority';
 ```
 
+## v2_storage_write_journal (new-runtime storage-only, not legacy import)
+
+```sql
+CREATE TABLE v2_storage_write_journal (
+  id                   TEXT PRIMARY KEY, -- native-host generated UUID v4
+  planned_storage_id   TEXT NOT NULL UNIQUE, -- StorageObject UUID v4
+  planned_placement_id TEXT NOT NULL UNIQUE, -- StoragePlacement UUID v4
+  storage_backend_id   TEXT NOT NULL REFERENCES storage_backends(id) ON DELETE RESTRICT,
+  object_kind          TEXT NOT NULL CHECK (object_kind IN ('unit_image','cover')),
+  expected_sha256      TEXT NOT NULL CHECK (length(expected_sha256)=64),
+  expected_bytes       INTEGER NOT NULL CHECK (expected_bytes>0 AND expected_bytes<=67108864),
+  expected_mime_type   TEXT NOT NULL CHECK (expected_mime_type IN
+                          ('image/png','image/jpeg','image/gif','image/webp','image/avif')),
+  stage_key            TEXT NOT NULL UNIQUE, -- generated private storage-relative name
+  object_key           TEXT NOT NULL UNIQUE, -- generated private storage-relative name
+  state                TEXT NOT NULL CHECK (state IN
+                          ('intent','staged','promoted','committed')),
+  authorization_scope  TEXT NOT NULL DEFAULT 'storage_object_only'
+                       CHECK (authorization_scope='storage_object_only'),
+  authorization_digest TEXT NOT NULL CHECK (length(authorization_digest)=64),
+  created_at           TEXT NOT NULL,
+  updated_at           TEXT NOT NULL,
+  committed_at         TEXT,
+  CHECK ((state='committed' AND committed_at IS NOT NULL)
+      OR (state!='committed' AND committed_at IS NULL))
+);
+CREATE INDEX idx_v2_storage_write_recovery ON v2_storage_write_journal(state,created_at);
+```
+
+The **v2 storage writer**, not Legacy Import, owns this journal. Only an explicit,
+separate host-owned, one-shot *storage-object-only* confirmation can create an
+intent. It is **not** permission to attach a ContentUnit, import a comic,
+activate a reader order, restore progress, or upgrade
+`legacy_asset_journal.authorization_scope='plan_only'`. This independent
+journal is created from verified bytes obtained via an OS-granted private media
+resolver; no original legacy database path, plugin, or renderer grants authority.
+
+Durability contract: journal intent (SQLite commit) → private same-volume staging
+write + fsync → reread/hash/length verify → record staged → exclusive
+same-volume hardlink promotion without clobber + unlink stage + directory fsync →
+record promoted → reverify final bytes → **one SQLite transaction** inserts
+StorageObject + synced authoritative StoragePlacement and marks journal committed.
+A crash between filesystem and SQLite transitions can leave an orphan: recovery
+must inspect actual bytes and SQL, preserve evidence, and report for user review.
+It must **not** delete original/user-selected files, silently attach units, or
+claim cross-resource atomic commit. The storage writer does not re-authorize old
+`evidence_only` batches. L1 content apply needs a separate reviewed authority.
+
 ## content_relationships
 
 ```sql
