@@ -43,6 +43,29 @@ function verifySchema(db) {
   // would silently fail; require this before any caller can write.
   if(db.prepare("PRAGMA foreign_keys").get().foreign_keys!==1)
     fail("V2_FOREIGN_KEYS_OFF");
+  const fields={
+    contents:["content_type","normalized_title","library_status"],
+    content_metadata:["content_id","title"],
+    content_titles:["content_id","title_kind","normalized_title"],
+    content_sections:["content_id","section_kind"],
+    content_units:["section_id","unit_index","unit_type","storage_object_id"],
+    content_unit_orders:["section_id","status"],
+    content_unit_order_items:["order_id","unit_id","sort_index"],
+    reading_sessions:["content_id","unit_id","session_state"]
+  };
+  for(const [table,expected] of Object.entries(fields)){
+    const names=new Set(db.prepare("PRAGMA table_info("+table+")").all().map(x=>x.name));
+    if(expected.some(name=>!names.has(name)))fail("V2_SCHEMA_REQUIRED");
+  }
+  for(const [table,name] of [
+    ["reading_sessions","ux_reading_sessions_one_active"],
+    ["content_unit_orders","ux_unit_orders_one_active"],
+    ["content_unit_order_items","sqlite_autoindex_content_unit_order_items_1"]
+  ]){
+    const indexes=db.prepare("PRAGMA index_list("+table+")").all();
+    if(!indexes.some(x=>x.name===name && x.unique===1))
+      fail("V2_SCHEMA_REQUIRED");
+  }
 }
 function assertContent(db,contentId) {
   const row=db.prepare("SELECT id FROM contents WHERE id=? AND library_status='active'")
@@ -130,11 +153,12 @@ export function bindTrustedFreshV2Sqlite(db) {
       return transact(db,()=>{
         assertContent(db,contentId);
         const current=unitsForSection(db,sectionId);
+        const requested=new Set(unitIds);
         const section=db.prepare(
           "SELECT id FROM content_sections WHERE id=? AND content_id=?"
         ).get(sectionId,contentId);
         if(!section || current.length!==unitIds.length ||
-           current.some(x=>!unitIds.includes(x.id)))
+           current.some(x=>!requested.has(x.id)))
           fail("V2_ORDER_INCOMPLETE");
         db.prepare("UPDATE content_unit_orders SET status='superseded',updated_at=? WHERE section_id=? AND status='active'")
           .run(at,sectionId);
