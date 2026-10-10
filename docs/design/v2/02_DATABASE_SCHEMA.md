@@ -889,7 +889,10 @@ CREATE TABLE legacy_asset_journal (
   expected_sha256         TEXT NOT NULL,      -- checked against actual bytes
   expected_bytes          INTEGER NOT NULL CHECK (expected_bytes >= 0),
   state                   TEXT NOT NULL CHECK (state IN
-                          ('staged','verified','promoted','committed','gc_pending')),
+                          ('planned','staged','verified','promoted','committed','gc_pending')),
+  authorization_scope     TEXT NOT NULL DEFAULT 'plan_only'
+                          CHECK (authorization_scope IN ('plan_only')),
+  authorization_digest    TEXT NOT NULL,       -- separate human-approved asset intent, not Batch plan digest
   created_at              TEXT NOT NULL,
   updated_at              TEXT NOT NULL,
   UNIQUE (batch_id,planned_storage_id)
@@ -909,7 +912,7 @@ CREATE TABLE legacy_import_receipts (
 **Canonical write/transaction semantics (mandatory):**
 1. `LegacyRecordKey` normalization uses all six **non-null** identity components. `scope_key` and `legacy_type_key` are literal empty strings only when their scopes do not apply, never SQL NULL. File role is an enum, not arbitrary filename.
 2. The importer obtains a dataset-level lock/lease before upsert of mappings. `snapshot_lease_ref` is **mandatory for an approved/applying L0 batch** and checked against a still-live private SnapshotLeaseRegistry before any mapping mutation. Once the memory lease expires or app restarts, refuse new mapping writes; reacquire a verified immutable snapshot and a fresh explicit approval before proceeding. `snapshot_lease_ref` is not a permanent recovery credential and is never sent to plugin JS. Future durable leases require a separately reviewed OS-protected snapshot store; do not simply trust saved digests. SQLite UNIQUE constraints are the last safety line; ID allocation and per-content canonical imports are serialized for a dataset, with safe replay of an interrupted approved batch.
-3. `legacy_asset_journal` intent is durably inserted first. Physical staging/promoting occurs outside canonical SQL transactions. After verify/promote, one SQLite transaction commits a full readable content subtree, complete active order, readable placements, per-record canonical mapping and corresponding committed journal states. No partial active order.
+3. `legacy_asset_journal` starts at `state='planned'` and `authorization_scope='plan_only'`, using a separately confirmed host gesture tied to the specific local comic evidence, asset SHA-256 and byte length. This row **must never** be interpreted as permission to read an arbitrary source path, stage/promote files, create a `storage_objects` row or write a Content subtree. The restricted L0/L1 planning slice implements only this intent insert. Future staging/apply must require a **new reviewed content+media-root authorization contract**, not widen `plan_only` in place. A planned intent is not a staged asset. Journal intent is durably inserted first. Physical staging/promoting occurs outside canonical SQL transactions. After verify/promote, one SQLite transaction commits a full readable content subtree, complete active order, readable placements, per-record canonical mapping and corresponding committed journal states. No partial active order.
 4. Recover `staged`/`verified`/`promoted` artifacts by comparing journal to **both** storage bytes and committed mappings. `promoted` without a canonical reference is an orphan candidate, never automatically user-file deletion. `committed` with missing bytes requires explicit StorageUnavailable error and repair (no silent success).
 5. A missing or stale Receipt is derived from durable committed mappings/journal, not counters in memory. The batch can be `partial` without rolling back other fully committed content subtrees. No user-visible “complete” claim while requested categories are deferred/ambiguous.
 6. `ReadingSession` can be changed only using `UC-005b` after verified Unit identity and conflict policy; never write a guessed old `ep`/`page` value as unit ID. Old history timestamp is evidence, not fabricated `reading_sessions.updated_at`.
