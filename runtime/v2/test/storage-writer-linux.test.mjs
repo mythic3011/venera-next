@@ -241,3 +241,16 @@ test("fresh recovery gesture cancellation never commits orphaned file",async t=>
    ownerScopeId:OWNER,datasetId:DATASET
  }))[0].status,"promoted_uncommitted_review");
 });
+
+test("caller-supplied preview substitution cannot misrepresent storage-only consent",async t=>{
+ const f=await fixture(t);
+ const {plan,preview}=await f.plan();
+ await assert.rejects(f.writer.approveAndWrite({plan,preview:{
+   ...preview,scope:"legacy_content_import",canImportLegacy:true
+ }}),e=>e.code==="V2_STORAGE_PLAN_INVALID");
+ assert.equal(count(f.db,"v2_storage_write_journal"),0);
+ // Correct original preview is still usable: a bad UI parameter is not consent.
+ const done=await f.writer.approveAndWrite({plan,preview});
+ assert.equal(done.canAttachContent,false);
+ assert.equal(count(f.db,"storage_objects"),1);
+});
