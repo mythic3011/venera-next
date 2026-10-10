@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { DatabaseSync } from "node:sqlite";
+import { initializeFreshV2Database, loadReviewedFreshV2Sql } from "../src/schema-bootstrap.mjs";
 import { bindTrustedFreshV2Sqlite,createTrustedInMemoryV2Runtime,
   V2RuntimeError } from "../src/host-sqlite.mjs";
 
@@ -132,4 +133,37 @@ test("host adapter fails closed on old physical runtime tables or foreign keys d
    db.exec("CREATE TABLE comics(id TEXT)");
    assert.throws(()=>bindTrustedFreshV2Sqlite(db),violation("V2_SCHEMA_REQUIRED"));
  }finally{db.close();}
+});
+
+test("incomplete active order is a hard validation error, not synthetic fallback",async t=>{
+ const db=new DatabaseSync(":memory:");
+ t.after(()=>db.close());
+ initializeFreshV2Database(db,await loadReviewedFreshV2Sql());
+ const api=bindTrustedFreshV2Sqlite(db);
+ const a=api.createContentDraft({title:"Incomplete"});
+ const section=api.addSectionDraft({contentId:a.contentId,unitIndexes:[0,1,2]});
+ const now="2026-10-10T00:00:00Z";
+ const orderId="27eebc23-f3d8-43e7-b7ee-64fdcf80adbb";
+ db.prepare("INSERT INTO content_unit_orders(id,section_id,order_type,status,created_at,updated_at) VALUES(?,?,'source','active',?,?)")
+   .run(orderId,section.sectionId,now,now);
+ db.prepare("INSERT INTO content_unit_order_items(id,order_id,unit_id,sort_index,created_at) VALUES(?,?,?,?,?)")
+   .run("5a0d9b21-fc2b-4ae8-873a-291cd4614724",orderId,section.units[0].id,0,now);
+ assert.throws(()=>api.openSection({
+   contentId:a.contentId,sectionId:section.sectionId
+ }),violation("V2_INCOMPLETE_ACTIVE_ORDER"));
+ assert.throws(()=>api.updateReaderPosition({
+   contentId:a.contentId,unitId:section.units[0].id
+ }),violation("V2_INCOMPLETE_ACTIVE_ORDER"));
+ assert.equal(api.getReaderPosition({contentId:a.contentId}),null);
+});
+test("binding trusted DB requires real foreign keys, required columns and indexes",async t=>{
+ const db=new DatabaseSync(":memory:");
+ t.after(()=>db.close());
+ initializeFreshV2Database(db,await loadReviewedFreshV2Sql());
+ db.exec("PRAGMA foreign_keys=OFF");
+ assert.throws(()=>bindTrustedFreshV2Sqlite(db),violation("V2_FOREIGN_KEYS_OFF"));
+ db.exec("PRAGMA foreign_keys=ON");
+ assert.ok(Object.isFrozen(bindTrustedFreshV2Sqlite(db)));
+ db.exec("DROP INDEX ux_reading_sessions_one_active");
+ assert.throws(()=>bindTrustedFreshV2Sqlite(db),violation("V2_SCHEMA_REQUIRED"));
 });
