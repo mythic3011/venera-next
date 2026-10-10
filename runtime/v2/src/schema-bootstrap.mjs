@@ -11,6 +11,7 @@ export const V2_CORE_HEADINGS=Object.freeze([
  "content_units","source_platforms","source_links","section_source_links",
  "content_unit_orders","content_unit_order_items","reading_sessions",
  "storage_backends","storage_objects","storage_placements",
+ "v2_storage_write_journal",
 ]);
 export const V2_COLLECTION_HEADINGS=Object.freeze([
  "user_collections","user_collection_items"
