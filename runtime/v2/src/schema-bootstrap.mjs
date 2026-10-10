@@ -27,7 +27,9 @@ function fencedSection(markdown,heading,fence) {
   const lines=markdown.split(/\r?\n/);
   // Canonical design headings may include a human explanatory suffix
   // e.g. "(replaces comics)". Match exact table name plus only that suffix.
-  const accepts=x=>x===heading || x.startsWith(heading+" (replaces ");
+  const accepts=x=>x===heading || x.startsWith(heading+" (replaces ") ||
+    (heading==="## v2_storage_write_journal" &&
+     x===heading+" (new-runtime storage-only, not legacy import)");
   const matching=lines.map((x,i)=>accepts(x)?i:-1).filter(i=>i>=0);
   if(matching.length!==1)deny("FRESH_SCHEMA_SECTION_MISSING");
   const h=matching[0];
