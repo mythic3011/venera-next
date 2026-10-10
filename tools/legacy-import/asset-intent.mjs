@@ -3,6 +3,7 @@
 // Do not expose the service / asset bytes / gesture authority through web/JS RPC.
 import { createHash, randomUUID } from "node:crypto";
 import { legacyRecordIdentity } from "./record-identity.mjs";
+import { TrustedLinuxMediaRootGrants } from "./media-root-linux.mjs";
 
 export class AssetPreparationError extends Error {
   constructor(code) { super(code); this.name="AssetPreparationError"; this.code=code; }
@@ -14,15 +15,18 @@ const HASH=(v)=>createHash("sha256").update(v).digest("hex");
 const UUID=/^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/;
 
 export class TrustedLegacyAssetIntentService {
-  #db; #leases; #gestures; #plans=new WeakMap();
-  constructor({canonicalDb,snapshotLeaseRegistry,gestureAuthority}) {
+  #db; #leases; #gestures; #media; #plans=new WeakMap();
+  constructor({canonicalDb,snapshotLeaseRegistry,gestureAuthority,trustedMediaRootResolver=null}) {
     if(!canonicalDb || typeof canonicalDb.prepare!=="function" ||
        !snapshotLeaseRegistry || typeof snapshotLeaseRegistry.verifyRecord!=="function" ||
        !gestureAuthority || typeof gestureAuthority.confirm!=="function" ||
        typeof gestureAuthority.verifyTrustedUserGesture!=="function")
       deny("ASSET_HOST_REQUIRED");
+    if(trustedMediaRootResolver!==null &&
+       !(trustedMediaRootResolver instanceof TrustedLinuxMediaRootGrants))
+      deny("ASSET_TRUSTED_RESOLVER_REQUIRED");
     this.#db=canonicalDb; this.#leases=snapshotLeaseRegistry;
-    this.#gestures=gestureAuthority;
+    this.#gestures=gestureAuthority; this.#media=trustedMediaRootResolver;
   }
   #batch({ownerScopeId,batchId,key,recordDigest}) {
     if(typeof ownerScopeId!=="string" || !ownerScopeId || !UUID.test(batchId) ||
@@ -86,6 +90,24 @@ export class TrustedLegacyAssetIntentService {
       assetPlanDigest,expectedSha256,expectedBytes,leaseRef:batch.leaseRef,
       batchPlanDigest:batch.planDigest,used:false});
     return Object.freeze({plan,preview:view});
+  }
+  // Production integration path: bytes are obtained ONLY through a private
+  // already-consented OS rooted-grant instance. No raw DB directory accepted.
+  async inspectGrantedImage({ownerScopeId,batchId,mappingId,key,recordDigest,
+    mediaGrant,relativeSegments}) {
+    if(!this.#media)deny("ASSET_TRUSTED_RESOLVER_REQUIRED");
+    const result=await this.#media.readImage({
+      grant:mediaGrant,ownerScopeId,datasetId:key?.datasetId,relativeSegments
+    });
+    try {
+      if(result?.sizeBytes!==result?.bytes?.length ||
+         HASH(result.bytes)!==result.sha256)
+        deny("ASSET_MEDIA_INTEGRITY_INVALID");
+      return this.inspect({ownerScopeId,batchId,mappingId,key,recordDigest,
+        assetBytes:result.bytes});
+    } finally {
+      result?.bytes?.fill(0); // best effort; no media bytes retained in plan
+    }
   }
   async authorizeAndRecordIntent({plan,preview}) {
     const state=this.#plans.get(plan);
