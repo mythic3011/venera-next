@@ -38,7 +38,7 @@ async function setup(t,{gesture=async ({challenge})=>challenge}={}) {
     ownerScopeId:OWNER,datasetId:DATASET,
     inputs:[{role:"local.db",bytes:DATA}],
     recordProofs:[{version:1,role:"local.db",snapshotSha256:hash(DATA),
-      records:[{...key(),recordDigest:ROW_DIGEST,fileRole:"local.db",
+      records:[{recordDigest:ROW_DIGEST,fileRole:"local.db",
         tableKind:"comics",scopeKey:"",legacyTypeKey:"1",legacyId:"comic1"}]
     }]
   });
