@@ -4,7 +4,7 @@
 import { randomUUID } from "node:crypto";
 import { DatabaseSync } from "node:sqlite";
 import { initializeFreshV2Database, loadReviewedFreshV2Sql } from
-  "../../../tools/v2-schema/fresh-sqlite.mjs";
+  "./schema-bootstrap.mjs";
 
 export class V2RuntimeError extends Error {
   constructor(code){ super(code); this.name="V2RuntimeError"; this.code=code; }
