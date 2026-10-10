@@ -24,8 +24,12 @@ const DISCARDED_TABLES=Object.freeze(["comics","chapters","pages","reader_sessio
   "page_orders","page_order_items","chapter_source_links","comic_metadata"]);
 function fencedSection(markdown,heading,fence) {
   const lines=markdown.split(/\r?\n/);
-  const h=lines.findIndex(x=>x===heading);
-  if(h<0 || lines.some((x,i)=>x===heading && i!==h))deny("FRESH_SCHEMA_SECTION_MISSING");
+  // Canonical design headings may include a human explanatory suffix
+  // e.g. "(replaces comics)". Match exact table name plus only that suffix.
+  const accepts=x=>x===heading || x.startsWith(heading+" (replaces ");
+  const matching=lines.map((x,i)=>accepts(x)?i:-1).filter(i=>i>=0);
+  if(matching.length!==1)deny("FRESH_SCHEMA_SECTION_MISSING");
+  const h=matching[0];
   const begin=lines.findIndex((x,i)=>i>h && x===fence);
   if(begin<0 || lines.slice(h+1,begin).some(x=>x.startsWith("## ")))
     deny("FRESH_SCHEMA_FENCE_MISSING");
