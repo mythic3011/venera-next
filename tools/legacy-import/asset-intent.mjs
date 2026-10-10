@@ -53,16 +53,27 @@ export class TrustedLegacyAssetIntentService {
   // assetBytes MUST come from a separately approved local media-root resolver,
   // not the old DB's directory string, an HTTP URL, plugin JS or a caller path.
   // The resolver is NOT implemented in the current greenfield slice.
-  inspect({ownerScopeId,batchId,key,recordDigest,assetBytes}) {
+  inspect({ownerScopeId,batchId,mappingId,key,recordDigest,assetBytes}) {
     if(!(Buffer.isBuffer(assetBytes) || assetBytes instanceof Uint8Array) ||
        assetBytes.byteLength<1 || assetBytes.byteLength>MAX_ASSET)
       deny("ASSET_BYTES_INVALID");
     const batch=this.#batch({ownerScopeId,batchId,key,recordDigest});
+    if(!UUID.test(mappingId))deny("ASSET_MAPPING_REQUIRED");
+    const mapping=this.#db.prepare(
+      "SELECT m.id FROM legacy_record_mappings m "+
+      "JOIN legacy_import_datasets d ON d.id=m.dataset_id "+
+      "WHERE m.id=? AND d.owner_scope_id=? AND m.dataset_id=? "+
+      "AND m.file_role='local.db' AND m.table_kind='comics' "+
+      "AND m.scope_key=? AND m.legacy_type_key=? AND m.legacy_id=? "+
+      "AND m.source_record_digest=? AND m.mapping_state IN ('unresolved','unchanged')"
+    ).get(mappingId,ownerScopeId,key.datasetId,
+      key.scopeKey??"",key.legacyTypeKey,key.legacyId,recordDigest);
+    if(!mapping)deny("ASSET_MAPPING_REQUIRED");
     const identity=legacyRecordIdentity(key);
     const expectedSha256=HASH(assetBytes);
     const expectedBytes=assetBytes.byteLength;
     const body=["legacy-asset-intent-v1","plan_only",ownerScopeId,batchId,
-      batch.datasetId,batch.planDigest,identity.keyDigest,recordDigest,
+      batch.datasetId,batch.planDigest,mappingId,identity.keyDigest,recordDigest,
       expectedSha256,expectedBytes];
     const assetPlanDigest=HASH(Buffer.from(JSON.stringify(body)));
     // No user path, original title, secret or source DB content in UI preview.
@@ -70,7 +81,7 @@ export class TrustedLegacyAssetIntentService {
       actionScope:"plan_only",byteCount:expectedBytes,
       sha256Prefix:expectedSha256.slice(0,12),canCopy:false,canCommit:false});
     const plan=Object.freeze(Object.create(null));
-    this.#plans.set(plan,{ownerScopeId,batchId,key:Object.freeze({...key}),
+    this.#plans.set(plan,{ownerScopeId,batchId,mappingId,key:Object.freeze({...key}),
       recordDigest,identityDigest:identity.keyDigest,
       assetPlanDigest,expectedSha256,expectedBytes,leaseRef:batch.leaseRef,
       batchPlanDigest:batch.planDigest,used:false});
@@ -80,7 +91,7 @@ export class TrustedLegacyAssetIntentService {
     const state=this.#plans.get(plan);
     if(!state || state.used)deny("ASSET_PLAN_INVALID");
     state.used=true; // consume even if user cancels
-    const {ownerScopeId,batchId,key,recordDigest}=state;
+    const {ownerScopeId,batchId,mappingId,key,recordDigest}=state;
     const context={ownerScopeId,datasetId:key.datasetId,
       planDigest:state.assetPlanDigest};
     // Gesture authority is a DIFFERENT challenge from L0 evidence approval.
@@ -100,12 +111,21 @@ export class TrustedLegacyAssetIntentService {
       const locked=this.#batch({ownerScopeId,batchId,key,recordDigest});
       if(locked.planDigest!==state.batchPlanDigest ||
          locked.leaseRef!==state.leaseRef)deny("ASSET_APPROVAL_CHANGED");
+      const mapped=db.prepare(
+        "SELECT m.id FROM legacy_record_mappings m "+
+        "WHERE m.id=? AND m.dataset_id=? AND m.file_role='local.db' "+
+        "AND m.table_kind='comics' AND m.scope_key=? AND m.legacy_type_key=? "+
+        "AND m.legacy_id=? AND m.source_record_digest=? "+
+        "AND m.mapping_state IN ('unresolved','unchanged')"
+      ).get(mappingId,key.datasetId,key.scopeKey??"",key.legacyTypeKey,
+        key.legacyId,recordDigest);
+      if(!mapped)deny("ASSET_MAPPING_REQUIRED");
       db.prepare(
         "INSERT INTO legacy_asset_journal "+
-        "(id,batch_id,planned_storage_id,staging_ref,expected_sha256,"+
+        "(id,batch_id,mapping_id,planned_storage_id,staging_ref,expected_sha256,"+
         "expected_bytes,state,authorization_scope,authorization_digest,created_at,updated_at) "+
-        "VALUES (?,?,?,?,?,?,'planned','plan_only',?,?,?)"
-      ).run(id,batchId,storageId,"intent:"+id,state.expectedSha256,
+        "VALUES (?,?,?,?,?,?,?,'planned','plan_only',?,?,?)"
+      ).run(id,batchId,mappingId,storageId,"intent:"+id,state.expectedSha256,
         state.expectedBytes,state.assetPlanDigest,stamp,stamp);
       db.exec("COMMIT");
     }catch(err){db.exec("ROLLBACK");throw err;}
