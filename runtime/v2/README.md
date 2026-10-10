@@ -53,6 +53,53 @@ addSectionDraft deliberately do not claim a successful media import. The
 returned openSection assetStatus is unavailable until real storage policy,
 verified placements and byte availability are implemented.
 
+## Linux StorageObject writer and crash recovery (isolated scope)
+
+`src/storage-writer-linux.mjs` implements a separate, **trusted-host-only**
+`storage_object_only` action. It does not use or upgrade a legacy
+`plan_only` approval. Inputs must come through an independently granted
+`TrustedLinuxMediaRootGrants` OS-root capability, not a database path,
+renderer/plugin or arbitrary URL. The host first prepares a bounded image
+digest plan, then asks for **a new single-use user confirmation**; the original
+preview object must match the trusted frozen object, and the source is re-read
+and rehashed after confirmation before any journal changes.
+
+Durability sequence:
+
+1. Atomically create `v2_storage_write_journal(state=intent)`, bound to
+   Owner/Dataset, an internally generated StorageObject/Placement ID, asset
+   digest/length and a **storage-object-only** approval digest.
+2. Create an exclusive managed private staging file (0600) and `fsync` it;
+   reread and verify length+SHA-256; `fsync` staging directory; mark staged.
+3. Exclusively promote to a fresh, private managed object filename via
+   same-volume hard-link create (refuses overwrite), unlink staging and
+   `fsync` both directories. Recheck promoted bytes and mark promoted.
+4. One SQLite visibility transaction creates StorageObject plus a readable,
+   synced authoritative StoragePlacement and marks the journal committed.
+   **No ContentUnit, Content subtree, ReaderSession or legacy mapping is
+   created or attached.**
+
+`auditRecovery({ownerScopeId,datasetId})` is intentionally non-destructive,
+scoped and bounded. It validates files with `O_NOFOLLOW`, checks hashes using
+chunked reads (not unbounded `readFile`), and distinguishes healthy,
+missing/corrupt committed files, staged review and promoted-but-uncommitted
+orphan candidates. It does **not** auto-delete original/user assets or silently
+claim that filesystem writes are atomic with SQLite.
+
+`resumePromotedWithApproval` can commit an **already promoted, verified**
+orphan only after **another explicit one-shot host confirmation** bound to
+its original Owner/Dataset, Journal, bytes and StorageObject IDs. It checks
+the trusted local backend again under the DB write lock, inserts the
+StorageObject/Placement and transitions to committed atomically. Stage-only
+jobs require a separate recovery decision; no silent promotion, no
+automatic retries, and no permission to attach the object to a ContentUnit.
+
+Tests inject failures at intent, stage, promotion, before and after visibility
+commit; check owner scoping, cancellation, corrupted stored bytes, changing
+sources, preview substitution and recovery idempotency. The current integration
+is **Linux-only reference host code**; native UI grants/auth identity and
+production mount/process/hardlink threat-model review are still open.
+
 ## Out of scope (explicitly blocked)
 
 - Linux-only private AppData database creation/reopen is available through
