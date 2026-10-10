@@ -71,6 +71,41 @@ Successful approval creates one `legacy_asset_journal` row in **`state='planned'
 
 **Schema alignment blocker:** currently `runtime/core` physically models `comics / chapters / pages`; canonical v2 design docs use `contents / content_sections / content_units`. The test's in-memory FK stubs prove only that the canonical **reference DDL** is valid, **not** that the live Runtime migrations are integrated. Resolve this identity/schema mismatch before implementing actual Content/Storage import or claiming end-to-end v2 database support.
 
+## New greenfield schema and Linux media-root grant (2026-10-10)
+
+Independent fresh-v2 schema initialization now lives under tools/v2-schema/.
+It extracts Content/ContentSection/ContentUnit tables from the canonical
+02_DATABASE_SCHEMA.md and bootstraps ONLY an empty SQLite database. It never
+runs or reuses discarded runtime/core migrations. CI verifies that the new
+physical schema has no old comics/chapters/pages tables and checks canonical
+ReadingSession and UnitOrder uniqueness, plus evidence/plan-only DB constraints.
+This is an independent reference baseline, not yet a fully wired v2 Runtime.
+
+media-root-linux.mjs is a Linux-specific read-only host capability:
+- Root is granted only by a trusted native directory selection callback, never
+  by the legacy comic directory field, old JSON config, plugin or web request.
+- Root is represented by an opaque, expiring, owner/dataset-bound handle, not a
+  serializable filesystem path token. Up to four 5-minute grants.
+- Each descendant directory is opened relative to its already-held parent FD
+  through /proc/self/fd. O_NOFOLLOW, O_DIRECTORY, regular-file checks and
+  strict relative path segment validation deny traversal and symlink escapes.
+- Only image types JPEG/PNG/GIF/WebP/AVIF with matching extension and magic
+  are accepted, with a 64 MiB per-file cap and before/after stat checks.
+- inspectGrantedImage in asset-intent.mjs consumes only bytes returned by
+  this trusted resolver, retains only the asset commitment, and erases its
+  temporary image Buffer best-effort. The subsequent one-shot approval may
+  still write ONLY a deduplicated planned/plan_only journal intent.
+
+IMPORTANT: The Linux adapter requires /proc/self/fd and a trusted native host.
+macOS and Windows are deliberately unsupported; they need their own native
+file-descriptor/security-scoped-bookmark adapters. There is no general
+open-any-path fallback or old DB path compatibility. Directory grants cannot
+prevent every adversarial filesystem mutation or hardlink policy violation
+without an OS-enforced process and mount threat model; this is NOT yet a
+production-approved media sandbox. The current trusted-picker callback is
+injected by the host; an actual native UI grant dialog is still missing.
+This slice does not stage/promote media or create new Content or StorageObjects.
+
 ## Known L0 boundaries
 
 - `docker-sandbox.mjs` provides a **tested Linux-container boundary** on GitHub Actions. It is a reference adapter, not a universal mobile/desktop sandbox or a proof against every Docker/kernel vulnerability. A compromised Docker daemon is trusted-host compromise. Per-platform production isolation, runtime Docker image digest pinning, tighter per-file mounts and process/IPC audits remain open. CI now verifies the known official manifest digest and can fall back to its ECR mirror when Docker Hub throttles.
