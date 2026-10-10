@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtemp,mkdir,writeFile,symlink,rm,readFile } from "node:fs/promises";
+import { mkdtemp,mkdir,writeFile,symlink,rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createHash } from "node:crypto";
@@ -46,16 +46,10 @@ test("absolute old database paths, traversal, slash and exotic separators are de
   const ref=await grant(registry,root);
   for(const parts of [
     ["/etc/passwd"],["..","private.png"],[".","page01.png"],["chapters/../private.png"],
-    ["chapters","..","page01.png"],["chapters","sub\\page.png"],[],
-    ["chapters","foo.svg"],["chapters","page01.png","extra"]
-  ])await denied(()=>read(registry,ref,parts),"MEDIA_RELATIVE_PATH_INVALID")
-    .catch(async e=>{
-      // A valid-shaped path to unsupported file/leaf is still denied; never
-      // accessible via plugin-controlled absolute source paths.
-      if(parts.length===2&&parts[1]==="foo.svg") return denied(
-        ()=>read(registry,ref,parts),"MEDIA_UNSUPPORTED_FILE");
-      throw e;
-    });
+    ["chapters","..","page01.png"],["chapters","sub\\page.png"],[]
+  ])await denied(()=>read(registry,ref,parts),"MEDIA_RELATIVE_PATH_INVALID");
+  await denied(()=>read(registry,ref,["chapters","foo.svg"]),"MEDIA_UNSUPPORTED_FILE");
+  await denied(()=>read(registry,ref,["chapters","page01.png","extra"]),"MEDIA_READ_DENIED");
   await registry.revoke({grant:ref,ownerScopeId:OWNER,datasetId:DS});
 });
 test("symlink inside approved root is denied even if it points at a valid image",async t=>{
