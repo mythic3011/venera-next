@@ -86,7 +86,7 @@ test("after separate gesture, stage verify promote and commit detached object + 
  assert.equal(count(f.db,"contents"),0);
  assert.equal(count(f.db,"content_units"),0);
  assert.equal(count(f.db,"reading_sessions"),0);
- assert.deepEqual(await f.writer.auditRecovery(),
+ assert.deepEqual(await f.writer.auditRecovery({ownerScopeId:OWNER,datasetId:DATASET}),
    [{journalId:outcome.journalId,status:"healthy"}]);
  await assert.rejects(f.writer.approveAndWrite(ready),
    e=>e instanceof V2StorageWriteError&&e.code==="V2_STORAGE_PLAN_INVALID");
@@ -96,7 +96,7 @@ test("cancelled gesture cannot write intent or filesystem objects",async t=>{
  await assert.rejects(f.writer.approveAndWrite(await f.plan()));
  assert.equal(count(f.db,"v2_storage_write_journal"),0);
  assert.equal(count(f.db,"storage_objects"),0);
- assert.equal((await f.writer.auditRecovery()).length,0);
+ assert.equal((await f.writer.auditRecovery({ownerScopeId:OWNER,datasetId:DATASET})).length,0);
 });
 test("revoked OS media grant during human approval denies before journal",async t=>{
  let f;
@@ -133,11 +133,11 @@ for(const [failAt,expected,objects] of [
   assert.equal(count(f.db,"storage_objects"),objects);
   assert.equal(count(f.db,"storage_placements"),objects);
   assert.equal(count(f.db,"contents"),0);
-  const rows=await f.writer.auditRecovery();
+  const rows=await f.writer.auditRecovery({ownerScopeId:OWNER,datasetId:DATASET});
   assert.equal(rows.length,1);
   assert.equal(rows[0].status,expected);
   // Audit must never unlink either stages or already-promoted blobs.
-  assert.deepEqual(await f.writer.auditRecovery(),rows);
+  assert.deepEqual(await f.writer.auditRecovery({ownerScopeId:OWNER,datasetId:DATASET}),rows);
  });
 }
 test("postcommit missing or mutated managed blob reports unavailable, never healthy",async t=>{
@@ -148,7 +148,7 @@ test("postcommit missing or mutated managed blob reports unavailable, never heal
  ).get(result.journalId);
  await writeFile(join(f.managed,"v2-objects",row.object_key),
    Buffer.from("corrupt after prior successful commit"));
- assert.deepEqual(await f.writer.auditRecovery(),
+ assert.deepEqual(await f.writer.auditRecovery({ownerScopeId:OWNER,datasetId:DATASET}),
   [{journalId:result.journalId,status:"storage_unavailable"}]);
  assert.equal(count(f.db,"storage_objects"),1); // preserve repair evidence
 });
@@ -164,4 +164,20 @@ test("legacy plan-only journal cannot authorize this independent writer",async t
  assert.throws(()=>f.db.prepare(
    "UPDATE v2_storage_write_journal SET authorization_scope='plan_only'"
  ).run(),/CHECK constraint failed/);
+});
+
+test("recovery audit cannot enumerate another user's committed or orphaned journal",async t=>{
+ const f=await fixture(t,{fault:"after_promotion"});
+ await assert.rejects(f.writer.approveAndWrite(await f.plan()));
+ assert.deepEqual(await f.writer.auditRecovery({
+   ownerScopeId:"other-user",datasetId:DATASET
+ }),[]);
+ assert.deepEqual(await f.writer.auditRecovery({
+   ownerScopeId:OWNER,datasetId:"ec956743-22b9-4164-98bb-1439a72aa4b7"
+ }),[]);
+ await assert.rejects(f.writer.auditRecovery(),
+   e=>e.code==="V2_STORAGE_SCOPE_INVALID");
+ assert.equal((await f.writer.auditRecovery({
+   ownerScopeId:OWNER,datasetId:DATASET
+ }))[0].status,"promoted_uncommitted_review");
 });
