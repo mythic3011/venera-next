@@ -358,6 +358,8 @@ CREATE UNIQUE INDEX ux_placements_one_authority
 ```sql
 CREATE TABLE v2_storage_write_journal (
   id                   TEXT PRIMARY KEY, -- native-host generated UUID v4
+  owner_scope_id       TEXT NOT NULL,    -- authenticated native-host principal, not a legacy batch grant
+  dataset_id           TEXT NOT NULL,    -- OS-granted media capability scope
   planned_storage_id   TEXT NOT NULL UNIQUE, -- StorageObject UUID v4
   planned_placement_id TEXT NOT NULL UNIQUE, -- StoragePlacement UUID v4
   storage_backend_id   TEXT NOT NULL REFERENCES storage_backends(id) ON DELETE RESTRICT,
