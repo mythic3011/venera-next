@@ -181,6 +181,30 @@ permits file promotion, Content creation, unit-order mutation or session
 restore.** macOS/Windows/native GUI picker remain unsupported; Linux
 hardlinks, mount policy and threat-model details still need OS security review.
 
+### Separate v2 StorageObject writer — never a Legacy Import approval upgrade
+
+As of 2026-10-11, `runtime/v2/src/storage-writer-linux.mjs` owns a
+**distinct** `v2_storage_write_journal`, unlike the earlier
+`legacy_asset_journal(plan_only)`. A separately trusted host-owned,
+one-use `storage_object_only` confirmation binds an explicitly granted
+Linux media-root image, content digest, byte count, owner/dataset and generated
+StorageObject/Placement identities. The worker uses private same-volume
+staging + fsync, explicit length/hash verification, **exclusive no-overwrite
+promotion**, directory fsync and a single SQLite StorageObject+Placement
+visibility transaction. It does **not** attach a ContentUnit or mark any old
+Venera comic as imported.
+
+Crash recovery inspects the actual private bytes and SQL state without deleting
+anything. It detects staged and promoted uncommitted candidates as unresolved
+evidence, plus missing/corrupt committed files as unavailable. **Already promoted
+valid** bytes may be committed under a fresh one-shot recovery confirmation
+with unchanged Owner/Dataset and trusted backend; this is still only a detached
+StorageObject. Other recovery categories require explicit future policy.
+Neither L0 evidence approval nor L1 `plan_only` asset intent can authorize
+a canonical Content/Unit/ReaderSession write. Future whole-subtree import
+requires its own reviewed, transactional Content Apply authority and complete
+order/placement checks.
+
 ## 6. Filesystem + DB commit, crash recovery and idempotent retry (P0)
 
 **SQLite transactions do not cover filesystem writes.** Never claim copying/promoting image files and inserting StorageObject/Placement rows is one atomic SQLite transaction. Use a durable, importer-controlled journal and a recoverable **two-resource commit protocol**.
