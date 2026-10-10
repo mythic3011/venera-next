@@ -90,6 +90,10 @@ export class TrustedLinuxMediaRootGrants {
     catch{deny("MEDIA_GRANT_CANCELLED");}
     if(typeof root!=="string"||!isAbsolute(root)||root.includes("\0")||
        root.length>4096)deny("MEDIA_ROOT_INVALID");
+    // A top-level filesystem root is never a narrow comic/media grant.
+    // e.g. "/", "/home", "/etc", "/proc", "/mnt" or "/tmp".
+    if(root.split("/").filter(Boolean).length<2)
+      deny("MEDIA_ROOT_TOO_BROAD");
     let dir;
     try{
       dir=await open(root,DIRECTORY_FLAGS);
