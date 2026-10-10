@@ -50,6 +50,7 @@ test("cannot overwrite an existing v2 DB or silently reinterpret old venera.db",
  const old=new DatabaseSync(join(other,"venera.db"));
  old.exec("CREATE TABLE comics(id TEXT PRIMARY KEY)");
  old.close();
+ await chmod(join(other,"venera.db"),0o600); // first pass file ACL gate; then reject old schema
  await assert.rejects(reopenTrustedPrivateV2Database({
    appDataDirectory:other
  }),denied("V2_FILE_OPEN_INVALID_SCHEMA"));
