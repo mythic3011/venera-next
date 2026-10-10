@@ -300,6 +300,73 @@ export async function createTrustedV2StorageWriter({
          storagePlacementId:state.placementId,canAttachContent:false});
      }finally{bytes?.fill(0);}
    },
+   // Explicit crash recovery for promoted-but-uncommitted managed bytes.
+   // Requires NEW trusted human confirmation bound to original owner/dataset,
+   // journal ID and immutable bytes. Never resumes legacy plan_only grants.
+   async resumePromotedWithApproval({journalId,ownerScopeId,datasetId}={}){
+     alive();
+     if(!UUID.test(journalId)||typeof ownerScopeId!=="string"||
+        !ownerScopeId||!UUID.test(datasetId))
+       fail("V2_STORAGE_SCOPE_INVALID");
+     const find=()=>canonicalDb.prepare(
+       "SELECT * FROM v2_storage_write_journal WHERE id=? "+
+       "AND owner_scope_id=? AND dataset_id=?"
+     ).get(journalId,ownerScopeId,datasetId);
+     const current=find();
+     if(!current || current.state==="committed" ||
+        current.authorization_scope!=="storage_object_only")
+       fail("V2_STORAGE_RECOVERY_UNAUTHORIZED");
+     if((await auditRow(current)).status!=="promoted_uncommitted_review")
+       fail("V2_STORAGE_RECOVERY_BYTES_UNAVAILABLE");
+     const planDigest=SHA(Buffer.from(JSON.stringify([
+       "v2-storage-recovery-v1","storage_object_only",ownerScopeId,datasetId,
+       journalId,current.planned_storage_id,current.planned_placement_id,
+       current.expected_sha256,current.expected_bytes,current.expected_mime_type
+     ])));
+     const context={ownerScopeId,datasetId,planDigest};
+     const preview=Object.freeze({scope:"storage_object_only",
+       action:"recover_promoted_storage_only",expectedBytes:current.expected_bytes,
+       sha256Prefix:current.expected_sha256.slice(0,12),
+       canAttachContent:false,canImportLegacy:false});
+     const gesture=await gestureAuthority.confirm(context,preview);
+     if(await gestureAuthority.verifyTrustedUserGesture(gesture,context)!==true)
+       fail("V2_STORAGE_RECOVERY_GESTURE_REJECTED");
+     if((await auditRow(current)).status!=="promoted_uncommitted_review")
+       fail("V2_STORAGE_RECOVERY_BYTES_UNAVAILABLE");
+     transaction(canonicalDb,()=>{
+       const locked=find();
+       if(!locked || locked.state!==current.state ||
+          locked.expected_sha256!==current.expected_sha256 ||
+          locked.object_key!==current.object_key ||
+          locked.authorization_digest!==current.authorization_digest)
+         fail("V2_STORAGE_RECOVERY_CHANGED");
+       // The original journal's backend must still be the active trusted
+       // native local backend, never a plugin or substituted remote target.
+       const target=canonicalDb.prepare(
+         "SELECT backend_kind,status,backend_key FROM storage_backends WHERE id=?"
+       ).get(locked.storage_backend_id);
+       if(target?.backend_kind!=="local_app_data" ||
+          target?.backend_key!==INTERNAL_KEY || target?.status!=="active")
+         fail("V2_STORAGE_RECOVERY_BACKEND_CHANGED");
+       const stamp=new Date().toISOString();
+       canonicalDb.prepare("INSERT INTO storage_objects "+
+         "(id,object_kind,content_hash,size_bytes,mime_type,created_at,updated_at) "+
+         "VALUES(?,?,?,?,?,?,?)"
+       ).run(locked.planned_storage_id,locked.object_kind,locked.expected_sha256,
+         locked.expected_bytes,locked.expected_mime_type,stamp,stamp);
+       canonicalDb.prepare("INSERT INTO storage_placements "+
+         "(id,storage_object_id,storage_backend_id,object_key,role,sync_status,"+
+         "last_verified_at,created_at,updated_at) "+
+         "VALUES(?,?,?,?,'authority','synced',?,?,?)"
+       ).run(locked.planned_placement_id,locked.planned_storage_id,
+         locked.storage_backend_id,locked.object_key,stamp,stamp,stamp);
+       canonicalDb.prepare("UPDATE v2_storage_write_journal "+
+         "SET state='committed',committed_at=?,updated_at=? WHERE id=?"
+       ).run(stamp,stamp,journalId);
+     });
+     return Object.freeze({status:"storage_object_recovered",
+       journalId,storageObjectId:current.planned_storage_id,canAttachContent:false});
+   },
    async auditRecovery({ownerScopeId,datasetId}={}){
      alive();
      if(typeof ownerScopeId!=="string"||!ownerScopeId||!UUID.test(datasetId))
