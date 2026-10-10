@@ -6,6 +6,7 @@ import { DatabaseSync } from "node:sqlite";
 import { TrustedLegacyAssetIntentService, AssetPreparationError } from "../asset-intent.mjs";
 import { TrustedLegacyApprovalService } from "../approval-gate.mjs";
 import { TrustedSnapshotLeaseRegistry } from "../snapshot-lease.mjs";
+import { LegacyMappingRepository } from "../mapping-repository.mjs";
 import { createHostGestureAuthority } from "../trusted-gesture.mjs";
 
 const OWNER="v2-owner";
@@ -53,15 +54,22 @@ async function setup(t,{gesture=async ({challenge})=>challenge}={}) {
     ownerScopeId:OWNER,datasetId:DATASET,leaseRef,policyRevision:"l0-evidence-only-v1"
   });
   const approved=await gate.approve({plan,gesture:{mock:true},expectedPlanDigest:plan.planDigest});
+  const mapper=new LegacyMappingRepository(db,{snapshotLeaseRegistry:leases});
+  const reservation=mapper.reserveAfterApprovedPlan({
+    ownerScopeId:OWNER,batchId:approved.batchId,
+    expectedPlanDigest:approved.planDigest,key:key(),recordDigest:ROW_DIGEST
+  });
   const gestureAuthority=createHostGestureAuthority({requestConfirmation:gesture});
   const service=new TrustedLegacyAssetIntentService({
     canonicalDb:db,snapshotLeaseRegistry:leases,gestureAuthority
   });
-  return {db,leases,leaseRef,service,batchId:approved.batchId};
+  return {db,leases,leaseRef,service,batchId:approved.batchId,
+    mappingId:reservation.mappingId};
 }
 function inspect(fixture,overrides={}) {
   return fixture.service.inspect({
-    ownerScopeId:OWNER,batchId:fixture.batchId,key:key(),
+    ownerScopeId:OWNER,batchId:fixture.batchId,
+    mappingId:fixture.mappingId,key:key(),
     recordDigest:ROW_DIGEST,assetBytes:MEDIA,...overrides
   });
 }
@@ -75,8 +83,9 @@ test("asset preparation requires separate human gesture; only planned journal ap
   assert.equal(rows(f.db,"legacy_asset_journal"),0);
   const response=await f.service.authorizeAndRecordIntent({plan,preview});
   assert.equal(response.status,"asset_intent_planned");
-  const recorded=f.db.prepare("SELECT state,authorization_scope,expected_sha256,expected_bytes,staging_ref,committed_storage_id FROM legacy_asset_journal").get();
+  const recorded=f.db.prepare("SELECT state,authorization_scope,expected_sha256,expected_bytes,staging_ref,mapping_id,committed_storage_id FROM legacy_asset_journal").get();
   assert.equal(recorded.state,"planned");
+  assert.equal(recorded.mapping_id,f.mappingId);
   assert.equal(recorded.authorization_scope,"plan_only");
   assert.equal(recorded.expected_sha256,hash(MEDIA));
   assert.equal(recorded.expected_bytes,MEDIA.length);
@@ -86,6 +95,9 @@ test("asset preparation requires separate human gesture; only planned journal ap
     assert.equal(rows(f.db,table),0);
   assert.throws(()=>f.db.prepare(
     "UPDATE legacy_asset_journal SET authorization_scope='content_import'"
+  ).run(),/CHECK constraint failed/);
+  assert.throws(()=>f.db.prepare(
+    "UPDATE legacy_asset_journal SET state='staged'"
   ).run(),/CHECK constraint failed/);
   await assert.rejects(f.service.authorizeAndRecordIntent({plan,preview}),
     e=>e.code==="ASSET_PLAN_INVALID");
@@ -137,4 +149,21 @@ test("unknown or over-budget media bytes cannot create a plan",async t=>{
   for(const bytes of ["path to /home/user",Buffer.alloc(0),Buffer.alloc(64*1024*1024+1)])
     assert.throws(()=>inspect(f,{assetBytes:bytes}),AssetPreparationError);
   assert.equal(rows(f.db,"legacy_asset_journal"),0);
+});
+
+test("wrong mapping ID or tombstoned mapping denies even with valid row proof",async t=>{
+  const f=await setup(t);
+  assert.throws(()=>inspect(f,{mappingId:"00000000-0000-4000-8000-000000000000"}),
+    e=>e.code==="ASSET_MAPPING_REQUIRED");
+  f.db.prepare("UPDATE legacy_record_mappings SET mapping_state='tombstoned' WHERE id=?")
+    .run(f.mappingId);
+  assert.throws(()=>inspect(f),e=>e.code==="ASSET_MAPPING_REQUIRED");
+});
+test("repeated approved asset intent for one mapped record and bytes is not duplicated",async t=>{
+  const f=await setup(t);
+  const first=inspect(f);
+  await f.service.authorizeAndRecordIntent(first);
+  const next=inspect(f);
+  await assert.rejects(f.service.authorizeAndRecordIntent(next),/UNIQUE constraint failed/);
+  assert.equal(rows(f.db,"legacy_asset_journal"),1);
 });
