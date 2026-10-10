@@ -2,6 +2,10 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
+import { mkdtemp, mkdir, writeFile, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { TrustedLinuxMediaRootGrants } from "../media-root-linux.mjs";
 import { DatabaseSync } from "node:sqlite";
 import { TrustedLegacyAssetIntentService, AssetPreparationError } from "../asset-intent.mjs";
 import { TrustedLegacyApprovalService } from "../approval-gate.mjs";
@@ -26,7 +30,7 @@ const schema=s.slice(from,to);
 const DATA=Buffer.from("SQLite format 3\0fixture");
 const MEDIA=Buffer.from("synthetic approved media bytes in memory, never a filesystem path");
 
-async function setup(t,{gesture=async ({challenge})=>challenge}={}) {
+async function setup(t,{gesture=async ({challenge})=>challenge,mediaResolver=null}={}) {
   const db=new DatabaseSync(":memory:");
   t.after(()=>db.close());
   db.exec("PRAGMA foreign_keys=ON");
@@ -61,7 +65,8 @@ async function setup(t,{gesture=async ({challenge})=>challenge}={}) {
   });
   const gestureAuthority=createHostGestureAuthority({requestConfirmation:gesture});
   const service=new TrustedLegacyAssetIntentService({
-    canonicalDb:db,snapshotLeaseRegistry:leases,gestureAuthority
+    canonicalDb:db,snapshotLeaseRegistry:leases,gestureAuthority,
+    trustedMediaRootResolver:mediaResolver
   });
   return {db,leases,leaseRef,service,batchId:approved.batchId,
     mappingId:reservation.mappingId};
@@ -166,4 +171,43 @@ test("repeated approved asset intent for one mapped record and bytes is not dupl
   const next=inspect(f);
   await assert.rejects(f.service.authorizeAndRecordIntent(next),/UNIQUE constraint failed/);
   assert.equal(rows(f.db,"legacy_asset_journal"),1);
+});
+
+test("trusted media-root grant provides only image digest to planned asset journal",async t=>{
+  const root=await mkdtemp(join(tmpdir(),"venera-media-e2e-"));
+  t.after(async()=>rm(root,{recursive:true,force:true}));
+  await mkdir(join(root,"approved"));
+  const image=Buffer.concat([
+    Buffer.from([137,80,78,71,13,10,26,10]),Buffer.from("synthetic media fixture")
+  ]);
+  await writeFile(join(root,"approved","page.png"),image);
+  const mediaResolver=new TrustedLinuxMediaRootGrants();
+  const f=await setup(t,{mediaResolver});
+  const grant=await mediaResolver.grantFromTrustedPicker({
+    ownerScopeId:OWNER,datasetId:DATASET,requestTrustedDirectory:async()=>root
+  });
+  const {plan,preview}=await f.service.inspectGrantedImage({
+    ownerScopeId:OWNER,batchId:f.batchId,mappingId:f.mappingId,key:key(),
+    recordDigest:ROW_DIGEST,mediaGrant:grant,
+    relativeSegments:["approved","page.png"]
+  });
+  assert.equal(preview.byteCount,image.length);
+  assert.equal(preview.sha256Prefix,hash(image).slice(0,12));
+  assert.equal(JSON.stringify(preview).includes(root),false);
+  await f.service.authorizeAndRecordIntent({plan,preview});
+  const row=f.db.prepare("SELECT expected_sha256,state,mapping_id FROM legacy_asset_journal").get();
+  assert.equal(row.expected_sha256,hash(image));
+  assert.equal(row.state,"planned");
+  assert.equal(row.mapping_id,f.mappingId);
+  await assert.rejects(f.service.inspectGrantedImage({
+    ownerScopeId:OWNER,batchId:f.batchId,mappingId:f.mappingId,key:key(),
+    recordDigest:ROW_DIGEST,mediaGrant:grant,
+    relativeSegments:["..","outside.png"]
+  }),e=>e.code==="MEDIA_RELATIVE_PATH_INVALID");
+  await mediaResolver.revoke({grant,ownerScopeId:OWNER,datasetId:DATASET});
+  await assert.rejects(f.service.inspectGrantedImage({
+    ownerScopeId:OWNER,batchId:f.batchId,mappingId:f.mappingId,key:key(),
+    recordDigest:ROW_DIGEST,mediaGrant:grant,
+    relativeSegments:["approved","page.png"]
+  }),e=>e.code==="MEDIA_SCOPE_DENIED");
 });
