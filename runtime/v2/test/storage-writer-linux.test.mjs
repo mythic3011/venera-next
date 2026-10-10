@@ -181,3 +181,63 @@ test("recovery audit cannot enumerate another user's committed or orphaned journ
    ownerScopeId:OWNER,datasetId:DATASET
  }))[0].status,"promoted_uncommitted_review");
 });
+
+for(const phase of ["after_promotion","before_visibility_commit"]){
+ test("re-approved crash recovery completes only detached StorageObject after "+phase,async t=>{
+   const f=await fixture(t,{fault:phase});
+   await assert.rejects(f.writer.approveAndWrite(await f.plan()));
+   const pending=await f.writer.auditRecovery({ownerScopeId:OWNER,datasetId:DATASET});
+   assert.equal(pending.length,1);
+   assert.equal(pending[0].status,"promoted_uncommitted_review");
+   const outcome=await f.writer.resumePromotedWithApproval({
+     journalId:pending[0].journalId,ownerScopeId:OWNER,datasetId:DATASET
+   });
+   assert.equal(outcome.status,"storage_object_recovered");
+   assert.equal(outcome.canAttachContent,false);
+   assert.equal(count(f.db,"storage_objects"),1);
+   assert.equal(count(f.db,"storage_placements"),1);
+   assert.equal(count(f.db,"contents"),0);
+   assert.equal(count(f.db,"content_units"),0);
+   assert.equal((await f.writer.auditRecovery({
+     ownerScopeId:OWNER,datasetId:DATASET
+   }))[0].status,"healthy");
+   await assert.rejects(f.writer.resumePromotedWithApproval({
+     journalId:pending[0].journalId,ownerScopeId:OWNER,datasetId:DATASET
+   }),e=>e.code==="V2_STORAGE_RECOVERY_UNAUTHORIZED");
+ });
+}
+test("recovery refuses wrong owner, modified bytes and non-promoted stage",async t=>{
+ const f=await fixture(t,{fault:"after_stage"});
+ await assert.rejects(f.writer.approveAndWrite(await f.plan()));
+ const pending=(await f.writer.auditRecovery({
+   ownerScopeId:OWNER,datasetId:DATASET
+ }))[0];
+ await assert.rejects(f.writer.resumePromotedWithApproval({
+   journalId:pending.journalId,ownerScopeId:"intruder",datasetId:DATASET
+ }),e=>e.code==="V2_STORAGE_RECOVERY_UNAUTHORIZED");
+ await assert.rejects(f.writer.resumePromotedWithApproval({
+   journalId:pending.journalId,ownerScopeId:OWNER,datasetId:DATASET
+ }),e=>e.code==="V2_STORAGE_RECOVERY_BYTES_UNAVAILABLE");
+ assert.equal(count(f.db,"storage_objects"),0);
+});
+test("fresh recovery gesture cancellation never commits orphaned file",async t=>{
+ const f=await fixture(t,{fault:"after_promotion",gesture:async({challenge})=>challenge});
+ await assert.rejects(f.writer.approveAndWrite(await f.plan()));
+ const pending=(await f.writer.auditRecovery({
+   ownerScopeId:OWNER,datasetId:DATASET
+ }))[0];
+ // A *different* trusted writer/new host gesture can decline recovery.
+ const other=createHostGestureAuthority({requestConfirmation:async()=>""});
+ const writer=await createTrustedV2StorageWriter({
+   canonicalDb:f.db,appDataDirectory:f.managed,
+   trustedMediaRootResolver:f.grants,gestureAuthority:other
+ });
+ t.after(()=>writer.close());
+ await assert.rejects(writer.resumePromotedWithApproval({
+   journalId:pending.journalId,ownerScopeId:OWNER,datasetId:DATASET
+ }));
+ assert.equal(count(f.db,"storage_objects"),0);
+ assert.equal((await writer.auditRecovery({
+   ownerScopeId:OWNER,datasetId:DATASET
+ }))[0].status,"promoted_uncommitted_review");
+});
