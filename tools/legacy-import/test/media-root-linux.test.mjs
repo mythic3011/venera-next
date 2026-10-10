@@ -103,3 +103,10 @@ test("grant expiry fails closed, and independent grant capacity is bounded",asyn
  await new Promise(resolve=>setTimeout(resolve,70));
  await denied(()=>read(registry,ephemeral),"MEDIA_SCOPE_DENIED");
 });
+
+test("top-level root grants are too broad even after trusted-picker callback",async()=>{
+ const registry=new TrustedLinuxMediaRootGrants();
+ for(const broad of ["/","/home","/tmp","/etc","/proc","/mnt"]){
+   await denied(()=>grant(registry,broad),"MEDIA_ROOT_TOO_BROAD");
+ }
+});
