@@ -893,10 +893,10 @@ CREATE TABLE legacy_asset_journal (
   authorization_scope     TEXT NOT NULL DEFAULT 'plan_only'
                           CHECK (authorization_scope IN ('plan_only')),
   authorization_digest    TEXT NOT NULL,       -- separate human-approved asset intent, not Batch plan digest
-  CHECK (authorization_scope != 'plan_only' OR state = 'planned'), -- cannot stage/promote with plan-only grant
   created_at              TEXT NOT NULL,
   updated_at              TEXT NOT NULL,
-  UNIQUE (batch_id,planned_storage_id)
+  UNIQUE (batch_id,planned_storage_id),
+  CHECK (authorization_scope != 'plan_only' OR state = 'planned') -- cannot stage/promote with plan-only grant
 );
 CREATE INDEX idx_legacy_journal_recovery ON legacy_asset_journal(batch_id,state);
 -- Preflight asset intent is one digest per mapped old work per Batch.
