@@ -61,6 +61,16 @@ For this developer-only terminal boundary, the local principal is derived from t
 
 **Approval grants only `evidence_only` scope.** The Wizard stores Dataset/Batch metadata and **zero canonical Content, Section, Unit, StorageObject, ReadingSession, UserCollection or user-settings records**. The SQLite DDL now enforces this scope; any later importer needs a separately designed, reviewed and consented content-import authority. The memory lease is short-lived and auto-evicts buffered source data; the application cannot silently resume from a stale approved Batch after restart.
 
+## L1 preparatory asset intent (no asset staging)
+
+`asset-intent.mjs` adds an **independent, one-shot human confirmation** for one explicitly chosen, already-attested `local.db.comics` mapping and one bounded media byte digest. It is separate from L0's `evidence_only` approval. The trusted service checks the existing owner-scoped Batch, live Snapshot Lease, exact Record Attestation and an existing, unresolved/unchanged `LegacyRecordMapping`, then binds a new approval challenge to the asset SHA-256/length, Batch Plan Digest and Mapping ID.
+
+Successful approval creates one `legacy_asset_journal` row in **`state='planned'`, `authorization_scope='plan_only'`**. It does *not* write files, mark assets `staged`, create StorageObjects/Contents or activate a ReaderSession. Canonical SQLite DDL prevents moving a plan-only journal row to staged/promoted/committed without a future reviewed schema/authorization transition; duplicate same-Batch/Mapping/Asset-Digest planned intent is rejected. Failed or replayed gestures do not write the journal.
+
+**Product integration deliberately blocked:** the `assetBytes` test seam must eventually be supplied by a separate trusted, explicitly user-granted local media-root resolver. Old `directory` strings in `local.db` are **never** accepted as paths or authority. The current code only validates memory bytes in a controlled host/test environment. Do not connect it to an arbitrary renderer, source plugin, headless approval flag or user filesystem browser. No production Asset Stage/Promote API is present.
+
+**Schema alignment blocker:** currently `runtime/core` physically models `comics / chapters / pages`; canonical v2 design docs use `contents / content_sections / content_units`. The test's in-memory FK stubs prove only that the canonical **reference DDL** is valid, **not** that the live Runtime migrations are integrated. Resolve this identity/schema mismatch before implementing actual Content/Storage import or claiming end-to-end v2 database support.
+
 ## Known L0 boundaries
 
 - `docker-sandbox.mjs` provides a **tested Linux-container boundary** on GitHub Actions. It is a reference adapter, not a universal mobile/desktop sandbox or a proof against every Docker/kernel vulnerability. A compromised Docker daemon is trusted-host compromise. Per-platform production isolation, runtime Docker image digest pinning, tighter per-file mounts and process/IPC audits remain open. CI now verifies the known official manifest digest and can fall back to its ECR mirror when Docker Hub throttles.
