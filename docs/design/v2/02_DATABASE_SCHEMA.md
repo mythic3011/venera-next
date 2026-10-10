@@ -893,11 +893,18 @@ CREATE TABLE legacy_asset_journal (
   authorization_scope     TEXT NOT NULL DEFAULT 'plan_only'
                           CHECK (authorization_scope IN ('plan_only')),
   authorization_digest    TEXT NOT NULL,       -- separate human-approved asset intent, not Batch plan digest
+  CHECK (authorization_scope != 'plan_only' OR state = 'planned'), -- cannot stage/promote with plan-only grant
   created_at              TEXT NOT NULL,
   updated_at              TEXT NOT NULL,
   UNIQUE (batch_id,planned_storage_id)
 );
 CREATE INDEX idx_legacy_journal_recovery ON legacy_asset_journal(batch_id,state);
+-- Preflight asset intent is one digest per mapped old work per Batch.
+-- A future chapter/page importer needs independently reviewed page identity
+-- and a new scope/schema before it can create multiple active placements.
+CREATE UNIQUE INDEX ux_legacy_planned_asset_mapping
+  ON legacy_asset_journal(batch_id,mapping_id,expected_sha256)
+  WHERE state='planned' AND mapping_id IS NOT NULL;
 
 CREATE TABLE legacy_import_receipts (
   batch_id             TEXT PRIMARY KEY REFERENCES legacy_import_batches(id) ON DELETE RESTRICT,
