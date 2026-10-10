@@ -710,6 +710,49 @@ Entity: ContentVector
 
 ---
 
+## One-Time Legacy Distributed Import Domain (Canonical v2)
+
+> **Authority:** these types and invariants govern the optional standalone old-Venera one-time importer. The matching SQLite DDL is in `02_DATABASE_SCHEMA.md`, the command flow is in `03_USE_CASES.md`, and the supported input formats are specified in `17_LEGACY_DISTRIBUTED_IMPORT.md`. They do **not** replace the Deferred/Legacy `ImportBatch` or the ordinary plugin-based `ImportJob`.
+
+**Input format allowlist (exactly five):** `local.db`, `history.db`, `local_favorite.db`, `appdata.json`, `implicitData.json`. Old Unified Store `venera.db` is explicitly not accepted, including when renamed to an allowed basename. SQLite `-wal`/`-shm` sidecars are snapshot mechanisms, not importable formats. References to user-approved image directories are separate **media read grants**, not extra metadata sources.
+
+### LegacyImportDataset
+- `id: LegacyImportDatasetId (UUID v4)`; `ownerScopeId` (trusted local user/hosted principal), `displayLabel` (user-controlled, privacy-sensitive), `state: active | archived`, timestamps.
+- One Dataset represents one **old Venera installation/profile**, not one directory pathname or snapshot checksum. Same physical legacy installation moved to a new folder requires explicit re-association; equal numeric legacy IDs from separate installations **must never** share a dataset.
+- Only trusted UI may create/associate datasets; a plugin cannot declare a dataset identity.
+
+### LegacyImportBatch
+- `id: LegacyImportBatchId (UUID v4)`; `datasetId`; `inputManifest` (file roles, snapshot SHA-256 digests, supported schema variants, import options/policy revision); `state: selected | snapshotted | previewed | approved | applying | verified | partial | failed | cancelled`; timestamps.
+- Snapshot hash is batch evidence only, **never a work/section/unit identity**. A changed settings JSON must not mint a new ContentId for unchanged comics. A batch contains only allowlisted roles, and cannot claim VERIFIED while any user-requested category is deferred or failed.
+- Approval is trusted user intent for an exact reviewed plan. Recovery of an already approved plan must not silently expand that approval to different inputs or a later category.
+
+### LegacyRecordMapping
+- Stable dataset-scoped key: `(datasetId, fileRole, tableKind, scopeKey, legacyTypeKey, legacyId)`, all normalized non-null identity parts. `scopeKey` includes the legacy favorite-folder/table name; the local comic key uses `comic_type + id`; history uses `type + id`; image favorites use `source_key + id`; settings use a namespace and JSON key.
+- `recordDigest` identifies a version of this legacy record, not its identity. `status: mapped | unchanged | changed_pending | conflict | unresolved | tombstoned`. The mapping may reference **at most one** concrete canonical Content, Section, Unit, Collection or CollectionItem target; setting-only keys may be marked as applied preference evidence without a domain target.
+- Mapping preserves canonical UUIDs across retry, crash, and changed snapshot hashes. Changed record with existing mapping is a diff/review, not automatic overwrite. If a canonical target is explicitly deleted, its mapping must be detached/tombstoned consistently; reimport must never silently resurrect user-deleted Content.
+
+### LegacyUnresolvedRecord
+- `id`; dataset/mapping and originating batch references; `category` (work | reader_position | favorite | image_favorite | tag | preference | source_reference | media); `reasonCode`, bounded typed evidence/candidate target IDs, `nextEligibleMilestone`; `state: pending | resolved | skipped | dismissed`.
+- Evidence is protected local data, not an executable script, raw JSON credentials, or arbitrary filesystem path authority. Human review is required for uncertain source IDs, index bases and duplicated titles. A pending record cannot be passed as a canonical Reader Position or fake Content.
+
+### LegacyImportReceipt
+- One durable receipt per batch; contains category counts (`imported`/`unchanged`/`deferred`/`review_required`/`failed`), result status (`verified | partial | failed | cancelled`), policy/schema revision and finalization timestamp (which may be failure/cancellation rather than verification).
+- Receipt reflects **committed** records, not attempted counters. Independent content subtrees may commit successfully even when batch status is partial. Receipt recovery after a crash derives truth from canonical mappings and the asset journal; it must not assume a missing receipt means nothing was written.
+
+### LegacyAssetJournal
+- `id`, `batchId`, trusted importer-owned staged/final storage references (opaque, never user-provided paths), planned storage object ID, expected content hash and length, `state: staged | verified | promoted | committed | gc_pending`, timestamps.
+- SQLite cannot atomically commit filesystem bytes. **DB visibility commit** occurs only after all required page bytes are verified/promoted: Content/Section/Unit, complete active ContentUnitOrder, readable StorageObject/Placement and mappings are committed together in one SQLite transaction. After a crash, reconcile journal and canonical DB, never delete user-selected original media or a file referenced by a readable placement.
+- Promote using same-volume atomic rename or carefully verified copy/fsync/rename. No half-active section, fabricated readable placement, or file deletion based only on a stale in-memory progress counter.
+
+**Shared invariants:**
+- Only a uniquely verified `ContentUnitId` can become `ReadingSession.unitId`, written through `UC-005b`; old `ep`/`page`/`readEpisode`/`chapter_group` are evidence, never direct IDs, and unknown 0/1-based index semantics remain unresolved.
+- `history.db.image_favorites` are **not** `local_favorite.db` comic-folder memberships. Source-only favorites/history remain unresolved until explicitly reconciled; no auto-plugin install, network fetch, login or account fallback.
+- Tag strings are staging evidence in M1 and may become mapped tags only after M2 taxonomy support. For `appdata.json` and `implicitData.json` use a reviewed per-key allowlist, never raw credentials, source JS or arbitrary configuration.
+- The one-time importer uses isolated read-only source readers and trusted v2 canonical use cases. It cannot import or execute the discarded legacy runtime.
+- Stage/import mappings and receipts need explicit retention/cleanup. Per-record identities persist longer than temporary snapshots and logs; the user may purge unresolved evidence independently from imported canonical works.
+
+---
+
 ## ID System
 
 ### ID Types
@@ -735,6 +778,11 @@ StorageBackendId       = UUID v4
 StorageObjectId        = UUID v4
 StoragePlacementId     = UUID v4
 ImportBatchId          = UUID v4 (Deferred/Legacy import reference)
+LegacyImportDatasetId   = UUID v4 (one-time old-Venera dataset)
+LegacyImportBatchId     = UUID v4 (separate from ImportBatch/ImportJob)
+LegacyUnresolvedRecordId = UUID v4
+LegacyAssetJournalId    = UUID v4
+LegacyRecordMappingId   = UUID v4
 CorrelationId          = String (UUID v4 format, used for tracing)
 ```
 
@@ -766,6 +814,7 @@ SourcePackageArtifactId = String (UUID v4 or package-store deterministic artifac
 - **StorageObjectId**: Assigned by system at StorageObject creation
 - **StoragePlacementId**: Assigned by system at StoragePlacement creation
 - **ImportBatchId**: Assigned by import adapter/deferred import workflow
+- **LegacyImportDatasetId / LegacyImportBatchId / LegacyUnresolvedRecordId / LegacyAssetJournalId / LegacyRecordMappingId**: Assigned by the trusted one-time importer; mapping has an additional dataset-scoped composite uniqueness invariant
 - **OperationIdempotencyId**: Derived from `(operationName, idempotencyKey)` composite identity
 - **SourcePackageManifestId**: Derived from canonical manifest content hash; not randomly assigned
 - **SourcePackageArtifactId**: Assigned by package-store lifecycle authority, not by generic entity creation

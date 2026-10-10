@@ -1,0 +1,146 @@
+name: legacy-import-l0
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/legacy-import-l0.yml"
+      - "tools/legacy-import/**"
+  push:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/legacy-import-l0.yml"
+      - "tools/legacy-import/**"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: legacy-import-l0-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  read-only-preflight:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22.16.0"
+      - name: Verify L0 fixtures and read-only inspector
+        run: node --test tools/legacy-import/test/*.test.mjs
+      - name: Pull and verify pinned Docker inspector image
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Docker Hub can throttle anonymous CI runners. Use the Docker Official
+          # Image mirror in Public ECR only if its *manifest digest* matches the
+          # pinned upstream multi-architecture index. Never silently retag a
+          # different image after a registry failure.
+          IMAGE="node:22.16.0-bookworm-slim"
+          EXPECTED="sha256:048ed02c5fd52e86fda6fbd2f6a76cf0d4492fd6c6fee9e2c463ed5108da0e34"
+          if docker pull "node@${EXPECTED}"; then
+            docker tag "node@${EXPECTED}" "${IMAGE}"
+          else
+            MIRROR="public.ecr.aws/docker/library/node@${EXPECTED}"
+            docker pull "${MIRROR}"
+            docker tag "${MIRROR}" "${IMAGE}"
+          fi
+          test "$(docker run --rm --network none "${IMAGE}" node --version)" = "v22.16.0"
+      - name: Smoke test actual read-only, no-network isolated inspector
+        run: |
+          TEMP_INPUT="$(mktemp -d)"
+          trap 'rm -rf "$TEMP_INPUT"' EXIT
+          RESULT="$(node tools/legacy-import/preview-isolated.mjs --dir "$TEMP_INPUT")"
+          printf '%s' "$RESULT" | node -e '
+            let s="";
+            process.stdin.on("data", x => s+=x);
+            process.stdin.on("end", () => {
+              const d=JSON.parse(s);
+              if(d.status!=="no_inputs" || d.readOnly!==true ||
+                 d.canCommit!==false || d.totals.missing!==5) {
+                process.exitCode=1;
+              }
+            });
+          '
+      - name: Smoke test isolated inspector with real legacy local.db
+        run: |
+          TEMP_INPUT="$(mktemp -d)"
+          trap 'rm -rf "$TEMP_INPUT"' EXIT
+          node --input-type=module -e '
+            import { DatabaseSync } from "node:sqlite";
+            const db=new DatabaseSync(process.argv[1]);
+            db.exec("CREATE TABLE comics (id TEXT NOT NULL, title TEXT NOT NULL, subtitle TEXT NOT NULL, tags TEXT NOT NULL, directory TEXT NOT NULL, chapters TEXT NOT NULL, cover TEXT NOT NULL, comic_type INTEGER NOT NULL, downloadedChapters TEXT NOT NULL, created_at INTEGER, PRIMARY KEY (id, comic_type))");
+            db.prepare("INSERT INTO comics VALUES (?,?,?,?,?,?,?,?,?,?)").run("c1", "PRIVATE_TITLE", "", "[]", "d", "{}", "", 1, "[]", 1);
+            db.close();
+          ' "$TEMP_INPUT/local.db"
+          RESULT="$(node tools/legacy-import/preview-isolated.mjs --dir "$TEMP_INPUT")"
+          printf '%s' "$RESULT" | node -e '
+            let s="";
+            process.stdin.on("data",x=>s+=x);
+            process.stdin.on("end",()=>{
+              const d=JSON.parse(s);
+              if(d.files[0].status!=="inspected" || d.files[0].eligible!==1 ||
+                 d.canCommit!==false || s.includes("PRIVATE_TITLE")) process.exitCode=1;
+            });
+          '
+      - name: Smoke test sandboxed immutable snapshots and live lease verification
+        run: |
+          TEMP_INPUT="$(mktemp -d)"
+          trap 'rm -rf "$TEMP_INPUT"' EXIT
+          node --input-type=module -e '
+            import { DatabaseSync } from "node:sqlite";
+            import { writeFileSync } from "node:fs";
+            const db=new DatabaseSync(process.argv[1]+"/local.db");
+            db.exec("CREATE TABLE comics (id TEXT NOT NULL, title TEXT NOT NULL, subtitle TEXT NOT NULL, tags TEXT NOT NULL, directory TEXT NOT NULL, chapters TEXT NOT NULL, cover TEXT NOT NULL, comic_type INTEGER NOT NULL, downloadedChapters TEXT NOT NULL, created_at INTEGER, PRIMARY KEY (id, comic_type))");
+            db.prepare("INSERT INTO comics VALUES (?,?,?,?,?,?,?,?,?,?)").run("one","PRIVATE_BOOK","","[]","d","{}","",1,"[]",1);
+            db.close();
+            writeFileSync(process.argv[1]+"/appdata.json",JSON.stringify({settings:{theme_mode:"dark"}}));
+          ' "$TEMP_INPUT"
+          node --input-type=module -e '
+            import assert from "node:assert/strict";
+            import { DatabaseSync } from "node:sqlite";
+            import { TrustedSnapshotLeaseRegistry } from "./tools/legacy-import/snapshot-lease.mjs";
+            import { previewAndIssueSnapshotLease } from "./tools/legacy-import/docker-sandbox.mjs";
+            import { digestComicRow } from "./tools/legacy-import/record-provenance.mjs";
+            const registry=new TrustedSnapshotLeaseRegistry();
+            const datasetId="c20ed232-9d89-4e42-a30e-e5105e198724";
+            const result=await previewAndIssueSnapshotLease({
+              selectedDirectory:process.argv[1],ownerScopeId:"ci-test",
+              datasetId,snapshotLeaseRegistry:registry
+            });
+            assert.equal(result.preview.canCommit,false);
+            assert.equal(result.preview.files[0].eligible,1);
+            assert.equal(result.preview.totals.inspected,2);
+            const context={leaseRef:result.leaseRef,ownerScopeId:"ci-test",datasetId};
+            const manifest=registry.getManifest(context);
+            assert.deepEqual(manifest.map(x=>x.role),["local.db","appdata.json"]);
+            assert.equal(registry.verify({...context,inputManifest:manifest}),true);
+            const key={datasetId,fileRole:"local.db",tableKind:"comics",
+              scopeKey:"",legacyTypeKey:"1",legacyId:"one"};
+            const recordDigest=digestComicRow({id:"one",comic_type:1,
+              title:"PRIVATE_BOOK",subtitle:"",tags:"[]",directory:"d",
+              chapters:"{}",cover:"",downloadedChapters:"[]",created_at:1});
+            assert.equal(registry.verifyRecord({...context,inputManifest:manifest,
+              key,recordDigest}),true);
+            assert.equal(registry.verifyRecord({...context,inputManifest:manifest,
+              key:{...key,legacyId:"nonexistent"},recordDigest}),false);
+            assert.equal(registry.verifyRecord({...context,inputManifest:manifest,
+              key,recordDigest:"0".repeat(64)}),false);
+            const db=new DatabaseSync(process.argv[1]+"/local.db");
+            db.prepare("INSERT INTO comics VALUES (?,?,?,?,?,?,?,?,?,?)").run("two","CHANGED_TITLE","","[]","d","{}","",1,"[]",1);
+            db.close();
+            assert.equal(registry.verify({...context,inputManifest:manifest}),true);
+            assert.equal(registry.verify({...context,ownerScopeId:"wrong",inputManifest:manifest}),false);
+            assert.equal(registry.revoke(context),true);
+            assert.equal(registry.verify({...context,inputManifest:manifest}),false);
+          ' "$TEMP_INPUT"
+      - name: Verify all five input roles through actual Docker snapshot attestation
+        run: node tools/legacy-import/ci-smoke-all-roles.mjs
+      - name: Verify CLI refuses unknown arguments
+        run: |
+          if node tools/legacy-import/preview.mjs --invalid; then
+            echo "expected CLI argument validation to fail"
+            exit 1
+          fi

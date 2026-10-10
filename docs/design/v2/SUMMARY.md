@@ -20,6 +20,10 @@
 | `07_FEATURES.md` | Download manager, notifications, content update, reading stats, search, backup/sync, content filtering, CoreRepositories |
 | `08_SOURCE_PACKAGE_LIFECYCLE.md` | Source package install commit order, lease timers, trust tiers, PackageStore contract (authority over 05's summary) |
 | `09_OBSERVABILITY.md` | Diagnostics events contract (bounded evidence, best-effort writes, schema evolution policy) |
+| `10_MVP_SCOPE.md` / `11_MILESTONES.md` | Greenfield release scope and phase gates; legacy-import L0–L3 is separate |
+| `17_LEGACY_DISTRIBUTED_IMPORT.md` | Companion rationale, exact five-file formats, mapping examples, threat cases and acceptance fixtures. **Normative entity/schema/use-case authority remains in 01/02/03, not 17** |
+
+> **2026-10-09 greenfield ruling:** Current `runtime/core` and other legacy execution code will be retired, not refactored. Canonical v2 documents define the **new implementation target**; historical “Implemented (Core+DB)” status lines refer to code being discarded and must **not** be used as evidence that fresh v2 runtime components already exist. No migration of legacy Comic/Chapter/Page database schemas is required. One-time old-Venera import is strictly scoped to `local.db`, `history.db`, `local_favorite.db`, `appdata.json`, and `implicitData.json`, and explicitly excludes Unified Store `venera.db`. See `17_LEGACY_DISTRIBUTED_IMPORT.md`; the one-time import **domain, DDL, use cases, adapter boundary, features and diagnostics are now integrated into 01/02/03/04/05/07/09** on this draft branch. This is documentation adoption, **not** runtime implementation, not legacy code reuse and not a compatibility layer. Account/source-scope and passkey designs (12–16) remain proposals in Draft PR #6; legacy import 17 is supporting design evidence after canonical document integration, all still unmerged.
 
 Implementation status vocabulary (carried from v1, applies per use case / per table):
 `Implemented (Core+DB)` | `Target` | `Planned Canonical` | `Deferred/Legacy`.
@@ -157,6 +161,28 @@ Tags & import
     identity; existing units referenced by sessions are never renumbered/deleted.
 37. `userRating` is the 1..5 personal/library rating used by search and backup;
     `contentRating` is the separate ordered safety/filter scale.
+
+One-time distributed-data import (separate from plugin import)
+38. Only local.db, history.db, local_favorite.db, appdata.json and
+    implicitData.json are eligible old-Venera metadata inputs. Legacy Unified
+    Store venera.db is rejected by filename AND schema signature even if renamed.
+    SQLite WAL/SHM sidecars are snapshot mechanics, not sixth input types.
+39. ImportBatch (Deferred/Legacy) and plugin ImportJob are distinct from
+    LegacyImportDataset/LegacyImportBatch/RecordMapping/Receipt/AssetJournal.
+    Snapshot digest is batch evidence only; dataset-scoped record keys preserve
+    fresh canonical IDs across reruns and changed preference snapshots.
+40. SQLite transactions do not atomically cover file bytes. Journal + staged
+    verification/promotion precede the full Content/Section/Unit/active-Order/
+    Placement + mapping DB visibility commit; recovery/GC cannot touch user
+    originals or referenced placements. Partial batches never show partial
+    active unit orders.
+41. Old ep/page/readEpisode/chapter_group are uncertain evidence, not UUIDs.
+    Only a uniquely VERIFIED_UNIT can update position via UC-005b after
+    checking existing active v2 session; ambiguous states remain reviewable.
+42. Favorites in local_favorite.db map to UserCollections only with verified
+    Content IDs (M2); history.db.image_favorites is a distinct deferred
+    image-level category. Tags are evidence until M2, and source-only
+    unresolved identity awaits explicit review after M3. No secret/JS import.
 ```
 
 ---
@@ -185,6 +211,7 @@ Tags & import
 | D18 | Favorites | not mentioned | **Kept Deferred/Legacy** (v1) | No favorites table in core pass; source favorite state stays on source_links evidence |
 | D19 | Hosted sync columns (version/device_id) | presented as plain ALTER | **Gated** behind explicit multi-device conflict contract | Core contract is last-write-wins single-runtime |
 | D20 | Adapter/persistence boundary docs | absent | **Carried, condensed** into 00_OVERVIEW §4 | Boundary + audit gates still bind future backend work |
+| D21 | Old distributed user-data import vs discarded runtime | In-place legacy DB/runtime compatibility not desired | **Adopted on draft branch:** trusted one-time five-file importer, distinct from normal ImportJob, with canonical identity/DDL/use cases in 01–03 and L0–L3 phases | Preserve user library/progress safely without retaining vulnerable or obsolete execution model |
 
 ---
 
@@ -215,4 +242,8 @@ VerificationTier  Install-time outcome: official | community | custom | unverifi
 PluginProxy       Mandatory chokepoint for all plugin outbound calls
 AuditStream       Named append-only hash-chained audit sequence
 PreflightDecision Import conflict decision (create_new / repair_existing / conflict_*)
+LegacyImportDataset Old Venera installation/profile identity; not derived from snapshot hash
+LegacyRecordMapping Persisted dataset-scoped per-record identity → canonical target mapping
+LegacyAssetJournal Filesystem+SQLite crash recovery authority for one-time legacy import
+LegacyImportReceipt Verified durable batch/category result; not a diagnostics event
 ```

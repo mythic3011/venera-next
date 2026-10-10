@@ -331,6 +331,76 @@ Diagnostics note:
 
 ---
 
+## One-Time Old Venera Data Import Use Cases (canonical v2)
+
+> **Distinct from UC-002** (ordinary file/CBZ import) and plugin `ImportJob` (05). This trusted, user-initiated legacy-data importer has its own `LegacyImportDataset`, `LegacyImportBatch`, mappings, staging records and receipt. Source-file scope is exactly `local.db`, `history.db`, `local_favorite.db`, `appdata.json`, `implicitData.json`; legacy Unified Store `venera.db` is rejected. See 01/02 and 17 for domain, DDL and negative cases.
+
+### UC-LGI-001: Inspect Legacy Distributed Data (dry run)
+
+**Actors:** trusted local user, host-only legacy import application service. Third-party JS source plugins are **not authorized** callers.
+
+**Input:** `{ selectedLegacyFileRefs: AllowedRoleRef[], authorizedMediaRoots?: TrustedPathGrant[], proposedDatasetId?: UUID }`. Roles and canonical resolved handles are resolved by a trusted picker; names and paths inside old DB rows confer **no** filesystem/network permission.
+
+**Flow:**
+1. Reject disallowed roles, duplicate/conflicting input handles, old Unified Store schema signatures (including files renamed `local.db`) and the new v2 database as input.
+2. Acquire SQLite-consistent read-only snapshots for supplied DB roles, respecting journal sidecars via SQLite; separately copy bounded JSON role inputs. Incomplete journal/lock/corruption means a typed per-file failure, no source mutation.
+3. Verify schema signature, integrity and per-file budgets. Parse only reviewed old-table/JSON variants in an isolated adapter; never execute legacy Dart/JS or input SQL.
+4. Resolve an existing `LegacyImportDataset` identity using trusted user intent, or reserve a provisional, **not-yet-persisted** dataset UUID for the proposed plan. Derive stable `LegacyRecordKey` with dataset/file role/table/folder/type/id rather than digest or title. Persist a newly created dataset only after explicit approved apply. Generate record digests, candidate Content/Section/Unit identities and category readiness.
+5. Validate available media against granted roots; detect symlink/path escapes, missing media and ambiguous section/page ordering.
+6. Return a **read-only preview** with per-file counts, candidate merges, existing canonical progress conflicts, unresolved/pending image favorites, tag deferrals and destination artifact budget. No canonical writes or account/network effects.
+
+**Output:** `LegacyImportPreview` with temporary snapshot handles, proposed import plan digest, file/category classifications, required user choices, phase readiness and typed errors. A dry run does **not** create ImportJob or a new ReadingSession.
+
+**Errors:** `LEGACY_INPUT_NOT_ALLOWED`, `LEGACY_UNIFIED_STORE_UNSUPPORTED`, `LEGACY_SCHEMA_UNSUPPORTED`, `LEGACY_SNAPSHOT_UNAVAILABLE`, `LEGACY_SOURCE_CORRUPT`, `LEGACY_MEDIA_OUTSIDE_GRANT`, `LEGACY_DATA_BUDGET_EXCEEDED`.
+
+**L0 record evidence (implemented slice):** before reserving any mapping, the trusted host validates owner, Approved Batch, live immutable Snapshot Lease and the exact LegacyRecordKey + typed digest from that same inspected snapshot. Adapters attest `local.db.comics`, `history.db` (history and image favorites separately), dynamic `local_favorite.db` memberships, and allowlisted `appdata.json.settings`; `implicitData.json` is proven empty (no eligible key). These are **identity evidence only**. Existing Reader Position, collection, account, import/storage and settings use-case requirements remain blocking; no attestation by itself authorizes a canonical write.
+
+**L0 reference host-gesture adapter:** `trusted-wizard.mjs` executes the **evidence-only** portion of Approval through an explicit interactive terminal prompt (`trusted-gesture.mjs`). This mints a single-use, short-expiry, Plan Digest-bound host object, verifies the pinned Snapshot Lease, and atomically persists `legacy_import_batches(approval_scope='evidence_only')`; for new installs the Dataset is created in the same transaction. Host reads counts from a sanitized Docker Snapshot, not a renderer. The reference console requires preexisting canonical DB tables and a real TTY; it is **not** a native Desktop Import Wizard or OS-authenticated user consent. The evidence-only Batch permits *only* reviewed mapping-evidence reservations, never UC-LGI-002's subsequent Content/Asset/Reader/Collection/Settings Apply. A later import authorization needs a separate trusted action-scope contract and explicit user gesture.
+
+**L1 preflight asset-intent slice (implemented, not Apply):** `asset-intent.mjs` requires a *second*, separate, one-shot trusted gesture for a single owner-approved `local.db.comics` mapping, exact attested record digest and trusted memory-byte asset digest/length. Successful confirmation inserts only one deduplicated `legacy_asset_journal` `planned` row with `authorization_scope='plan_only'`, bound to that canonical Record Mapping. The database CHECK explicitly blocks turning it into `staged/promoted/committed` without a future scoped authorization/schema upgrade. The user-selected old `directory` string is never a media-root grant; **no trusted media-root resolver exists yet**. Do not claim this is a successful L1 Asset Import or any Content/Reader operation. Physical Runtime remains on `comics/chapters/pages`; authoritative Design targets `contents/content_sections/content_units`; this mismatch must be resolved before an Apply implementation.
+
+**Independent storage writer (implemented foundation, not Legacy Apply):** `runtime/v2/src/storage-writer-linux.mjs` performs separately consented `storage_object_only` staging, verification, exclusive promotion and committed StorageObject + authoritative StoragePlacement creation. Its independent `v2_storage_write_journal` has owner/dataset scope and recovery audit; re-promoting orphans is never automatic, and committing already promoted bytes needs renewed trusted consent. This is **not** permission to turn an `evidence_only` / `plan_only` legacy record into a ContentUnit, nor proof of a completed comic. UC-LGI-002's full subtree commit, mapping, order completeness and ReaderSession reconciliation remain unimplemented.
+
+### UC-LGI-002: Approve and Apply One-Time Import
+
+**Input:** trusted user-gesture approval of an exact preview/plan digest, dataset identity, explicit `skip | keep_both | merge_verified | metadata_only | defer` decisions, retention policy and granted media roots.
+
+**Flow:**
+1. Approve **the exact, already-previewed immutable source snapshot lease** (the trusted host's `leaseRef`, dataset/owner scope, five-role SHA-256 manifest and plan revision), not a second read from mutable original files. A modified source file after snapshot creation does not alter the approved lease; creating a new snapshot or changing the selected inputs requires a fresh preview and explicit approval. Reject expired/revoked leases, and re-check the live lease before every mapping mutation. The current L0 lease is memory-only: after a process restart, explicit re-preview/re-approval is required, not unsafe recovery by trusting old saved hashes.
+2. For each approved work, consult `LegacyRecordMapping` *before* allocating canonical IDs. Same key/digest already committed → unchanged; same key/new digest → reviewed update; unmapped key → fresh IDs. A different dataset with the same legacy integer IDs remains independent.
+3. Stage authorized media in private managed temporary storage, verify counts/content hashes, persist journal intents, promote bytes safely without changing original sources, then atomically commit **one complete** Content/Section/Unit/order/StoragePlacement subtree, mapping and journal state to the fresh v2 database. **SQLite does not cover filesystem writes.**
+4. For `history.db`, perform UC-LGI-003 below; for `local_favorite.db` and tags defer until collection/taxonomy capabilities exist (L2/M2). Image favorites remain a separate deferred category until designed. Apply `appdata.json`/`implicitData.json` **only** through individual trusted allowlisted keys/type conversions.
+5. Record unresolved source-only work references, unreadable media and ambiguous positions in `LegacyUnresolvedRecord`; never fabricate ContentUnits or SourceLinks to satisfy a foreign key.
+6. Re-read committed storage and mapping evidence; create/repair `LegacyImportReceipt` from **committed** state and report `verified | partial | failed | cancelled`. A crash can leave complete per-content commits; retries must resume rather than duplicate.
+
+**Postconditions:** legacy originals untouched; no automatic plugin install, network, login or secret import. Import may partially complete. “Fully imported” is **forbidden** if any user-requested category is deferred/unverified. Cancellation after committed subtrees records partial work and **does not** implicitly delete already imported content.
+
+**Errors:** `LEGACY_APPROVAL_STALE`, `LEGACY_DATASET_CONFLICT`, `LEGACY_RECORD_CONFLICT`, `LEGACY_ASSET_MISSING`, `LEGACY_STORAGE_PROMOTION_FAILED`, `LEGACY_PARTIAL_IMPORT`. Explicitly report outcome by category/file.
+
+### UC-LGI-003: Reconcile Legacy Reader Position
+
+**Input:** legacy history evidence `(type,id,ep,page,readEpisode,chapter_group,time)`, verified dataset record mappings, candidate canonical Content/Section/Unit order, and an explicit conflict decision if the v2 ReadingSession already exists.
+
+**Flow and invariant:**
+1. Match work through a verified dataset-scoped ID mapping, **not title or cover alone**. Remote history requiring an unavailable source identity stays unresolved.
+2. Validate the chapter/group encoding against an inspected legacy version, and candidate page order against verified real images. Both 0-based and 1-based interpretations are **ambiguity checks**, never a “choose whichever fits” fallback.
+3. Return `VERIFIED_UNIT` only for one uniquely corroborated canonical unit belonging to the matched content; otherwise `REVIEW_REQUIRED`, `UNRESOLVED` or `UNSUPPORTED_FORMAT`. Preserve the original historical timestamp as staging evidence.
+4. If a current v2 active ReadingSession exists, default **keep current** and ask the trusted UI before replacing it; a legacy timestamp is not grounds for silent rewind.
+5. Only after verification and approval call `UC-005b Update Reader Position` (or a documented import-aware command that enforces the same canonical constraints). Never write raw `page` to `reading_sessions.unit_id` or forge `updated_at`.
+
+**Postconditions:** uncertain history stays historical/unresolved; it is not an active reading position. An existing active v2 session is preserved unless the user explicitly chooses a verified imported position.
+
+### UC-LGI-004: Resume, Review and Purge Import Evidence
+
+- **Resume**: load an approved batch, verify the same dataset/plan and replay-safe mapping identities, inspect durable `LegacyAssetJournal` and canonical DB records, repair receipt/counters, resume verified pending commits. A new input snapshot is a **new preview**, not silent resumption with widened permission.
+- **Review**: trusted UI displays local bounded unresolved categories and candidate matches; an explicit decision resolves/dismisses them. Tag mapping requires M2; remote source/account matching requires M3; image favorites require a distinct feature/model.
+- **Purge**: remove expired private snapshot/staging or user-selected review evidence. Do not delete original legacy media or canonical content; never GC a promoted file referenced by an active StoragePlacement. Mapping deletion as part of “forget legacy input” requires a separate explicit confirmation and warning that future re-runs may lose dedupe evidence.
+- **No autonomous retry** of login, website scraping, plugin execution, network fetch or missing-file search.
+
+**Boundary between authoritative contracts:** `UC-002` and `05 ImportJob` remain the normal file import paths. Legacy LGI operations call the canonical Content/Storage/Reader/Collection use cases internally, not their plugin-facing import APIs, and never alter the general import plugin protocol.
+
+---
+
 ## Source Link Management Use Cases
 
 ### Planned Canonical

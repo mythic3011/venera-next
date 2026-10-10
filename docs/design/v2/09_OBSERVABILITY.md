@@ -167,6 +167,26 @@ The names below are naming guidance and current/future examples, not proof that 
 
 ---
 
+### One-time legacy import events (trusted host only)
+
+The event family below is for the separately authorized old-Venera distributed-data import, not `plugin.import.*` or the general `content.imported` event. Emit **bounded, non-secret diagnostics only**; never rely on diagnostics as an import journal, approval record, recovery source, or canonical state authority.
+
+| Event name | Level | Safe payload allowlist |
+|---|---|---|
+| `legacy_import.snapshot_completed` | info | opaque batchRef, fileRole, schemaVariant, count, elapsedMs |
+| `legacy_import.snapshot_failed` | warn | opaque batchRef, fileRole, errorCode, stage; no path |
+| `legacy_import.preview_completed` | info | opaque batchRef, eligibleCount, unresolvedCount, deferredCount |
+| `legacy_import.plan_approved` | info | opaque batchRef, policyRevision; no plan contents |
+| `legacy_import.content_committed` | info | opaque batchRef, count of committed works/units; omit title and stored path |
+| `legacy_import.position_unresolved` | warn | opaque batchRef, reasonCode; no old history text/indices |
+| `legacy_import.recovery_completed` | info | opaque batchRef, outcomeCode, recoveredCount, orphanCount |
+| `legacy_import.completed` | info | opaque batchRef, outcomeCode (verified/partial), category counts |
+| `legacy_import.failed` | error | opaque batchRef, errorCode, stage |
+
+All event payloads use **fixed allowlisted fields and bounded types**; do not include raw filenames, source paths, titles, folder names, tags, history `readEpisode`, JSON values, URL, Cookie, Credentials, file content digests that would become cross-context correlators, or exception stacks. `batchRef` should be scoped/pseudonymous in exported diagnostics, not a permanent globally correlated record ID.
+
+Source selection, preview/approval, batch state, per-record idempotency, filesystem journal and receipt remain in trusted canonical repositories (`02_DATABASE_SCHEMA.md`); diagnostics are best-effort and can be dropped without changing import correctness. No remote OTel transmission of imported data is allowed by default.
+
 ### Search & Query Events
 
 #### search.executed
