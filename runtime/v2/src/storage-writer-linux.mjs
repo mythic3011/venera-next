@@ -202,17 +202,19 @@ export async function createTrustedV2StorageWriter({
          objectKind,objectId,placementId,journalId,stageKey,objectKey,
          expectedSha:result.sha256,expectedBytes:result.sizeBytes,
          mimeType:result.mimeType,planDigest,used:false};
-       plans.set(plan,state);
        const preview=Object.freeze({scope:"storage_object_only",objectKind,
          expectedBytes:result.sizeBytes,sha256Prefix:result.sha256.slice(0,12),
          canAttachContent:false,canImportLegacy:false});
+       state.preview=preview;
+       plans.set(plan,state);
        return Object.freeze({plan,preview});
      }finally{result.bytes.fill(0);}
    },
    async approveAndWrite({plan,preview}={}){
      alive();
      const state=plans.get(plan);
-     if(!state||state.used)fail("V2_STORAGE_PLAN_INVALID");
+     if(!state||state.used || state.preview!==preview)
+       fail("V2_STORAGE_PLAN_INVALID");
      state.used=true;
      const context={ownerScopeId:state.ownerScopeId,datasetId:state.datasetId,
        planDigest:state.planDigest};
