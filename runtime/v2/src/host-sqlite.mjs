@@ -57,14 +57,22 @@ function verifySchema(db) {
     const names=new Set(db.prepare("PRAGMA table_info("+table+")").all().map(x=>x.name));
     if(expected.some(name=>!names.has(name)))fail("V2_SCHEMA_REQUIRED");
   }
-  for(const [table,name] of [
-    ["reading_sessions","ux_reading_sessions_one_active"],
-    ["content_unit_orders","ux_unit_orders_one_active"],
-    ["content_unit_order_items","sqlite_autoindex_content_unit_order_items_1"]
-  ]){
+  const indexed=[
+    ["reading_sessions","ux_reading_sessions_one_active",["content_id"],1],
+    ["content_unit_orders","ux_unit_orders_one_active",["section_id"],1],
+    ["content_unit_order_items",null,["order_id","sort_index"],0],
+    ["content_unit_order_items",null,["order_id","unit_id"],0]
+  ];
+  for(const [table,name,columns,partial] of indexed){
     const indexes=db.prepare("PRAGMA index_list("+table+")").all();
-    if(!indexes.some(x=>x.name===name && x.unique===1))
-      fail("V2_SCHEMA_REQUIRED");
+    const valid=indexes.some(x=>{
+      if(x.unique!==1 || x.partial!==partial || (name && x.name!==name))return false;
+      const keyColumns=db.prepare("PRAGMA index_info("+x.name+")").all()
+        .sort((a,b)=>a.seqno-b.seqno).map(y=>y.name);
+      return keyColumns.length===columns.length &&
+        keyColumns.every((y,i)=>y===columns[i]);
+    });
+    if(!valid)fail("V2_SCHEMA_REQUIRED");
   }
 }
 function assertContent(db,contentId) {
