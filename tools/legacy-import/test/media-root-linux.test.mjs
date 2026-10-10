@@ -49,7 +49,7 @@ test("absolute old database paths, traversal, slash and exotic separators are de
     ["chapters","..","page01.png"],["chapters","sub\\page.png"],[]
   ])await denied(()=>read(registry,ref,parts),"MEDIA_RELATIVE_PATH_INVALID");
   await denied(()=>read(registry,ref,["chapters","foo.svg"]),"MEDIA_UNSUPPORTED_FILE");
-  await denied(()=>read(registry,ref,["chapters","page01.png","extra"]),"MEDIA_READ_DENIED");
+  await denied(()=>read(registry,ref,["chapters","page01.png","extra.png"]),"MEDIA_READ_DENIED");
   await registry.revoke({grant:ref,ownerScopeId:OWNER,datasetId:DS});
 });
 test("symlink inside approved root is denied even if it points at a valid image",async t=>{
