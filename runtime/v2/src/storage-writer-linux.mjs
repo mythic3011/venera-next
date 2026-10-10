@@ -15,9 +15,6 @@ const fail=c=>{throw new V2StorageWriteError(c);};
 const SHA=v=>createHash("sha256").update(v).digest("hex");
 const UUID=/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 const MAX_BYTES=64*1024*1024;
-const MAGIC={
- "image/png":[137,80,78,71,13,10,26,10]
-};
 const DIR_FLAGS=constants.O_RDONLY|constants.O_DIRECTORY|constants.O_NOFOLLOW|
  (constants.O_CLOEXEC||0);
 const INTERNAL_KEY="v2_managed_local";
@@ -99,6 +96,7 @@ export async function createTrustedV2StorageWriter({
  checkpoint=async()=>{}
 }={}){
  verifyRootDb(canonicalDb);
+ canonicalDb.exec("PRAGMA synchronous=FULL"); // crash-aware on this host connection
  if(!(trustedMediaRootResolver instanceof TrustedLinuxMediaRootGrants) ||
     !gestureAuthority || typeof gestureAuthority.confirm!=="function" ||
     typeof gestureAuthority.verifyTrustedUserGesture!=="function" ||
@@ -117,13 +115,47 @@ export async function createTrustedV2StorageWriter({
  const plans=new WeakMap();
  let closed=false;
  const alive=()=>{if(closed)fail("V2_STORAGE_WRITER_CLOSED");};
+ const validName=(key,extension)=>typeof key==="string" &&
+   new RegExp("^[0-9a-f-]{36}\\."+extension+"$").test(key) &&
+   UUID.test(key.slice(0,-(extension.length+1)));
+ async function inspectPhysical(dir,key,expectedSha,expectedBytes){
+   let file;
+   try {
+     file=await open(fdpath(dir.fd,key),
+       constants.O_RDONLY|constants.O_NOFOLLOW|(constants.O_NONBLOCK||0));
+   }catch(e){
+     return {exists:e?.code!=="ENOENT",matches:false};
+   }
+   try{
+     const initial=await file.stat();
+     if(!initial.isFile()||initial.size!==expectedBytes ||
+        initial.size<1||initial.size>MAX_BYTES)
+       return {exists:true,matches:false};
+     const hasher=createHash("sha256"),chunk=Buffer.allocUnsafe(65536);
+     let total=0;
+     while(total<expectedBytes){
+       const {bytesRead}=await file.read(chunk,0,
+         Math.min(chunk.length,expectedBytes-total),total);
+       if(bytesRead<=0)return {exists:true,matches:false};
+       hasher.update(chunk.subarray(0,bytesRead));
+       total+=bytesRead;
+     }
+     const trailing=await file.read(chunk,0,1,total);
+     const final=await file.stat();
+     return {exists:true,matches:trailing.bytesRead===0 &&
+       final.dev===initial.dev && final.ino===initial.ino &&
+       final.size===initial.size && final.mtimeMs===initial.mtimeMs &&
+       final.ctimeMs===initial.ctimeMs && hasher.digest("hex")===expectedSha};
+   }catch{return {exists:true,matches:false};}
+   finally{await file.close().catch(()=>{});}
+ }
  async function auditRow(row){
-   let final=null,staged=null;
-   try{final=await readFile(fdpath(objects.fd,row.object_key));}catch{}
-   try{staged=await readFile(fdpath(stage.fd,row.stage_key));}catch{}
-   const finalOk=!!final&&bytesMatch(final,row.expected_sha256,row.expected_bytes);
-   const stagedOk=!!staged&&bytesMatch(staged,row.expected_sha256,row.expected_bytes);
-   final?.fill(0);staged?.fill(0);
+   if(!validName(row.object_key,"blob")||!validName(row.stage_key,"part"))
+     return {journalId:row.id,status:"invalid_journal_record_review"};
+   const final=await inspectPhysical(objects,row.object_key,
+     row.expected_sha256,row.expected_bytes);
+   const staged=await inspectPhysical(stage,row.stage_key,
+     row.expected_sha256,row.expected_bytes);
    if(row.state==="committed"){
      const object=canonicalDb.prepare(
        "SELECT content_hash,size_bytes,mime_type FROM storage_objects WHERE id=?"
@@ -132,16 +164,16 @@ export async function createTrustedV2StorageWriter({
        "SELECT role,sync_status,object_key FROM storage_placements WHERE id=? "+
        "AND storage_object_id=? AND storage_backend_id=?"
      ).get(row.planned_placement_id,row.planned_storage_id,row.storage_backend_id);
-     return {journalId:row.id,status:finalOk && object?.content_hash===row.expected_sha256 &&
+     return {journalId:row.id,status:final.matches && object?.content_hash===row.expected_sha256 &&
        object?.size_bytes===row.expected_bytes &&
        object?.mime_type===row.expected_mime_type &&
        place?.role==="authority"&&place?.sync_status==="synced"&&
        place?.object_key===row.object_key?"healthy":"storage_unavailable"};
    }
-   if(finalOk)return {journalId:row.id,status:"promoted_uncommitted_review"};
-   if(final!==null)return {journalId:row.id,status:"promoted_corrupt_review"};
-   if(stagedOk)return {journalId:row.id,status:"staged_uncommitted_review"};
-   if(staged!==null)return {journalId:row.id,status:"staged_corrupt_review"};
+   if(final.matches)return {journalId:row.id,status:"promoted_uncommitted_review"};
+   if(final.exists)return {journalId:row.id,status:"promoted_corrupt_review"};
+   if(staged.matches)return {journalId:row.id,status:"staged_uncommitted_review"};
+   if(staged.exists)return {journalId:row.id,status:"staged_corrupt_review"};
    return {journalId:row.id,status:"missing_uncommitted_review"};
  }
  const api={
@@ -204,13 +236,15 @@ export async function createTrustedV2StorageWriter({
          state.backendId=backendId;
          db.prepare(
            "INSERT INTO v2_storage_write_journal "+
-           "(id,planned_storage_id,planned_placement_id,storage_backend_id,object_kind,"+
-           "expected_sha256,expected_bytes,expected_mime_type,stage_key,object_key,state,"+
-           "authorization_scope,authorization_digest,created_at,updated_at) "+
-           "VALUES(?,?,?,?,?,?,?,?,?,?,'intent','storage_object_only',?,?,?)"
-         ).run(state.journalId,state.objectId,state.placementId,backendId,
-           state.objectKind,state.expectedSha,state.expectedBytes,state.mimeType,
-           state.stageKey,state.objectKey,state.planDigest,at,at);
+           "(id,owner_scope_id,dataset_id,planned_storage_id,planned_placement_id,"+
+           "storage_backend_id,object_kind,expected_sha256,expected_bytes,"+
+           "expected_mime_type,stage_key,object_key,state,authorization_scope,"+
+           "authorization_digest,created_at,updated_at) "+
+           "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,'intent','storage_object_only',?,?,?)"
+         ).run(state.journalId,state.ownerScopeId,state.datasetId,state.objectId,
+           state.placementId,backendId,state.objectKind,state.expectedSha,
+           state.expectedBytes,state.mimeType,state.stageKey,state.objectKey,
+           state.planDigest,at,at);
        });
        await checkpoint("after_intent");
        let file;
@@ -266,11 +300,14 @@ export async function createTrustedV2StorageWriter({
          storagePlacementId:state.placementId,canAttachContent:false});
      }finally{bytes?.fill(0);}
    },
-   async auditRecovery(){
+   async auditRecovery({ownerScopeId,datasetId}={}){
      alive();
+     if(typeof ownerScopeId!=="string"||!ownerScopeId||!UUID.test(datasetId))
+       fail("V2_STORAGE_SCOPE_INVALID");
      const rows=canonicalDb.prepare(
-       "SELECT * FROM v2_storage_write_journal ORDER BY created_at,id"
-     ).all();
+       "SELECT * FROM v2_storage_write_journal WHERE owner_scope_id=? "+
+       "AND dataset_id=? ORDER BY created_at,id"
+     ).all(ownerScopeId,datasetId);
      const outcome=[];
      for(const row of rows)outcome.push(Object.freeze(await auditRow(row)));
      return Object.freeze(outcome);
