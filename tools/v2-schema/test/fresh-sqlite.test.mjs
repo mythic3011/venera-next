@@ -49,7 +49,7 @@ test("changed, duplicated or missing schema section fails closed",async()=>{
   for(const text of [
     source.replace("## content_units (replaces pages)","## lost_units"),
     source.replace("CREATE TABLE contents (","CREATE TABLE comics ("),
-    source+"\\n## contents\\n"
+    source+"\n## contents\n"
   ])assert.throws(()=>extractFreshV2Sql(text),FreshSchemaError);
 });
 test("one-active-session and one-active-order constraints use fresh ContentUnit authority",async t=>{
