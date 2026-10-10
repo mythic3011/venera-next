@@ -147,6 +147,14 @@ Observed old fields include `comics(id, comic_type, title, subtitle, tags, direc
 - A source-only history record with no installed source cannot gain an active reader position.
 - Repeating the same import while the user has advanced in v2 must not rewind the session.
 
+### L1 Preflight-only Asset Intent Contract (implemented 2026-10-10)
+
+The separate, host-only `asset-intent.mjs` is a **planning gate**, not a content migration. Given a valid owner-scoped, live L0 `evidence_only` Batch, a proven `local.db.comics` record, its existing unresolved/unchanged `LegacyRecordMapping` and media *bytes supplied by a separately trusted resolver*, it computes a private asset-plan digest including Batch+Mapping, source record digest, SHA-256 and exact byte count. A **second one-shot trusted gesture** is required; the original L0 evidence approval is never upgraded or reused as a storage permission.
+
+After successful confirmation the only side effect is a deduplicated `legacy_asset_journal` **`planned`** row with `authorization_scope='plan_only'`. It references its source Mapping and carries an opaque, *not yet materialized* staging-intent handle. Schema CHECK prohibits a `plan_only` row becoming `staged`, `verified`, `promoted` or `committed`, and it cannot create `StorageObject` or active `Content`. Changing asset/record identity requires a fresh reviewed plan. Cancellation and revoked/mismatched approval fail before journal mutation.
+
+**Hard blockers before actual Apply:** (a) a verified, explicit, least-privilege user-granted media-root resolver (old DB paths are not grants); (b) new trusted *asset write* consent scope and controlled stage/promote worker; (c) durable two-resource crash journal+recovery+receipts; (d) verified Content/Section/Unit order and destination identifiers; (e) alignment of the physical runtime `comics/chapters/pages` schema and canonical design `contents/content_sections/content_units`; (f) real native Desktop host identity and consent UI. Unit tests of reference DDL do not establish that current Runtime migrations satisfy this contract.
+
 ## 6. Filesystem + DB commit, crash recovery and idempotent retry (P0)
 
 **SQLite transactions do not cover filesystem writes.** Never claim copying/promoting image files and inserting StorageObject/Placement rows is one atomic SQLite transaction. Use a durable, importer-controlled journal and a recoverable **two-resource commit protocol**.
