@@ -1,0 +1,32 @@
+name: runtime-v2-sqlite
+
+on:
+  pull_request:
+    paths:
+      - "runtime/v2/**"
+      - "tools/v2-schema/**"
+      - "docs/design/v2/02_DATABASE_SCHEMA.md"
+      - ".github/workflows/runtime-v2-sqlite.yml"
+  push:
+    branches:
+      - main
+    paths:
+      - "runtime/v2/**"
+      - "tools/v2-schema/**"
+      - "docs/design/v2/02_DATABASE_SCHEMA.md"
+      - ".github/workflows/runtime-v2-sqlite.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  fresh-core:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22.16.0"
+      - name: Independent v2 SQLite domain tests
+        run: node --test runtime/v2/test/*.test.mjs
