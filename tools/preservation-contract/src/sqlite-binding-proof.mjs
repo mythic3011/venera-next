@@ -166,7 +166,7 @@ export function createSqliteBindingProof({db,assertActiveLease,checkpoint=()=>{}
    * Database/reference proof only; caller must revalidate physical bytes
    * with a trusted StoragePlacement resolver before rendering.
    */
-  function readPreservedVersion({ownerScopeId,snapshotId}={}) {
+  function readPreservedVersionSnapshot({ownerScopeId,snapshotId}={}) {
     if(!valid(ownerScopeId)||!valid(snapshotId))deny('INVALID_SCOPE');
     const snapshot=db.prepare(
       "SELECT id,owner_scope_id,content_id,section_id,manifest_sha256,order_digest,"+
@@ -222,6 +222,21 @@ export function createSqliteBindingProof({db,assertActiveLease,checkpoint=()=>{}
         placementId:p.placement_id,sha256:p.sha256,byteLength:p.byte_length
       })))
     });
+  }
+  // One consistent SQLite snapshot covers owner scope + immutable page edges +
+  // physical-placement metadata. The proof-store's filesystem read is separately
+  // verified by the trusted reader after this transaction.
+  function readPreservedVersion(input={}) {
+    try { db.exec('BEGIN'); }
+    catch { deny('PRESERVATION_READ_TRANSACTION_UNAVAILABLE'); }
+    try {
+      const result=readPreservedVersionSnapshot(input);
+      db.exec('COMMIT');
+      return result;
+    } catch(err) {
+      db.exec('ROLLBACK');
+      throw err;
+    }
   }
   return Object.freeze({readSectionOrder,commitPreservationBinding,readPreservedVersion});
 }
