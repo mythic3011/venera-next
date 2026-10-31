@@ -84,6 +84,14 @@ The trusted `commitPreservationBinding` implementation must:
 
 The actual implementation will need a crash-safe two-plane journal across managed bytes and SQLite visibility; **SQLite transaction alone is not a filesystem transaction**. If the runtime cannot guarantee owner-scoped attachment and GC leases, reject `PRESERVATION_BINDING_NOT_SUPPORTED` rather than weakening the rule.
 
+## Historical version lookup must outlive mutable Source Order
+
+PR #7 now provides `readPreservedVersion({ownerScopeId,snapshotId})` in the **test-only SQLite binding proof**, followed by `readHistoricalPage` through trusted Store and Placement ports. This is deliberately distinct from `readSectionOrder` and `commitPreservationBinding`: it returns the **frozen saved unit order**, verifies owner and journal references in a single SQLite read transaction, cross-checks persisted page links against the immutable stored manifest, and rehashes the actual requested bytes before showing the historical page. An original source rewrite, HTTP 404, or new active page order must not invalidate an already saved version.
+
+**Storage migration is not solved by this proof:** its fixture captures a specific `placementId` and is intentionally fail-closed when that placement disappears. Production Snapshot identity must pin **logical StorageObject/CAS identity**, not a permanently fixed physical backend/placement. A StorageResolver can select another owner-authorized, byte-verified authority/mirror after migration, using a separate durable move/replica journal. Do not rewrite an immutable manifest to chase backend paths or reuse the old placement's proof for a different backend. Test a local-to-NAS move and cloud restore explicitly before shipping.
+
+The new historical read tests also check cross-owner denial, placement/hash drift, source-independent order, tampered reference edges, source deletion without unsafe remote fallback, and release of the consistent SQLite read transaction on both success and failure. These are fixture/contract tests, not an implemented Flutter reader.
+
 ## Reader selection
 
 ```text
