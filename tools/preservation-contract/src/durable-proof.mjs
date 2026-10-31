@@ -173,6 +173,14 @@ export async function openLocalPreservationProof({ privateRoot, checkpoint = asy
       if (!bytes || bytes.length !== page.byteLength || sha(bytes) !== page.sha256) failure('PRESERVED_BYTES_UNAVAILABLE');
       return bytes;
     }
+    async function readCommittedManifest({ snapshotId }) {
+      alive();
+      const value = await loadManifest(snapshotId);
+      if (!value) failure('SNAPSHOT_NOT_FOUND');
+      // JSON was parsed from verified, committed on-disk manifest bytes.
+      // The returned object is a projection, not a capability or storage handle.
+      return structuredClone(value);
+    }
     async function readPreservedPage({ snapshotId, ordinal }) {
       alive();
       const snapshot = await loadManifest(snapshotId);
@@ -197,7 +205,7 @@ export async function openLocalPreservationProof({ privateRoot, checkpoint = asy
       closed = true;
       await Promise.allSettled(handles.slice().reverse().map(h => h.close()));
     }
-    return Object.freeze({ writeCapture, readPreservedPage, auditSnapshot, close });
+    return Object.freeze({ writeCapture, readCommittedManifest, readPreservedPage, auditSnapshot, close });
   } catch (error) {
     await Promise.allSettled(handles.reverse().map(h => h.close()));
     throw error;
