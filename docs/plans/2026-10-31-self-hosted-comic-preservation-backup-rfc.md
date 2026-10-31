@@ -1,6 +1,6 @@
 # RFC: Self-hosted Comic Sources, Preservation Snapshots, and Portable Cloud Backups
 
-> **Status: PROPOSED (design only), 2026-10-31.** This RFC does not claim an implemented provider, capture pipeline, cloud adapter, or restore flow. No schema, plugin SDK, migrations, or runtime behavior is changed by this PR.
+> **Status: PROPOSED (RFC + isolated contract-test prototype), 2026-10-31.** This RFC does not claim an implemented provider, durable capture pipeline, cloud adapter, or restore flow. No production schema, plugin SDK, migrations, or runtime behavior is changed by this PR.
 >
 > **Authority:** existing `docs/design/v2/00_OVERVIEW.md` through `11_MILESTONES.md` remain canonical on `main`. This document is an adoption proposal, not a competing database schema or an implicit amendment to those contracts.
 >
@@ -319,4 +319,15 @@ This RFC is deliberately **not** new canonical authority. Adoption requires a re
 5. Restore merge safety when original server instance, source package or page bindings are gone.
 6. How draft PR #6's proposed RemoteMount, Broker, Vault, one-way legacy import and platform-specific filesystem grants are adopted without duplicate authority.
 
-**PR scope:** design-only; adds this RFC for discussion/review, not a running implementation. Passing Markdown/static checks does not demonstrate working capture, cryptography, backup restore or integration tests.
+### Isolated reference harness in this PR
+
+A standalone Node.js module in [`tools/preservation-contract/`](../../tools/preservation-contract/README.md) exercises a **small, pure subset** of the design, without importing or modifying `runtime/core`, the pending `runtime/v2`, or client data:
+
+- `buildCaptureCandidate` hashes caller-provided image bytes; rejects unsupported MIME/magic, duplicate unit/ordinal IDs, different bytes reusing the same StorageObject ID, and unauthorised raw URL/secret fields. It preserves a deterministic, frozen, ordered manifest.
+- `complete_candidate` requires trusted count evidence and every expected page; unknown counts or missing pages produce `partial_candidate`. Neither state **commits** image bytes or proves that a remote provider honestly reported all pages.
+- `planSnapshotPrune` produces a **dry-run only** object list; pinned/staging snapshots, shared blobs, and active acquisition/restore leases are protected. It rejects missing references, unknown prune IDs and duplicate identifiers. Orphans are not reclaimed by this operation.
+- Unit and negative tests run using Node.js `node --test tools/preservation-contract/test/*.test.mjs`; the separate `.github/workflows/preservation-contract.yml` is intended to run on matching PR changes.
+
+The harness intentionally has **no** runtime integration, true image decoding, trusted storage attestations, crash journal, actual garbage collection, encryption, backup transport, restored app state, credential handling, or LANraragi/Komga/Kavita API calls. Production GC must recheck liveness under a lock immediately before deletion. Deployment of first-party connectors still depends on the unmerged security and identity design from PR #6.
+
+**PR scope:** RFC plus isolated reference harness and focused tests; not a user-facing implementation. Unit tests do not demonstrate safe durable capture, provider authentication, encryption, cloud backup, restore, or source-deletion E2E behavior.
