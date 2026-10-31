@@ -1,6 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { DatabaseSync } from 'node:sqlite';
+import { createHash } from 'node:crypto';
+import { publishPreservedSnapshot } from '../src/canonical-publish-gate.mjs';
 import { fingerprintCanonicalOrder } from '../src/canonical-publish-gate.mjs';
 import { createSqliteBindingProof } from '../src/sqlite-binding-proof.mjs';
 
@@ -202,3 +204,72 @@ test('foreign keys are mandatory to prevent orphan preservation reference',()=>{
       {code:'FOREIGN_KEYS_REQUIRED'});
   } finally {db.close();}
 });
+
+
+// Proof store + host port + SQLite transaction, with in-memory byte evidence.
+// Deliberately a fake source/placement lease, not live Linux / PR #6 storage.
+function pipelineFixture(state) {
+  const data=[Uint8Array.from([137,80,78,71,13,10,26,10,1]),
+              Uint8Array.from([137,80,78,71,13,10,26,10,2])];
+  const digests=data.map(b=>createHash('sha256').update(b).digest('hex'));
+  for(let i=0;i<2;i++){
+    state.db.prepare('UPDATE storage_objects SET content_hash=?,size_bytes=? WHERE id=?')
+      .run(digests[i],data[i].length,'object-'+(i+1));
+    state.db.prepare('UPDATE v2_storage_write_journal SET expected_sha256=?,expected_bytes=? WHERE planned_storage_id=?')
+      .run(digests[i],data[i].length,'object-'+(i+1));
+  }
+  const manifest={
+    schemaVersion:1,snapshotId:'snap-1',contentId:'work-1',sectionId:'section-1',
+    countEvidence:'verified_source_count',expectedPageCount:2,
+    pages:[0,1].map(i=>({ordinal:i,unitId:'unit-'+(i+1),
+      storageObjectId:'object-'+(i+1),sha256:digests[i],byteLength:data[i].length,
+      mimeType:'image/png'}))
+  };
+  const digest=x=>createHash('sha256').update(x).digest('hex');
+  const wrapper={formatVersion:1,manifestSha256:digest(JSON.stringify(manifest)),manifest};
+  const store={
+    auditSnapshot:async()=>({status:'healthy'}),
+    readCommittedManifest:async()=>wrapper,
+    readPreservedPage:async({ordinal})=>({
+      unitId:manifest.pages[ordinal].unitId,
+      mimeType:'image/png',bytes:data[ordinal]
+    }),
+  };
+  const placements={
+    async verifyReadablePlacement({ownerScopeId,storageObjectId,expectedSha256,expectedBytes}){
+      if(typeof state.onPlacement==='function')state.onPlacement();
+      const n=storageObjectId.split('-').at(-1);
+      return {verified:true,ownerScopeId,storageObjectId,
+        placementId:'place-'+n,sha256:expectedSha256,byteLength:expectedBytes,
+        role:'authority',syncStatus:'synced'};
+    },
+  };
+  return {store,placements};
+}
+test('end-to-end fake proof-store -> publish gate -> real SQLite commit is visible',async()=>
+  withFixture(async state=>{
+    const {store,placements}=pipelineFixture(state);
+    const r=await publishPreservedSnapshot({
+      store,canonical:state.port,placements,ownerScopeId:'owner-1',snapshotId:'snap-1',
+    });
+    assert.equal(r.state,'committed');
+    assert.equal(rows(state.db,'proof_preservation_snapshots'),1);
+    assert.equal(rows(state.db,'proof_preservation_pages'),2);
+  })
+);
+test('mutation between async preflight and SQLite BEGIN IMMEDIATE aborts binding',async()=>
+  withFixture(async state=>{
+    const {store,placements}=pipelineFixture(state);
+    let changed=false;
+    state.onPlacement=()=>{
+      if(changed)return;
+      changed=true;
+      state.db.exec("UPDATE content_unit_order_items SET sort_index=3 WHERE unit_id='unit-1'");
+      state.db.exec("UPDATE content_unit_order_items SET sort_index=0 WHERE unit_id='unit-2'");
+    };
+    await assert.rejects(publishPreservedSnapshot({
+      store,canonical:state.port,placements,ownerScopeId:'owner-1',snapshotId:'snap-1',
+    }),{code:'ORDER_CHANGED_AT_COMMIT'});
+    assert.equal(rows(state.db,'proof_preservation_snapshots'),0);
+  })
+);
