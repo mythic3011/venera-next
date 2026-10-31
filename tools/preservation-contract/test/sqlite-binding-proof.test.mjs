@@ -280,3 +280,59 @@ test('two active orders fail closed even if one happens to match source',()=>wit
   assert.throws(()=>port.commitPreservationBinding(input),{code:'MULTIPLE_ACTIVE_ORDERS'});
   assert.equal(rows(db,'proof_preservation_snapshots'),0);
 }));
+
+
+test('saved revision remains readable after mutable active page order changes',()=>
+  withFixture(({db,port,input})=>{
+    port.commitPreservationBinding(input);
+    db.exec("UPDATE content_unit_order_items SET sort_index=3 WHERE unit_id='unit-1'");
+    db.exec("UPDATE content_unit_order_items SET sort_index=0 WHERE unit_id='unit-2'");
+    assert.deepEqual(port.readSectionOrder(input).units.map(u=>u.id),['unit-2','unit-1']);
+    const historical=port.readPreservedVersion({ownerScopeId:'owner-1',snapshotId:'snap-1'});
+    assert.equal(historical.pinned,true);
+    assert.equal(historical.manifestSha256,input.manifestSha256);
+    assert.deepEqual(historical.pages.map(p=>p.unitId),['unit-1','unit-2']);
+    assert.equal(historical.historicalOrderDigest,input.expectedOrderDigest);
+  })
+);
+test('saved version visibility is scoped to exact owner and unknown IDs look identical',()=>
+  withFixture(({port,input})=>{
+    port.commitPreservationBinding(input);
+    for(const args of [
+      {ownerScopeId:'owner-2',snapshotId:'snap-1'},
+      {ownerScopeId:'owner-1',snapshotId:'nonexistent'}
+    ])assert.throws(()=>port.readPreservedVersion(args),{code:'SNAPSHOT_UNAVAILABLE'});
+  })
+);
+test('historical bytes cannot be selected when placement becomes pending/corrupt',()=>
+  withFixture(({db,port,input})=>{
+    port.commitPreservationBinding(input);
+    db.exec("UPDATE storage_placements SET sync_status='pending' WHERE id='place-2'");
+    assert.throws(()=>port.readPreservedVersion({ownerScopeId:'owner-1',snapshotId:'snap-1'}),
+      {code:'PRESERVATION_STORAGE_UNAVAILABLE'});
+    db.exec("UPDATE storage_placements SET sync_status='synced' WHERE id='place-2'");
+    db.exec("UPDATE storage_objects SET content_hash='broken' WHERE id='object-1'");
+    assert.throws(()=>port.readPreservedVersion({ownerScopeId:'owner-1',snapshotId:'snap-1'}),
+      {code:'PRESERVATION_STORAGE_UNAVAILABLE'});
+  })
+);
+test('changing immutable stored page links is detected, not remapped to current order',()=>
+  withFixture(({db,port,input})=>{
+    port.commitPreservationBinding(input);
+    db.exec("UPDATE proof_preservation_pages SET unit_id='unit-2' WHERE ordinal=0");
+    assert.throws(()=>port.readPreservedVersion({ownerScopeId:'owner-1',snapshotId:'snap-1'}),
+      {code:'PRESERVATION_REFERENCE_INVALID'});
+  })
+);
+test('journal owner revocation and owner-registry removal both block historical read',()=>
+  withFixture(({db,port,input})=>{
+    port.commitPreservationBinding(input);
+    db.exec("UPDATE v2_storage_write_journal SET owner_scope_id='owner-2' WHERE planned_storage_id='object-2'");
+    assert.throws(()=>port.readPreservedVersion({ownerScopeId:'owner-1',snapshotId:'snap-1'}),
+      {code:'PRESERVATION_STORAGE_UNAVAILABLE'});
+    db.exec("UPDATE v2_storage_write_journal SET owner_scope_id='owner-1' WHERE planned_storage_id='object-2'");
+    db.exec("DELETE FROM proof_content_owners WHERE owner_scope_id='owner-1'");
+    assert.throws(()=>port.readPreservedVersion({ownerScopeId:'owner-1',snapshotId:'snap-1'}),
+      {code:'SNAPSHOT_UNAVAILABLE'});
+  })
+);
