@@ -20,6 +20,7 @@ The pull request also adds a focused GitHub Actions workflow. Passing these test
 | `planSnapshotPrune` | Non-mutating, consent-scoped, pin/shared-object/lease-aware GC plan | Live lock, durable graph refcounts, actual deletion |
 | `planBackupMediaInventory` | Full media dependency closure; Standard visibly excludes bytes; Full refuses missing media | Encrypted, uploaded or restorable backup |
 | `openLocalPreservationProof` | **Linux-only trusted-host reference**: owner-private root check, no-follow directory access, 0600 exclusive staged files, fsync, exclusive blob promotion, hash-verified immutable manifest publication, proof-store offline reads, read-only crash audit | v2 SQLite transactions, StoragePlacement/Unit linking, real provider, app UI, authenticated media backup, cloud transport |
+| `readPageWithPreservation` | Standalone, proof-only local-first reader selection; an explicitly chosen historical version (`preserved_only`) never silently falls back; corruption never downgrades | Canonical `ReaderOpenTargetResolver` integration, remote fetch authorization, actual source failure E2E |
 
 ## Local filesystem demonstration
 
@@ -36,7 +37,7 @@ const result = await store.readPreservedPage({ snapshotId: captureInput.snapshot
 await store.close();
 ```
 
-A complete candidate becomes **committed within this proof store only** after the verified blobs and manifest reach the local filesystem; it is **not** a committed v2 canonical Snapshot or readable StoragePlacement. The local manifest is the proof-store visibility boundary; no cross-filesystem SQLite atomicity is claimed. The source is never recontacted by `readPreservedPage`.
+A complete candidate becomes **committed within this proof store only** after the verified blobs and manifest reach the local filesystem; it is **not** a committed v2 canonical Snapshot or readable StoragePlacement. The local manifest is the proof-store visibility boundary; no cross-filesystem SQLite atomicity is claimed. The source is never recontacted by `readPreservedPage`. A separate `readPageWithPreservation` wrapper can call a **caller-supplied** remote reader only when a local snapshot does not exist and the policy permits fallback. It labels such bytes `remote_unverified`; it neither validates their canonical unit identity nor authenticates the callback.
 
 Crash checkpoints used by tests:
 
@@ -58,4 +59,4 @@ A crash **before** manifest publish leaves an uncommitted intent and staged/prom
 
 ## Test categories
 
-The test suite covers candidate validation, immutable revision hashing, shared bytes, GC pin guards, Full-vs-Standard inventory safety, durable replay across reopen, source-independent offline page retrieval, crash checkpoint boundaries, corrupted page/manifest rejection, root permission/symlink denial and incomplete capture rejection.
+The test suite covers candidate validation, immutable revision hashing, shared bytes, GC pin guards, Full-vs-Standard inventory safety, durable replay across reopen, source-independent offline page retrieval, crash checkpoint boundaries, corrupted page/manifest rejection, root permission/symlink denial, incomplete capture rejection, and policy-guarded remote fallback after missing (not corrupt) preservation.
