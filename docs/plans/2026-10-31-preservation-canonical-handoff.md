@@ -110,6 +110,14 @@ For explicitly selected historical versions, fail closed if missing/corrupt; nev
 - Reader progress remains a canonical unit ID and is never reset when selecting a different snapshot revision.
 - Full backup includes the transitive closure of the preservation version's bytes; restore uses matching identity and real verified placements.
 
+## SQLite transaction prototype evidence (PR #7, not canonical)
+
+The isolated [SQLite binding proof](../../tools/preservation-contract/src/sqlite-binding-proof.mjs) now implements the `readSectionOrder` and `commitPreservationBinding` **port shape** against Node `node:sqlite` using test-only fixture tables. It requires `BEGIN IMMEDIATE`, current active order digest CAS, same-owner content and committed storage journal, synced placement metadata, a synchronous caller-owned active-byte-lease attestation, all-page/position binding, and exact replay detection. It writes an immutable version, ordered page references, and a pinned root in a single SQLite transaction and rolls all rows back on injected errors.
+
+This proves a **concrete SQL algorithm to review**, not adoption of a schema: the fixture uses only a subset of PR #6's current table columns and introduces `proof_*` tables that are not in canonical v2. The ownership table is deliberately synthetic because PR #6's current `contents` schema does not yet contain owner scope. The test's always-true lease callback is not a trusted native capability; production must supply an independently authenticated/locked lease and a DB/FS crash journal.
+
+The added [Node SQLite tests](../../tools/preservation-contract/test/sqlite-binding-proof.test.mjs) include actual transaction rollback after one page insert, exact idempotent replay, changed-order CAS failure, journal mismatch, owner isolation, pending placement and partial active order failures, plus end-to-end **fake proof-store → publish gate → SQLite** composition. They are authored tests; verify live CI execution before claiming that all cases passed.
+
 ## PR dependency
 
 - **PR #6**: accept/review the greenfield v2 host-owned storage and auth boundary (not yet merged to main).
