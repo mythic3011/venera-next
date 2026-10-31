@@ -157,5 +157,71 @@ export function createSqliteBindingProof({db,assertActiveLease,checkpoint=()=>{}
       throw err;
     }
   }
-  return Object.freeze({readSectionOrder,commitPreservationBinding});
+
+  /**
+   * Saved-version read must NOT compare against the *current* active
+   * ContentUnitOrder. Reorder/delete of remote pages is exactly why an
+   * immutable preservation revision exists.
+   *
+   * Database/reference proof only; caller must revalidate physical bytes
+   * with a trusted StoragePlacement resolver before rendering.
+   */
+  function readPreservedVersion({ownerScopeId,snapshotId}={}) {
+    if(!valid(ownerScopeId)||!valid(snapshotId))deny('INVALID_SCOPE');
+    const snapshot=db.prepare(
+      "SELECT id,owner_scope_id,content_id,section_id,manifest_sha256,order_digest,"+
+      "state,pinned FROM proof_preservation_snapshots WHERE id=? AND owner_scope_id=?"
+    ).get(snapshotId,ownerScopeId);
+    if(!snapshot || snapshot.state!=='committed')deny('SNAPSHOT_UNAVAILABLE');
+    if(!db.prepare(
+      "SELECT 1 FROM proof_content_owners WHERE owner_scope_id=? AND content_id=?"
+    ).get(ownerScopeId,snapshot.content_id))deny('SNAPSHOT_UNAVAILABLE');
+    const rows=db.prepare(
+      "SELECT ordinal,unit_id,storage_object_id,placement_id,sha256,byte_length "+
+      "FROM proof_preservation_pages WHERE snapshot_id=? ORDER BY ordinal"
+    ).all(snapshotId);
+    if(!rows.length || rows.length>128 || new Set(rows.map(x=>x.unit_id)).size!==rows.length)
+      deny('PRESERVATION_REFERENCE_INVALID');
+    for(let i=0;i<rows.length;i++){
+      const page=rows[i];
+      if(page.ordinal!==i || !valid(page.unit_id)||!valid(page.storage_object_id)||
+        !valid(page.placement_id)||!SHA.test(page.sha256)||
+        !Number.isSafeInteger(page.byte_length)||page.byte_length<1||
+        page.byte_length>32*1024*1024)deny('PRESERVATION_REFERENCE_INVALID');
+      // The historical unit must still refer to its original section.
+      const unit=db.prepare(
+        "SELECT 1 FROM content_units WHERE id=? AND section_id=?"
+      ).get(page.unit_id,snapshot.section_id);
+      if(!unit)deny('PRESERVATION_REFERENCE_INVALID');
+      const placement=db.prepare(
+        "SELECT p.storage_object_id,p.role,p.sync_status,o.object_kind,"+
+        "o.content_hash,o.size_bytes FROM storage_placements p "+
+        "JOIN storage_objects o ON o.id=p.storage_object_id WHERE p.id=?"
+      ).get(page.placement_id);
+      if(!placement || placement.storage_object_id!==page.storage_object_id||
+        !['authority','mirror'].includes(placement.role)||
+        placement.sync_status!=='synced'||placement.object_kind!=='unit_image'||
+        placement.content_hash!==page.sha256 ||
+        placement.size_bytes!==page.byte_length)deny('PRESERVATION_STORAGE_UNAVAILABLE');
+      const journal=db.prepare(
+        "SELECT 1 FROM v2_storage_write_journal WHERE planned_storage_id=? "+
+        "AND planned_placement_id=? AND owner_scope_id=? AND state='committed' "+
+        "AND authorization_scope='storage_object_only' AND expected_sha256=? "+
+        "AND expected_bytes=?"
+      ).get(page.storage_object_id,page.placement_id,ownerScopeId,
+        page.sha256,page.byte_length);
+      if(!journal)deny('PRESERVATION_STORAGE_UNAVAILABLE');
+    }
+    return Object.freeze({
+      snapshotId:snapshot.id,contentId:snapshot.content_id,
+      sectionId:snapshot.section_id,manifestSha256:snapshot.manifest_sha256,
+      historicalOrderDigest:snapshot.order_digest,pinned:snapshot.pinned===1,
+      // A stable ordered inventory; NOT an active reader-order mutation.
+      pages:Object.freeze(rows.map(p=>Object.freeze({
+        ordinal:p.ordinal,unitId:p.unit_id,storageObjectId:p.storage_object_id,
+        placementId:p.placement_id,sha256:p.sha256,byteLength:p.byte_length
+      })))
+    });
+  }
+  return Object.freeze({readSectionOrder,commitPreservationBinding,readPreservedVersion});
 }
