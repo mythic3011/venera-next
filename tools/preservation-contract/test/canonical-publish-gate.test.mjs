@@ -36,8 +36,9 @@ function canonicalFixture() {
 }
 function placementFixture() {
   return {
-    async verifyReadablePlacement({storageObjectId,expectedSha256,expectedBytes}){
-      return {verified:true,storageObjectId,sha256:expectedSha256,
+    async verifyReadablePlacement({ownerScopeId,storageObjectId,expectedSha256,expectedBytes}){
+      return {verified:true,ownerScopeId,role:'authority',syncStatus:'synced',
+        storageObjectId,sha256:expectedSha256,
         byteLength:expectedBytes,placementId:'placement-'+storageObjectId};
     },
   };
@@ -115,7 +116,8 @@ test('wrong storage object or mismatched hash receipt is rejected',async()=>fixt
   await assert.rejects(publishPreservedSnapshot({
     store,canonical:state.canonical,ownerScopeId:'owner-1',snapshotId:'snapshot-1',
     placements:{async verifyReadablePlacement(arg){return {
-      verified:true,placementId:'placement-1',storageObjectId:'other',
+      verified:true,ownerScopeId:arg.ownerScopeId,role:'authority',syncStatus:'synced',
+      placementId:'placement-1',storageObjectId:'other',
       sha256:arg.expectedSha256,byteLength:arg.expectedBytes,
     };}},
   }),{code:'CANONICAL_PLACEMENT_UNVERIFIED'});
@@ -152,3 +154,21 @@ test('fingerprint uses display order rather than source unitIndex ordering',()=>
     {id:'unit-1',unitIndex:7},{id:'unit-1',unitIndex:15},
   ]}),{code:'CANONICAL_ORDER_INVALID'});
 });
+
+test('wrong owner and cache-only/uncommitted placements cannot publish',async()=>fixture(async store=>{
+  await store.writeCapture(capture());
+  const state=canonicalFixture();
+  for (const patch of [
+    {ownerScopeId:'other-owner'},
+    {role:'cache'},
+    {syncStatus:'pending'},
+  ]) {
+    const port=placementFixture();
+    const original=port.verifyReadablePlacement;
+    port.verifyReadablePlacement=async arg=>({...await original(arg),...patch});
+    await assert.rejects(publishPreservedSnapshot({
+      store,canonical:state.canonical,placements:port,ownerScopeId:'owner-1',snapshotId:'snapshot-1'
+    }),{code:'CANONICAL_PLACEMENT_UNVERIFIED'});
+  }
+  assert.equal(state.getWrites(),0);
+}));
