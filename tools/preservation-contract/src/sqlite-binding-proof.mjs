@@ -36,9 +36,11 @@ function readOrder(db, {ownerScopeId,contentId,sectionId}) {
     "SELECT id,unit_index FROM content_units WHERE section_id=? ORDER BY unit_index,id"
   ).all(sectionId);
   if(source.length===0||source.length>128)deny('CANONICAL_ORDER_INVALID');
-  const order=db.prepare(
+  const orders=db.prepare(
     "SELECT id FROM content_unit_orders WHERE section_id=? AND status='active'"
-  ).get(sectionId);
+  ).all(sectionId);
+  if(orders.length>1)deny('MULTIPLE_ACTIVE_ORDERS');
+  const order=orders[0];
   if(!order)return {units:source};
   const items=db.prepare(
     "SELECT i.unit_id AS id,u.unit_index,u.section_id FROM content_unit_order_items i "+
