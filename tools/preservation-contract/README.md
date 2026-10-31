@@ -21,6 +21,7 @@ The pull request also adds a focused GitHub Actions workflow. Passing these test
 | `planBackupMediaInventory` | Full media dependency closure; Standard visibly excludes bytes; Full refuses missing media | Encrypted, uploaded or restorable backup |
 | `openLocalPreservationProof` | **Linux-only trusted-host reference**: owner-private root check, no-follow directory access, 0600 exclusive staged files, fsync, exclusive blob promotion, hash-verified immutable manifest publication, proof-store offline reads, read-only crash audit | v2 SQLite transactions, StoragePlacement/Unit linking, real provider, app UI, authenticated media backup, cloud transport |
 | `readPageWithPreservation` | Standalone, proof-only local-first reader selection; an explicitly chosen historical version (`preserved_only`) never silently falls back; corruption never downgrades | Canonical `ReaderOpenTargetResolver` integration, remote fetch authorization, actual source failure E2E |
+| `publishPreservedSnapshot` | Trusted-host-only publish gate verifies stored manifest, every saved page, canonical display order and owner-scoped synced StoragePlacement proof; sends an atomic compare-and-commit request through a caller-supplied canonical port | Real PR #6 SQLite implementation, actual native consent, locking / transaction guarantee, app Reader integration |
 
 ## Local filesystem demonstration
 
@@ -60,3 +61,20 @@ A crash **before** manifest publish leaves an uncommitted intent and staged/prom
 ## Test categories
 
 The test suite covers candidate validation, immutable revision hashing, shared bytes, GC pin guards, Full-vs-Standard inventory safety, durable replay across reopen, source-independent offline page retrieval, crash checkpoint boundaries, corrupted page/manifest rejection, root permission/symlink denial, incomplete capture rejection, and policy-guarded remote fallback after missing (not corrupt) preservation.
+
+## Canonical publication handoff (blocked on PR #6)
+
+`src/canonical-publish-gate.mjs` exports `publishPreservedSnapshot` and `fingerprintCanonicalOrder`. It does not inspect raw SQLite or install any new domain schema. Trusted host ports are **required**, not optional fallback:
+
+```text
+proofStore.auditSnapshot -> healthy only
+proofStore.readCommittedManifest -> verified immutable manifest
+canonical.readSectionOrder -> exact active display order
+proofStore.readPreservedPage -> recheck bytes/hash of every page
+placements.verifyReadablePlacement -> same owner + synced authority/mirror
+canonical.commitPreservationBinding -> atomic compare/recheck/insert and receipt
+```
+
+The final commit port **does not exist in current PR #6**. It must verify current order and owner/placement/retention evidence again **inside the same SQLite write transaction**, then commit preservation version bindings and pin roots. A fake adapter returning `state: committed` is *not* proof of durability. `readCommittedManifest` is a proof-store projection only and does not grant DB access. See [Canonical Handoff](../../docs/plans/2026-10-31-preservation-canonical-handoff.md).
+
+The 11 new Node test cases supply **in-memory fake host ports** to exercise fail-closed decisions and a simulated mutation at commit. Separately, the exact GitHub gate code was syntax-checked and exercised in 11 V8 in-memory contract smoke scenarios using a **non-cryptographic hash stub**; those smoke scenarios are not substitutes for Node integration tests, SQLite transaction tests or real cryptography. GitHub Actions execution status must be checked before claiming full PR CI success.
