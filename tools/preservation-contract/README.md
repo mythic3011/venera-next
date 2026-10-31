@@ -4,7 +4,9 @@ Small, dependency-free Node.js reference harness for [self-hosted comic preserva
 
 Run: `node --test tools/preservation-contract/test/*.test.mjs` from the repository root (Node >=20).
 
-**Provides:** `buildCaptureCandidate` verifies byte hashes and basic image magic, validates canonical ordering, emits a deterministic candidate manifest hash, and only labels a snapshot *complete_candidate* with trusted external count evidence and full contiguous pages. `planSnapshotPrune` is a dry-run: it refuses to prune pinned or staging snapshots, retains shared blobs and active leases, and requires explicit snapshot-level prune approval. Tests include negative/fail-closed cases.
+**Provides:** `buildCaptureCandidate` verifies byte hashes and basic image magic, validates canonical ordering, emits a deterministic candidate manifest hash, and only labels a snapshot *complete_candidate* with trusted external count evidence and full contiguous pages. `planSnapshotPrune` is a dry-run: it refuses to prune pinned or staging snapshots, retains shared blobs and active leases, and requires explicit snapshot-level prune approval. Tests include negative/fail-closed cases. `planBackupMediaInventory` builds a unique media-dependency closure for explicitly selected committed snapshots. It refuses to plan a `full` backup when any required media placement is unverified/unavailable, and explicitly reports media omitted from `standard` backups.
+
+**All three APIs are pure candidates/plans** and none establishes durable byte availability, a completed cloud upload, or a successful restore.
 
 **Does not provide:** durable storage writes, SQLite transactions, a journal, true image decoding, transport security, source-level trust proof, snapshot commit authority, cloud encryption, Google Drive/S3 adapters, automatic capture, or user-facing restore. Its `verified_source_count` is a **trusted-host input contract**, not proof that a source accurately reports its total pages. A backend could lie or serve inconsistent pages; implementation must revalidate count/order/validators and record uncertainty.
 
