@@ -1,0 +1,27 @@
+name: preservation-contract
+
+on:
+  pull_request:
+    paths:
+      - 'tools/preservation-contract/**'
+      - '.github/workflows/preservation-contract.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'tools/preservation-contract/**'
+      - '.github/workflows/preservation-contract.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.16.0'
+      - name: Contract unit and negative tests
+        run: node --test tools/preservation-contract/test/*.test.mjs
