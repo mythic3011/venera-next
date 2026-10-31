@@ -336,3 +336,36 @@ test('journal owner revocation and owner-registry removal both block historical 
       {code:'SNAPSHOT_UNAVAILABLE'});
   })
 );
+
+
+test('historical read holds a single SQLite snapshot and releases it on success',()=>
+  withFixture(({db,port,input})=>{
+    port.commitPreservationBinding(input);
+    const saved=port.readPreservedVersion({ownerScopeId:'owner-1',snapshotId:'snap-1'});
+    assert.equal(saved.pages.length,2);
+    db.exec('BEGIN IMMEDIATE');
+    db.exec('ROLLBACK');
+  })
+);
+test('failed historical read rolls back its read transaction',()=>
+  withFixture(({db,port,input})=>{
+    port.commitPreservationBinding(input);
+    db.exec("UPDATE storage_placements SET sync_status='failed' WHERE id='place-1'");
+    assert.throws(()=>port.readPreservedVersion({ownerScopeId:'owner-1',snapshotId:'snap-1'}),
+      {code:'PRESERVATION_STORAGE_UNAVAILABLE'});
+    db.exec('BEGIN IMMEDIATE');
+    db.exec('ROLLBACK');
+  })
+);
+test('nested read cannot accidentally commit caller-owned SQLite transaction',()=>
+  withFixture(({db,port,input})=>{
+    port.commitPreservationBinding(input);
+    db.exec('BEGIN IMMEDIATE');
+    try {
+      assert.throws(()=>port.readPreservedVersion({ownerScopeId:'owner-1',snapshotId:'snap-1'}),
+        {code:'PRESERVATION_READ_TRANSACTION_UNAVAILABLE'});
+      db.exec("UPDATE storage_placements SET sync_status='pending' WHERE id='place-1'");
+    } finally { db.exec('ROLLBACK'); }
+    assert.equal(db.prepare("SELECT sync_status FROM storage_placements WHERE id='place-1'").get().sync_status,'synced');
+  })
+);
