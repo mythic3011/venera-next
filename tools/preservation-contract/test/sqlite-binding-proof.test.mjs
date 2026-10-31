@@ -273,3 +273,10 @@ test('mutation between async preflight and SQLite BEGIN IMMEDIATE aborts binding
     assert.equal(rows(state.db,'proof_preservation_snapshots'),0);
   })
 );
+
+test('two active orders fail closed even if one happens to match source',()=>withFixture(({db,port,input})=>{
+  db.exec("INSERT INTO content_unit_orders VALUES ('order-2','section-1','active')");
+  assert.throws(()=>port.readSectionOrder(input),{code:'MULTIPLE_ACTIVE_ORDERS'});
+  assert.throws(()=>port.commitPreservationBinding(input),{code:'MULTIPLE_ACTIVE_ORDERS'});
+  assert.equal(rows(db,'proof_preservation_snapshots'),0);
+}));
