@@ -23,6 +23,7 @@ The pull request also adds a focused GitHub Actions workflow. Passing these test
 | `readPageWithPreservation` | Standalone, proof-only local-first reader selection; an explicitly chosen historical version (`preserved_only`) never silently falls back; corruption never downgrades | Canonical `ReaderOpenTargetResolver` integration, remote fetch authorization, actual source failure E2E |
 | `publishPreservedSnapshot` | Trusted-host-only publish gate verifies stored manifest, every saved page, canonical display order and owner-scoped synced StoragePlacement proof; sends an atomic compare-and-commit request through a caller-supplied canonical port | Real PR #6 SQLite implementation, actual native consent, locking / transaction guarantee, app Reader integration |
 | `createSqliteBindingProof` | **Test-only Node `node:sqlite` adapter**: `BEGIN IMMEDIATE`, commit-time display-order CAS, Owner/Storage Journal/Placement checks, atomic version+page insertion, pinned receipt, exact replay and rollback on failpoint | Canonical schema adoption, authenticated caller, real physical-byte lease, production SQLite lifecycle, cross-process crash journal |
+| `readPreservedVersion` + `readHistoricalPage` | Owner-scoped snapshot reference lookup under a consistent SQLite read transaction; full manifest cross-check and requested image byte revalidation without consulting current source/page order | Actual canonical reader, legitimate snapshot file migration, cross-process OS pin, cloud restore |
 
 ## Local filesystem demonstration
 
@@ -89,3 +90,11 @@ The adapter requires `PRAGMA foreign_keys=ON`, an owner-scoped record, a committ
 **Important:** the fixture's `assertActiveLease: () => true` is **not** a physical media lock, authenticated authorization or meaningful preservation guarantee. A real runtime must maintain OS-level/file pinning, revalidate bytes and owner scope independently, define a production-preservation schema and crash-recovery journal, and ensure the chosen commit identity matches its canonical migrations. The SQL proof adapter must not be deployed or imported into Flutter/JS plugins as-is.
 
 The new tests cover fail-closed owner/journal/placement/order checks, replay/conflict, transaction rollback and composition with the asynchronous publish gate. They do not confirm real remote source behavior or backup/restore.
+
+## Historical source-deletion / reorder behavior
+
+A historical version is selected by immutable `snapshotId`, not the current active page list. `readPreservedVersion` returns the saved order under one SQLite read transaction, verifies owner, committed original storage journal and synced Placement metadata. `readHistoricalPage` then cross-checks **all** saved ordered page references against the proof-store Manifest SHA-256, reads and hashes the requested page, and demands a matching owner-scoped verified Placement. No remote-site lookup, fresh HTTP URL, or `readSectionOrder()` call is permitted. Missing/corrupt data fails closed rather than displaying a newer page under an old version label.
+
+The proof currently binds each reference to an original `placementId`; this is **not** the desired canonical schema. Production must keep logical `StorageObject` identity stable and allow verified/migrated Placement selection while preserving immutable snapshot and reader `unitId` identity. The next adoption design must specify an independently authorized move/replica journal before changing the physical location. Retention pins and byte leases must be enforced by the same live GC coordinator, not just trusted UI labels.
+
+Additional tests cover original-order independence, tamper detection, wrong-owner reads, unverified storage, and SQLite snapshot transaction commit/rollback. The full suite's GitHub Actions status remains unverified until a workflow run is reported.
