@@ -46,3 +46,13 @@ test('missing snapshot and remote HTTP 404 retains source error', async () => {
     remoteRead:async () => { throw Object.assign(new Error('HTTP 404'),{code:'HTTP_NOT_FOUND'}); },
   }), { code:'HTTP_NOT_FOUND' });
 });
+
+test('explicit historical version never falls back to a changed source', async () => {
+  let calls=0;
+  await assert.rejects(readPageWithPreservation({
+    store:{readPreservedPage:async () => {throw unavailable;}},
+    snapshotId:'historical', ordinal:0, policy:'preserved_only',
+    remoteRead:async () => {calls++; return {bytes:data};},
+  }), {code:'SNAPSHOT_NOT_FOUND'});
+  assert.equal(calls,0);
+});
