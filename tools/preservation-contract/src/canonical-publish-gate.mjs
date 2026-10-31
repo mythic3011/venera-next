@@ -41,7 +41,7 @@ export function fingerprintCanonicalOrder({ contentId, sectionId, units }) {
  * commitPreservationBinding MUST atomically recheck:
  *   - current content/section and exact active-order fingerprint
  *   - owner scope, snapshotId uniqueness/idempotency, and manifest hash
- *   - per-unit StorageObject identity, readable placement and byte evidence
+ *   - owner-bound per-unit StorageObject identity, synced authority/mirror placement and byte evidence
  *   - pin/retention roots, then write binding + reference edges in one transaction.
  * If any check changes, it MUST reject and roll back. Returning success without
  * these rules violates the trusted port contract; this module cannot prove DB
@@ -101,7 +101,10 @@ export async function publishPreservedSnapshot({
       expectedSha256: page.sha256,
       expectedBytes: page.byteLength,
     });
-    if (placement?.verified !== true || !validId(placement.placementId) ||
+    if (placement?.verified !== true || placement.ownerScopeId !== ownerScopeId ||
+        !validId(placement.placementId) ||
+        !['authority', 'mirror'].includes(placement.role) ||
+        placement.syncStatus !== 'synced' ||
         placement.storageObjectId !== page.storageObjectId ||
         placement.sha256 !== page.sha256 || placement.byteLength !== page.byteLength) {
       deny('CANONICAL_PLACEMENT_UNVERIFIED');
